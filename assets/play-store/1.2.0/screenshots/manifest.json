@@ -1,0 +1,140 @@
+{
+  "application": "RME: PDF & Document Scanner",
+  "displayName": "RME PDF Scanner",
+  "versionName": "1.2.0",
+  "versionCode": 13,
+  "sourceTag": "v1.2.0",
+  "sourceCommit": "60b84ccaa7956304a51c54b9c35f2333fed9a6d3",
+  "capture": "Direct unedited API 31 emulator UI captures from isolated instrumentation build; locally generated sample document; real filtering and OCR. See README.md.",
+  "format": "PNG, 24-bit RGB, no alpha",
+  "profiles": {
+    "phone": {
+      "width": 1080,
+      "height": 1920,
+      "densityDpi": 360,
+      "logicalWidthDp": 480
+    },
+    "tablet-7-inch": {
+      "width": 1440,
+      "height": 2560,
+      "densityDpi": 360,
+      "logicalWidthDp": 640
+    },
+    "tablet-10-inch": {
+      "width": 1800,
+      "height": 3200,
+      "densityDpi": 320,
+      "logicalWidthDp": 900
+    }
+  },
+  "files": [
+    {
+      "file": "phone/01-home.png",
+      "width": 1080,
+      "height": 1920,
+      "sha256": "f79df30860c6c4ca3027fc3aec808afdb5ccf14a94c192c6acdca0ba22135d1c"
+    },
+    {
+      "file": "phone/02-scanned-document.png",
+      "width": 1080,
+      "height": 1920,
+      "sha256": "4dc0364969451d796fbb7d8f5e742d7d324d43056a9e07bfebcb7fe9db743291"
+    },
+    {
+      "file": "phone/03-filters-and-export.png",
+      "width": 1080,
+      "height": 1920,
+      "sha256": "12d8824ca9f85c6957ba6d66594497ad789eeb3e1fe89b6b749c423e78535579"
+    },
+    {
+      "file": "phone/04-recognized-text.png",
+      "width": 1080,
+      "height": 1920,
+      "sha256": "3368bbc39c56e426733b509ecb38227ec7e02da0a031d434a37b67e388f597c3"
+    },
+    {
+      "file": "phone/05-privacy.png",
+      "width": 1080,
+      "height": 1920,
+      "sha256": "2c7d7a54f9e766d6d758db16f0a3b109b370f758d42c48ecb04bdb49ff06f14b"
+    },
+    {
+      "file": "phone/06-about.png",
+      "width": 1080,
+      "height": 1920,
+      "sha256": "1234a6438718f3a92b6ccebb47e1d9a004bed08610c15e3a085d474b1068b6ae"
+    },
+    {
+      "file": "tablet-7-inch/01-home.png",
+      "width": 1440,
+      "height": 2560,
+      "sha256": "2fa0b21cbe8e18e8fec51b8cb22d9b20dc480fc4a138980e7407a171299d3018"
+    },
+    {
+      "file": "tablet-7-inch/02-scanned-document.png",
+      "width": 1440,
+      "height": 2560,
+      "sha256": "0d50bb8a9191402faef58b5357374d825eba78a3651a7d1d47bbb72c53601f32"
+    },
+    {
+      "file": "tablet-7-inch/03-filters-and-export.png",
+      "width": 1440,
+      "height": 2560,
+      "sha256": "704a62830a48afa27813ee65b9f73645e4908900a472ad19fb6b22aca092a005"
+    },
+    {
+      "file": "tablet-7-inch/04-recognized-text.png",
+      "width": 1440,
+      "height": 2560,
+      "sha256": "e050d6e853f5d9dc16aae24ead9fa70d5f48b2e1b8412ba546d797f58e5eb564"
+    },
+    {
+      "file": "tablet-7-inch/05-privacy.png",
+      "width": 1440,
+      "height": 2560,
+      "sha256": "47ae040bb39c0fa387c4212e16e51065dbb5b75fbd9c7480557a943aa0a3e0ab"
+    },
+    {
+      "file": "tablet-7-inch/06-about.png",
+      "width": 1440,
+      "height": 2560,
+      "sha256": "7081aa30e3221eff8218263be5d7ade9d0cd3aa11671e8d44d0e44c887e7b712"
+    },
+    {
+      "file": "tablet-10-inch/01-home.png",
+      "width": 1800,
+      "height": 3200,
+      "sha256": "6892ff4dc31025b073ee4627de92e68cef0fbb0476c28b90b36d91243634117e"
+    },
+    {
+      "file": "tablet-10-inch/02-scanned-document.png",
+      "width": 1800,
+      "height": 3200,
+      "sha256": "4bd0574fc3ac328e83c1b98e02ec8228873fa601fdaad54a8ca8e821638f46fb"
+    },
+    {
+      "file": "tablet-10-inch/03-filters-and-export.png",
+      "width": 1800,
+      "height": 3200,
+      "sha256": "bee953477f61e45d4a416785712e7a6b0bf70be0a7709608b7e45274f716d90f"
+    },
+    {
+      "file": "tablet-10-inch/04-recognized-text.png",
+      "width": 1800,
+      "height": 3200,
+      "sha256": "5df874f006cf5cfec97b4d24f4eef0149e415c18354f759a90496256c02e5fc6"
+    },
+    {
+      "file": "tablet-10-inch/05-privacy.png",
+      "width": 1800,
+      "height": 3200,
+      "sha256": "a8ffb67eb5d8dc6fe8b5e1255cb12e71530c0c568de75b6768b98c05d4844b13"
+    },
+    {
+      "file": "tablet-10-inch/06-about.png",
+      "width": 1800,
+      "height": 3200,
+      "sha256": "0d6dbb327051e4a934149dd0a7db533b5632d838ecc2ef9192855f94caa2bd07"
+    }
+  ]
+}

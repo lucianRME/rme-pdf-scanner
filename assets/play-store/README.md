@@ -2,6 +2,10 @@
 
 The editable SVG graphics now use **RME PDF Scanner** and preserve the existing icon design. Asset filenames retain the original technical naming so existing paths continue to work. The launcher icon and `app-icon-512.png` contain no product-name text and are unchanged.
 
+## Current release screenshots
+
+Use the [1.2.0 screenshot sets](1.2.0/screenshots/README.md) for the renamed listing: six images each for phone, 7-inch tablet and 10-inch tablet. These supersede the screenshot items below. The feature-graphic PNG still needs a fresh export from the updated SVG.
+
 ## Historical PNGs: refresh before publication
 
 These nine existing exports contain visible PageHarbor branding. They are retained as historical captures, are not packaged in the Android application, and must not be used for the renamed listing without replacement:
