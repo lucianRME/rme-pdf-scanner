@@ -1,5 +1,7 @@
 # Smart Document Output Technical Spike
 
+> Historical record for RME: PDF & Document Scanner, formerly PageHarbor. Product names below reflect the investigation or validation at the time.
+
 Status: `v0.5.0-dev` implementation and validation record. Core PageHarbor smart-output behavior is validated. External provider and device-accessibility checks remain documented validation gaps.
 
 ## Problem

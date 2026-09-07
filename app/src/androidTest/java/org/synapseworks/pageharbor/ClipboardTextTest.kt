@@ -28,7 +28,7 @@ class ClipboardTextTest {
                 Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK,
             ),
         ) as MainActivity
-        val expectedText = "PageHarbor clipboard test"
+        val expectedText = "RME PDF Scanner clipboard test"
         var clip: ClipData? = null
         var description: ClipDescription? = null
         var copied = false
@@ -95,7 +95,7 @@ class ClipboardTextTest {
                     decorView.viewTreeObserver.addOnWindowFocusChangeListener(listener)
                 }
             }
-            assertTrue("PageHarbor activity did not gain window focus", focused.await(5, TimeUnit.SECONDS))
+            assertTrue("RME PDF Scanner activity did not gain window focus", focused.await(5, TimeUnit.SECONDS))
         } finally {
             activity.runOnUiThread {
                 if (decorView.viewTreeObserver.isAlive) {

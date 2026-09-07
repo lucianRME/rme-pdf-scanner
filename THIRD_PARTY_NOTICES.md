@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-PageHarbor is licensed under Apache License 2.0; see [LICENSE](LICENSE). This file records the
+RME PDF Scanner is licensed under Apache License 2.0; see [LICENSE](LICENSE). This file records the
 third-party components packaged by the `0.7.0-dev` Android application. It is a repository-level
 distribution notice and must accompany any source or binary release made outside Google Play.
 Before a Play upload, the release owner must confirm with counsel or the distribution process that
@@ -13,7 +13,7 @@ the Play-delivered binary is accompanied by any notices required for that channe
 | AndroidX, Kotlin, Jetpack Compose, Material 3, Kotlin coroutines, JSpecify, javax.inject, and Apache Commons Codec | Android application/runtime libraries | Apache License 2.0 | Preserve the Apache license and applicable notices in a source/binary distribution. |
 | PdfBox-Android `2.0.27.0` and Apache PDFBox code | Local searchable-PDF composition | Apache License 2.0 | Preserve the Apache license and applicable notices. |
 | Bouncy Castle `bcprov`, `bcpkix`, and `bcutil` `1.72` | Transitive PdfBox cryptography/support code | Bouncy Castle licence (MIT-style) | Preserve the copyright and permission notice below. |
-| Liberation Sans Regular `2.1.5` | Bundled by PdfBox-Android and embedded as a subset in searchable PDFs | SIL Open Font License 1.1 | Preserve the copyright and OFL notice; do not represent PageHarbor as the font author. |
+| Liberation Sans Regular `2.1.5` | Bundled by PdfBox-Android and embedded as a subset in searchable PDFs | SIL Open Font License 1.1 | Preserve the copyright and OFL notice; do not represent RME PDF Scanner as the font author. |
 | Google ML Kit Document Scanner and Text Recognition, Google Play services / Tasks | Scanner acquisition and on-device OCR | Google ML Kit Terms of Service and applicable Google terms | Separately licensed proprietary SDKs; review and accept applicable Google terms before distribution. They are not Apache-2.0 or open source. |
 
 The Gradle release runtime dependency graph was reviewed for this inventory. No GPL, LGPL, AGPL,
@@ -46,7 +46,7 @@ Source: <https://www.bouncycastle.org/license.html>
 Liberation Sans Regular, version `2.1.5`, is present in PdfBox-Android as
 `assets/com/tom_roush/pdfbox/resources/ttf/LiberationSans-Regular.ttf`. Its embedded metadata
 identifies Google (2010), Red Hat (2012), Ascender Corp., and Steve Matteson, and states that it is
-licensed under the SIL Open Font License, Version 1.1. PageHarbor does not modify or rename the
+licensed under the SIL Open Font License, Version 1.1. RME PDF Scanner does not modify or rename the
 font. Searchable-PDF generation embeds a subset of the original font solely to render its invisible
 Unicode text layer; this is permitted by OFL 1.1. No Reserved Font Name declaration was found in
 the bundled font metadata.

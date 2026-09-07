@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Renamed the product from PageHarbor to **RME: PDF & Document Scanner** (short name: **RME PDF Scanner**) while preserving the Android application ID, signing, version metadata, and storage compatibility.
+
 ## [1.0.0]
 
 ### Changed

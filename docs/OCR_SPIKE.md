@@ -1,5 +1,7 @@
 # OCR Technology Spike
 
+> Historical record for RME: PDF & Document Scanner, formerly PageHarbor. Product names below reflect the investigation or validation at the time.
+
 Status: research and architecture only. This spike adds no OCR implementation, dependency, permission, scanner change, or export change. Its recommended next milestone is `v0.3.0-dev` — Offline OCR Foundation.
 
 ## Executive summary

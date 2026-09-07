@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
-  <title id="title">PageHarbor GitHub social preview concept</title>
+  <title id="title">RME PDF Scanner GitHub social preview concept</title>
   <desc id="desc">Initial social preview concept with mark, product name, and tagline.</desc>
   <rect width="1280" height="640" fill="#F8FAFD"/>
   <g transform="translate(116 168) scale(1.7)">
@@ -8,7 +8,7 @@
     <path d="M154 46V76H184Z" fill="#F8FAFD"/>
     <path d="M100 104H160V116H100ZM100 130H148V142H100Z" fill="#F8FAFD"/>
   </g>
-  <text x="500" y="272" fill="#172033" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="78" font-weight="650" letter-spacing="0">PageHarbor</text>
+  <text x="500" y="272" fill="#172033" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="64" font-weight="650" letter-spacing="0">RME PDF Scanner</text>
   <text x="504" y="356" fill="#245FC7" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="38" font-weight="500">Scan documents without giving them away.</text>
   <text x="504" y="418" fill="#445064" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="30" font-weight="400">Private document scanner for Android.</text>
 </svg>

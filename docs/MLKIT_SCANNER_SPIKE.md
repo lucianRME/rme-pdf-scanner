@@ -1,5 +1,7 @@
 # ML Kit Document Scanner Spike
 
+> Historical record for RME: PDF & Document Scanner, formerly PageHarbor. Product names below reflect the investigation or validation at the time.
+
 This document tracks a technical validation spike. The integration is not the production MVP scanner flow and should not be described as complete.
 
 ## Configuration Tested

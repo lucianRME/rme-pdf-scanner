@@ -1,6 +1,6 @@
 # Device Compatibility Matrix
 
-PageHarbor has `minSdk 26` (Android 8) and `targetSdk 36`. This matrix records evidence; it does
+RME PDF Scanner has `minSdk 26` (Android 8) and `targetSdk 36`. This matrix records evidence; it does
 not claim compatibility for devices that have not been tested.
 
 | Device / Android version | Form factor | Status | Coverage |

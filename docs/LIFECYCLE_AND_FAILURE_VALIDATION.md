@@ -17,9 +17,9 @@ No active-operation recovery is attempted after process death or Activity recrea
 ## Update and process-reset boundary
 
 An APK update preserves Android app-private storage and cache unless Android or the user clears it,
-but PageHarbor persists no scan session, OCR result, picker ownership, or document library. A fresh
+but RME PDF Scanner persists no scan session, OCR result, picker ownership, or document library. A fresh
 process after an update therefore starts at Home; it must not restore document content or progress.
-User-selected SAF exports remain outside PageHarbor ownership. Shared-PDF cache files older than 24
+User-selected SAF exports remain outside RME PDF Scanner ownership. Shared-PDF cache files older than 24
 hours and searchable-PDF cache files matching the app-owned `searchable-*.pdf` naming boundary are
 cleaned asynchronously at a later startup. The cleanup never traverses directories, deletes active
 files, or touches SAF destinations.

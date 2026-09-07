@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">PageHarbor</string>
+    <string name="app_name">RME: PDF &amp; Document Scanner</string>
+    <string name="app_name_short">RME PDF Scanner</string>
     <string name="home_status">Early development</string>
     <string name="home_headline">Scan documents without giving them away.</string>
-    <string name="home_supporting_text">PageHarbor is designed to process documents on your device, without accounts, ads, or tracking.</string>
+    <string name="home_supporting_text">RME PDF Scanner is designed to process documents on your device, without accounts, ads, or tracking.</string>
     <string name="home_scan_document">Scan document</string>
     <string name="home_view_scan_result">View current scan</string>
     <string name="scan_result_title">Scanned document</string>
@@ -98,17 +99,17 @@
     <string name="page_export_failed">Page could not be exported. Try another destination.</string>
     <string name="page_export_default_filename" translatable="false">Document-%1$d.jpg</string>
     <string name="home_privacy_action">How privacy works</string>
-    <string name="home_about_action">About PageHarbor</string>
+    <string name="home_about_action">About RME PDF Scanner</string>
     <string name="home_debug_build_label">v%1$s (%2$d) · %3$s · %4$s</string>
     <string name="home_footer">No account · No ads · Local document handling</string>
     <string name="home_privacy_dialog_title">How privacy works</string>
     <string name="home_privacy_dialog_local_processing">Documents are intended to be processed locally.</string>
-    <string name="home_privacy_dialog_no_cloud">PageHarbor does not operate cloud storage.</string>
+    <string name="home_privacy_dialog_no_cloud">RME PDF Scanner does not operate cloud storage.</string>
     <string name="home_privacy_dialog_user_choice">Users will choose where exported files are saved or shared.</string>
-    <string name="home_privacy_dialog_no_tracking">PageHarbor does not operate advertising, tracking, or analytics.</string>
+    <string name="home_privacy_dialog_no_tracking">RME PDF Scanner does not operate advertising, tracking, or analytics.</string>
     <string name="home_privacy_dialog_mlkit_metrics">Google ML Kit may send encrypted technical diagnostics. It does not send your document images or recognized text.</string>
     <string name="home_privacy_dialog_dismiss">OK</string>
-    <string name="about_title">About PageHarbor</string>
+    <string name="about_title">About RME PDF Scanner</string>
     <string name="about_tagline">Private document scanner for Android</string>
     <string name="about_version">Version: %1$s</string>
     <string name="about_build_number">Build: %1$d</string>

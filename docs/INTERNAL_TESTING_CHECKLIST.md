@@ -23,14 +23,14 @@ remain valid after SDK or policy updates.
 
 | Question | Draft answer / evidence |
 | --- | --- |
-| Does the app collect data off-device? | **Yes**, because bundled ML Kit may transmit technical diagnostics. PageHarbor code does not transmit document content. |
-| Personal info, photos/documents, OCR text | **No collection by PageHarbor or ML Kit** for this app flow; ML Kit documents image/text input and output as on-device. |
+| Does the app collect data off-device? | **Yes**, because bundled ML Kit may transmit technical diagnostics. RME PDF Scanner code does not transmit document content. |
+| Personal info, photos/documents, OCR text | **No collection by RME PDF Scanner or ML Kit** for this app flow; ML Kit documents image/text input and output as on-device. |
 | Diagnostics | **Yes**: ML Kit documents performance/error information for diagnostics, reliability, compatibility, and improvement. Mark encrypted in transit according to ML Kit's current disclosure. |
 | Device or other IDs | **Yes** if the current ML Kit disclosure continues to describe per-installation identifiers; verify the exact Play taxonomy at submission. |
 | App and device information | **Yes** if the form exposes the documented ML Kit application/device-information categories; verify the exact taxonomy at submission. |
-| Shared with third parties | Verify current Play definitions and Google relationship before submitting. Do not assert “no sharing” merely because PageHarbor has no backend. |
+| Shared with third parties | Verify current Play definitions and Google relationship before submitting. Do not assert “no sharing” merely because RME PDF Scanner has no backend. |
 | Advertising, personalization, account management | **No**. |
-| Deletion request | PageHarbor has no account or hosted document record. Use the policy contact for questions; do not claim a deletion badge unless the owner supplies a qualifying mechanism for all collected SDK data. |
+| Deletion request | RME PDF Scanner has no account or hosted document record. Use the policy contact for questions; do not claim a deletion badge unless the owner supplies a qualifying mechanism for all collected SDK data. |
 
 Google Play holds the publisher responsible for complete SDK disclosures. Recheck Google's current
 ML Kit data disclosure and Play Data safety guidance immediately before submission.
@@ -63,7 +63,7 @@ Repository closure evidence is complete and tagged for `v0.8.0-dev`. This checkl
 current `1.0.0` owner-controlled production-release preparation; it is not authorization to
 upload or publish, and does not indicate that internal testing has started.
 
-- [ ] Confirm the tester sees the expected version and version code in About PageHarbor.
+- [ ] Confirm the tester sees the expected version and version code in About RME PDF Scanner.
 - [ ] For local verification only, confirm the build type is `releaseVerification`; this label and
   Git revision must not appear in a production release.
 - [ ] Perform the update, clean-install, lifecycle, output, OCR, and repeated-session checks in

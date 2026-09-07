@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-This log records lightweight product and architecture decisions for PageHarbor. Decisions may be revised as implementation validates platform behavior.
+This log records lightweight product and architecture decisions for RME: PDF & Document Scanner. Existing ADRs retain the product name used when the decisions were recorded. Decisions may be revised as implementation validates platform behavior.
 
 ## ADR-001: No Proprietary Backend
 
@@ -143,3 +143,14 @@ The prior Activity-local and Compose-local state returned a user with a complete
 
 Consequences:
 No `SavedStateHandle`, database, file persistence, background job, or process-death recovery is introduced. Active OCR, PDF generation, SAF write/picker ownership, transient feedback, coroutine jobs, streams, decoded preview bitmaps, PdfBox objects, and prepared private exports remain Activity-owned. Recreation cancels or resets that transient work, cleans prepared private output, returns to a stable Scan Result when a completed scan exists, and permits retry. OCR Result decodes only its current selected scanner JPEG with bounded sampling and has no image cache. The ViewModel must never retain an Activity, Context, document copies, or logging/analytics data. Final Activity/task destruction ends the in-memory session.
+
+## ADR-012: Product Rename Without Application Migration
+
+Decision:
+Rename the product from PageHarbor to **RME: PDF & Document Scanner**, with **RME PDF Scanner** for compact UI and natural prose.
+
+Rationale:
+The name changes; the existing Google Play application and update path must continue.
+
+Consequences:
+Keep `org.synapseworks.pageharbor` as both application ID and namespace. Preserve package directories, signing configuration and keys, version metadata, FileProvider authority, private storage paths, backup rules, and cleanup behavior. This change adds no data migration, permissions, dependencies, networking, or privacy claims. The Gradle display name is presentation metadata only; repository identity stays unchanged. See [branding migration audit](BRANDING_MIGRATION.md) for retained identifiers and external asset follow-up.

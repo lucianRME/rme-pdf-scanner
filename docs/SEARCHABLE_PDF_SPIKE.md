@@ -1,5 +1,7 @@
 # Searchable PDF Implementation Record
 
+> Historical record for RME: PDF & Document Scanner, formerly PageHarbor. Product names below reflect the investigation or validation at the time.
+
 Status: `v0.4.0-dev` completed. This record closes the searchable-PDF investigation and documents the shipped local implementation. It does not change normal PDF save, PDF share, JPEG export, permissions, network behavior, or the Home screen.
 
 ## Original problem

@@ -1,8 +1,8 @@
-# PageHarbor
+# RME: PDF & Document Scanner
 
-PageHarbor is an open-source, privacy-first Android document scanner for scanning multi-page documents, importing pages from the gallery, recognizing Latin text on-device, and exporting PDFs or JPEGs. PageHarbor 1.0.0 is publicly available on Google Play and is actively developed under the Apache 2.0 license.
+RME: PDF & Document Scanner is an open-source, privacy-first Android document scanner for scanning multi-page documents, importing pages from the gallery, recognizing Latin text on-device, and exporting PDFs or JPEGs. Version 1.0.0 was released as PageHarbor on Google Play. Development continues under the Apache 2.0 license.
 
-[Get PageHarbor on Google Play](https://play.google.com/store/apps/details?id=org.synapseworks.pageharbor) (`org.synapseworks.pageharbor`)
+[Get RME PDF Scanner on Google Play](https://play.google.com/store/apps/details?id=org.synapseworks.pageharbor) (`org.synapseworks.pageharbor`)
 
 ## Highlights
 
@@ -12,7 +12,7 @@ PageHarbor is an open-source, privacy-first Android document scanner for scannin
 - Searchable PDF generation with a local invisible OCR text layer
 - PDF save and share, plus individual JPEG page export
 - Deterministic category-based filename suggestions for searchable PDFs
-- No ads, account, login, or PageHarbor-operated cloud backend
+- No ads, account, login, or RME PDF Scanner-operated cloud backend
 
 ## Current capabilities
 
@@ -32,14 +32,14 @@ For previous planning context, see the [historical roadmap](ROADMAP.md).
 
 ## Privacy and architecture
 
-PageHarbor uses Kotlin, Jetpack Compose, Material 3, Gradle Kotlin DSL, ML Kit Document Scanner, and the Android Storage Access Framework. Its privacy-first architecture keeps document and OCR content processing on-device and lets users choose where files are saved or shared. PageHarbor has no ads, PageHarbor-operated tracking or analytics, account or login requirement, proprietary cloud storage, cloud OCR, or AI backend. Cloud providers such as Google Drive or OneDrive may appear only as destinations selected through the Android system file picker; PageHarbor does not directly access them.
+RME PDF Scanner uses Kotlin, Jetpack Compose, Material 3, Gradle Kotlin DSL, ML Kit Document Scanner, and the Android Storage Access Framework. Its privacy-first architecture keeps document and OCR content processing on-device and lets users choose where files are saved or shared. RME PDF Scanner has no ads, RME PDF Scanner-operated tracking or analytics, account or login requirement, proprietary cloud storage, cloud OCR, or AI backend. Cloud providers such as Google Drive or OneDrive may appear only as destinations selected through the Android system file picker; RME PDF Scanner does not directly access them.
 
 Google ML Kit is a separately licensed Google SDK. Its documented technical diagnostics can be
 encrypted and sent to Google, but document images and recognized text are processed on-device and
 are not sent by ML Kit. See [PRIVACY.md](PRIVACY.md) and
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) before distribution.
 
-The post-scan searchable-PDF engine has deterministic 20-page regression coverage, but PageHarbor does not claim universal external viewer or SAF-provider compatibility, full accessibility certification, or low-end-device validation.
+The post-scan searchable-PDF engine has deterministic 20-page regression coverage, but RME PDF Scanner does not claim universal external viewer or SAF-provider compatibility, full accessibility certification, or low-end-device validation.
 
 ## Local development
 
@@ -59,7 +59,7 @@ Historical beta-testing materials are available in [docs/BETA_SMOKE_TEST.md](doc
 
 ## License
 
-PageHarbor is licensed under the [Apache License 2.0](LICENSE).
+RME PDF Scanner is licensed under the [Apache License 2.0](LICENSE).
 
 ## Attribution
 

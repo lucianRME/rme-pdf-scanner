@@ -1,5 +1,7 @@
 # Performance and Delivery Validation
 
+> Historical record for RME: PDF & Document Scanner, formerly PageHarbor. Product names below reflect the investigation or validation at the time.
+
 Status: `v0.7.0-dev` baseline and `v0.8.0-dev` closure inspection. The local
 releaseVerification approach remains for beta regression smoke.
 

@@ -8,7 +8,7 @@ private const val TemporaryVisualPrefix = "searchable-visual-"
 private const val TemporaryPdfMaxAgeMillis = 24L * 60L * 60L * 1000L
 
 /**
- * Removes only stale PageHarbor-generated searchable-PDF cache files after a prior process ended.
+ * Removes only stale RME PDF Scanner-generated searchable-PDF cache files after a prior process ended.
  * It never traverses subdirectories, touches SAF destinations, or deletes a file outside the owned
  * name and location boundary. Active work is Activity-owned, so this runs only at a later startup.
  */

@@ -1,6 +1,6 @@
 # Design System
 
-This document defines PageHarbor's initial visual identity foundation. It is intentionally small and should evolve only when implementation needs are clear.
+This document defines RME PDF Scanner's initial visual identity foundation. It is intentionally small and should evolve only when implementation needs are clear.
 
 ## Color Tokens
 
@@ -94,7 +94,7 @@ Keep motion subtle and functional.
 
 Use Material icons for normal UI actions where available.
 
-The PageHarbor brand mark is custom. It should represent the product identity and should not be reused as a generic UI icon.
+The RME PDF Scanner brand mark is custom. It should represent the product identity and should not be reused as a generic UI icon.
 
 ## Action hierarchy
 

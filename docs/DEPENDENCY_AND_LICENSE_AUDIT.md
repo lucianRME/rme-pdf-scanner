@@ -21,7 +21,7 @@ metadata, the PdfBox Android AAR, and the minified release artifact.
 - PdfBox-Android is Apache-2.0 and brings Bouncy Castle `1.72` transitively. Bouncy Castle's
   MIT-style notice is preserved in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
 - PdfBox-Android bundles Liberation Sans Regular `2.1.5`, licensed in its font metadata under SIL
-  OFL 1.1. PageHarbor embeds an unmodified subset into searchable PDFs. No Reserved Font Name was
+  OFL 1.1. RME PDF Scanner embeds an unmodified subset into searchable PDFs. No Reserved Font Name was
   found in the bundled font metadata.
 - ML Kit and Google Play services are proprietary Google SDKs subject to the ML Kit Terms of
   Service. They are retained because they implement the existing scanner/OCR capability; this audit

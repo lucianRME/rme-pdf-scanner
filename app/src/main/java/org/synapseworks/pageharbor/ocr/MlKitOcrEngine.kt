@@ -12,7 +12,7 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
  *
  * This synchronous adapter must be called off the main thread, as required by [OcrEngine]. It
  * opens and processes exactly one session page at a time. ML Kit types and failures remain inside
- * this class; callers receive only PageHarbor's in-memory OCR models.
+ * this class; callers receive only RME PDF Scanner's in-memory OCR models.
  */
 class MlKitOcrEngine : OcrEngine {
     override fun recognize(pages: List<OcrPage>): OcrResult {

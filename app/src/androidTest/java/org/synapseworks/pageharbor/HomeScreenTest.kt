@@ -44,12 +44,12 @@ class HomeScreenTest {
     val composeTestRule = createComposeRule()
 
     @Test
-    fun pageHarborTitleIsDisplayed() {
+    fun productTitleIsDisplayed() {
         composeTestRule.setContent {
             PageHarborApp()
         }
 
-        composeTestRule.onNodeWithText("PageHarbor").assertIsDisplayed()
+        composeTestRule.onNodeWithText("RME PDF Scanner").assertIsDisplayed()
     }
 
     @Test
@@ -70,7 +70,7 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("How privacy works").assertIsDisplayed()
-        composeTestRule.onNodeWithText("About PageHarbor").assertIsDisplayed()
+        composeTestRule.onNodeWithText("About RME PDF Scanner").assertIsDisplayed()
     }
 
     @Test
@@ -549,12 +549,12 @@ class HomeScreenTest {
 
         composeTestRule.onNodeWithText("Documents are intended to be processed locally.")
             .assertIsDisplayed()
-        composeTestRule.onNodeWithText("PageHarbor does not operate cloud storage.")
+        composeTestRule.onNodeWithText("RME PDF Scanner does not operate cloud storage.")
             .assertIsDisplayed()
         composeTestRule.onNodeWithText("Users will choose where exported files are saved or shared.")
             .assertIsDisplayed()
         composeTestRule.onNodeWithText(
-            "PageHarbor does not operate advertising, tracking, or analytics.",
+            "RME PDF Scanner does not operate advertising, tracking, or analytics.",
         )
             .assertIsDisplayed()
         composeTestRule.onNodeWithText(
@@ -582,7 +582,7 @@ class HomeScreenTest {
             PageHarborApp()
         }
 
-        composeTestRule.onNodeWithText("About PageHarbor").performClick()
+        composeTestRule.onNodeWithText("About RME PDF Scanner").performClick()
 
         composeTestRule.onNodeWithText("Private document scanner for Android")
             .assertIsDisplayed()
@@ -606,7 +606,7 @@ class HomeScreenTest {
             PageHarborApp()
         }
 
-        composeTestRule.onNodeWithText("About PageHarbor").performClick()
+        composeTestRule.onNodeWithText("About RME PDF Scanner").performClick()
         composeTestRule.onNodeWithText("Close").performClick()
 
         composeTestRule.onAllNodesWithText("Private document scanner for Android")
@@ -625,7 +625,7 @@ class HomeScreenTest {
             )
         }
 
-        composeTestRule.onNodeWithText("About PageHarbor").performClick()
+        composeTestRule.onNodeWithText("About RME PDF Scanner").performClick()
         composeTestRule.onNodeWithText("View source code").performClick()
 
         assertEquals(1, viewSourceClickCount)

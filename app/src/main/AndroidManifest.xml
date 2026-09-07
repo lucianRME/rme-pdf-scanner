@@ -18,7 +18,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.PageHarbor">
-        <!-- PageHarbor does not schedule ML Kit's transitive CCT transport components itself. -->
+        <!-- RME PDF Scanner does not schedule ML Kit's transitive CCT transport components itself. -->
         <service
             android:name="com.google.android.datatransport.runtime.backends.TransportBackendDiscovery"
             tools:node="remove" />

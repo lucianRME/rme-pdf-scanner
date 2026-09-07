@@ -1,11 +1,11 @@
-# PageHarbor Beta Bug Report
+# RME PDF Scanner Beta Bug Report
 
 Do **not** attach sensitive documents, OCR text, IDs, invoices, medical records, personal photos,
 or full file paths. Redact logs before sharing them.
 
 ## Build and device
 
-- PageHarbor version:
+- RME PDF Scanner version:
 - Version code:
 - Build source: local `releaseVerification` / internal testing / other
 - Android version:

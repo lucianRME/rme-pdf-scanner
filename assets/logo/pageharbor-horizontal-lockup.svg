@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="720" height="180" viewBox="0 0 720 180" role="img" aria-labelledby="title desc">
-  <title id="title">PageHarbor horizontal logo lockup</title>
-  <desc id="desc">PageHarbor mark beside the PageHarbor wordmark.</desc>
+  <title id="title">RME PDF Scanner horizontal logo lockup</title>
+  <desc id="desc">RME PDF Scanner mark beside the RME PDF Scanner wordmark.</desc>
   <rect width="720" height="180" fill="#FFFFFF"/>
   <g transform="translate(40 34)">
     <path d="M10 88C22 76 78 76 90 88C80 100 20 100 10 88Z" fill="#8CB9F1"/>
@@ -8,5 +8,5 @@
     <path d="M66 10V26H82Z" fill="#F8FAFD"/>
     <path d="M40 48H70V54H40ZM40 61H64V67H40Z" fill="#F8FAFD"/>
   </g>
-  <text x="170" y="104" fill="#172033" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="58" font-weight="650" letter-spacing="0">PageHarbor</text>
+  <text x="170" y="104" fill="#172033" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="48" font-weight="650" letter-spacing="0">RME PDF Scanner</text>
 </svg>

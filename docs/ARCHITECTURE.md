@@ -1,6 +1,6 @@
 # Architecture
 
-PageHarbor should use a minimal architecture for the MVP. The goal is clear ownership of UI, document handling, platform integrations, and cleanup without adding framework ceremony before the scanner and export behavior are validated.
+RME PDF Scanner should use a minimal architecture for the MVP. The goal is clear ownership of UI, document handling, platform integrations, and cleanup without adding framework ceremony before the scanner and export behavior are validated.
 
 This document records the implemented MVP architecture and guidance for narrowly scoped future work. It does not require specific class names.
 
@@ -42,7 +42,7 @@ Active OCR, PDF generation, SAF writes, picker ownership, progress, success/erro
 
 Future platform integrations should have narrow responsibilities:
 
-- Document scanner adapter: launches the selected scanner and converts scanner-specific results into PageHarbor concepts.
+- Document scanner adapter: launches the selected scanner and converts scanner-specific results into RME PDF Scanner concepts.
 - PDF generator: prepares a PDF locally from scanned page data.
 - Searchable-PDF generator: rebuilds a PDF locally from active-session JPEG page streams and engine-neutral OCR geometry, embedding an invisible Unicode text layer.
 - Searchable-PDF export coordinator: combines active-session page URIs and local OCR, owns a prepared private-cache PDF, copies it to a caller-selected SAF destination, and deletes it after use, failure, or cancellation.
@@ -56,7 +56,7 @@ Platform APIs and third-party APIs should be isolated behind small components on
 ## Suggested Data Concepts
 
 - ScanSession: represents an active scan workflow and the temporary resources associated with it.
-- ScannedPage: represents one captured page returned by the scanner in a form PageHarbor can review or export.
+- ScannedPage: represents one captured page returned by the scanner in a form RME PDF Scanner can review or export.
 - PreparedDocument: represents a locally prepared export, such as a generated searchable PDF awaiting a SAF write.
 - ExportResult: records whether a save or share preparation completed, was cancelled, or failed.
 - ScanError: describes scanner startup, cancellation, availability, or result errors without document content.

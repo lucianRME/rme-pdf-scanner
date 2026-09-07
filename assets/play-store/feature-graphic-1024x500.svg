@@ -1,13 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="500" viewBox="0 0 1024 500" role="img" aria-labelledby="title desc">
-  <title id="title">PageHarbor Google Play feature graphic</title>
-  <desc id="desc">Official PageHarbor brand mark with a concise private document-scanning message.</desc>
+  <title id="title">RME PDF Scanner Google Play feature graphic</title>
+  <desc id="desc">Official RME PDF Scanner brand mark with a concise private document-scanning message.</desc>
   <rect width="1024" height="500" fill="#F8FAFD"/>
 
   <!-- Non-essential harbor-wave motif. -->
   <path d="M648 390C734 332 864 332 950 390" fill="none" stroke="#8CB9F1" stroke-width="18" stroke-linecap="round" opacity="0.30"/>
   <path d="M694 430C770 380 874 380 946 430" fill="none" stroke="#8CB9F1" stroke-width="12" stroke-linecap="round" opacity="0.20"/>
 
-  <!-- Official PageHarbor brand-mark geometry, preserved verbatim from assets/branding/pageharbor-brand-mark.svg. -->
+  <!-- Official RME PDF Scanner brand-mark geometry, preserved verbatim from assets/branding/pageharbor-brand-mark.svg. -->
   <g transform="translate(126 122)">
     <rect width="256" height="256" rx="48" fill="#F8FAFD"/>
     <path d="M54 174C78 150 178 150 202 174C182 196 74 196 54 174Z" fill="#8CB9F1"/>
@@ -17,7 +17,7 @@
   </g>
 
   <!-- Wordmark styling matches assets/logo/pageharbor-horizontal-lockup.svg. -->
-  <text x="440" y="220" fill="#172033" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="76" font-weight="650" letter-spacing="0">PageHarbor</text>
+  <text x="440" y="220" fill="#172033" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="48" font-weight="650" letter-spacing="0">RME PDF Scanner</text>
   <text x="444" y="290" fill="#245FC7" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="34" font-weight="500">Scan. Recognize. Save.</text>
   <text x="444" y="338" fill="#172033" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="26" font-weight="400">Private by design.</text>
 </svg>

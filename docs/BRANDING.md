@@ -1,10 +1,12 @@
 # Branding
 
-PageHarbor's brand should support a focused, privacy-first document scanning tool. This guide describes direction, not final visual assets.
+The formal product name is **RME: PDF & Document Scanner**. Use **RME PDF Scanner** for compact headings, About, and natural prose; do not use **RME** alone where the app would be unclear. The former product name was PageHarbor. See the [branding migration audit](BRANDING_MIGRATION.md) for compatibility decisions and store assets that need refreshing.
+
+RME PDF Scanner's brand should support a focused, privacy-first document scanning tool. This guide describes direction, not final visual assets.
 
 ## Brand Purpose
 
-PageHarbor exists because scanning documents should not require:
+RME PDF Scanner exists because scanning documents should not require:
 
 - Accounts.
 - Subscriptions.
@@ -26,13 +28,13 @@ This is the primary brand promise. It should guide product copy, onboarding, sto
 
 - Privacy: Document handling should minimize data exposure and avoid tracking, advertising, accounts, and proprietary cloud storage.
 - Simplicity: The product should make scanning, exporting, saving, and sharing easy to understand.
-- Transparency: Explain what PageHarbor does, what it does not do, and what external platform components may handle.
+- Transparency: Explain what RME PDF Scanner does, what it does not do, and what external platform components may handle.
 - Reliability: Scanning and export flows should be predictable, recoverable, and respectful of cancellation or failure.
 - User control: Users choose when to scan, where to save, and whether to share.
 
 ## Product Personality
 
-PageHarbor should feel:
+RME PDF Scanner should feel:
 
 - Calm.
 - Professional.
@@ -41,7 +43,7 @@ PageHarbor should feel:
 - Lightweight.
 - Respectful.
 
-PageHarbor should never feel:
+RME PDF Scanner should never feel:
 
 - Aggressive.
 - Noisy.
@@ -93,7 +95,7 @@ Avoid:
 
 ## Selected Mark Concept
 
-The selected PageHarbor mark is a simple upright document with a folded top-right corner resting in a soft curved harbor shape.
+The selected RME PDF Scanner mark is a simple upright document with a folded top-right corner resting in a soft curved harbor shape.
 
 The curve should suggest safety, support, and arrival. It must not read as a boat, anchor, shield, lock, scanner frame, QR code, or wave illustration.
 
@@ -164,7 +166,7 @@ The app icon should remain recognizable at 48x48 pixels.
 
 Use the Android system splash screen.
 
-- Use the PageHarbor app icon.
+- Use the RME PDF Scanner app icon.
 - Use a calm light background in light mode.
 - Use an appropriate dark background in dark mode.
 - Do not add artificial delay.
@@ -228,7 +230,7 @@ Privacy remains the primary differentiator.
 
 ## Non-Goals
 
-PageHarbor is not trying to become:
+RME PDF Scanner is not trying to become:
 
 - Dropbox.
 - Google Drive.

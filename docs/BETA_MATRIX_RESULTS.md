@@ -1,5 +1,7 @@
 # Beta Matrix Results
 
+> Historical record for RME: PDF & Document Scanner, formerly PageHarbor. Product names below reflect the investigation or validation at the time.
+
 Status: `v0.8.0-dev` closure evidence on 27 July 2026. This records only observed behavior and
 separates deterministic coverage from physical-device claims.
 

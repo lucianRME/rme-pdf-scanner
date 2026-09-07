@@ -1,5 +1,7 @@
 # Release Signing and Android App Bundles
 
+RME: PDF & Document Scanner continues the existing `org.synapseworks.pageharbor` Google Play application. The `PAGEHARBOR_RELEASE_*` environment variables and `pageharbor.release.*` local properties below remain unchanged, as do the signing configuration and keys. The product rename does not change version metadata; a future upload must follow the existing version-code and release process.
+
 `bundleRelease` always creates a local release bundle. Without credentials it is an unsigned verification artifact and must not be uploaded to Google Play.
 
 For an installable release-equivalent local APK, use the debug-signed verification variant:

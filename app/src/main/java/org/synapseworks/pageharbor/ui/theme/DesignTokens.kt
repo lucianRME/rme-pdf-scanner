@@ -3,7 +3,7 @@ package org.synapseworks.pageharbor.ui.theme
 import androidx.compose.ui.unit.dp
 
 /**
- * Shared layout measurements for PageHarbor screens. They deliberately preserve the current
+ * Shared layout measurements for RME PDF Scanner screens. They deliberately preserve the current
  * visual density while giving later UI work one semantic source of truth.
  */
 object PageHarborSpacing {

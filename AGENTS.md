@@ -2,7 +2,7 @@
 
 ## Project purpose
 
-PageHarbor is an open-source, privacy-first Android document scanner developed under the SynapseWorks brand. It is currently in early development. Build it around local document processing and user-controlled storage and sharing.
+RME: PDF & Document Scanner is an open-source, privacy-first Android document scanner developed under the SynapseWorks brand. It is currently in early development. Build it around local document processing and user-controlled storage and sharing.
 
 ## Privacy principles
 

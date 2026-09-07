@@ -1,6 +1,6 @@
 # Roadmap
 
-PageHarbor is in early development. This roadmap is public-facing and intentionally conservative; it does not claim that document scanning or export is production-ready.
+RME PDF Scanner is in early development. This roadmap is public-facing and intentionally conservative; it does not claim that document scanning or export is production-ready.
 
 ## Completed
 
@@ -30,11 +30,11 @@ Document scanning, PDF save, PDF share, and JPEG page export have been validated
 - Preserve page ordering, empty/partial-result handling, bounded decode, and local-only processing.
 - Preserve the scan, PDF save, PDF share, and JPEG export flows.
 
-OCR is optional: it must run only after explicit user action and must never block scanning or export. OCR results remain in memory unless the user explicitly copies or exports them. PageHarbor will not introduce cloud OCR or a proprietary backend.
+OCR is optional: it must run only after explicit user action and must never block scanning or export. OCR results remain in memory unless the user explicitly copies or exports them. RME PDF Scanner will not introduce cloud OCR or a proprietary backend.
 
 The current UI keeps Home focused on starting a scan. Scan Result owns export and OCR actions plus their feedback, while OCR Result owns in-memory recognized-text actions. There is no bottom navigation or internal document library.
 
-PageHarbor intentionally relies on ML Kit for scanner editing capabilities rather than duplicating crop, rotate, filters, page deletion, or reordering. Use platform capabilities where they are strong. Build only what adds distinct user value.
+RME PDF Scanner intentionally relies on ML Kit for scanner editing capabilities rather than duplicating crop, rotate, filters, page deletion, or reordering. Use platform capabilities where they are strong. Build only what adds distinct user value.
 
 ### `v0.4.0-dev` — Searchable PDF
 
@@ -88,7 +88,7 @@ This milestone does not add document storage, app-level navigation, permissions,
   prerequisites.
 - Publish the source privacy-policy text, third-party notices, dependency/license audit, and a
   future Google Play internal-testing checklist. ML Kit technical diagnostics are disclosed
-  separately from PageHarbor's local document-content processing.
+  separately from RME PDF Scanner's local document-content processing.
 
 Limits carried forward: scanner acquisition remains capped at 10 pages; the 20-page regression covers post-scan searchable-PDF processing only. Process-death recovery is unsupported. No new end-user feature work is part of `v0.7.0-dev`.
 
@@ -113,7 +113,7 @@ the applicable Google terms. Those prerequisites are tracked in
   stale/duplicate completion rejection, and prepared-output cleanup. These are test-only fakes;
   they do not add production delays or process-death recovery.
 
-This milestone does not add a document library, accounts, cloud sync, PageHarbor analytics or crash
+This milestone does not add a document library, accounts, cloud sync, RME PDF Scanner analytics or crash
 SDKs, advertising, OCR language downloads, advanced image editing, new AI features, automatic
 document retention, new permissions, or Play publication.
 
