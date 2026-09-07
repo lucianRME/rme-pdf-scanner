@@ -4,6 +4,8 @@ RME: PDF & Document Scanner is an open-source, privacy-first Android document sc
 
 [Get RME PDF Scanner on Google Play](https://play.google.com/store/apps/details?id=org.synapseworks.pageharbor) (`org.synapseworks.pageharbor`)
 
+Current GitHub release: [RME PDF Scanner v1.2.0](https://github.com/lucianRME/pageharbor-android/releases/tag/v1.2.0). This release introduces the new name; Google Play publication is handled separately.
+
 ## Highlights
 
 - Multi-page document scanning with review and reordering
@@ -16,7 +18,7 @@ RME: PDF & Document Scanner is an open-source, privacy-first Android document sc
 
 ## Current capabilities
 
-- Scan one or more pages; scanner acquisition is currently limited to 10 pages
+- Scan one or more pages; scanner acquisition is currently limited to 20 pages
 - Review and reorder scanned pages
 - Import pages from the device gallery
 - Export scans as a PDF through the Android Storage Access Framework (SAF), or share PDFs through the Android share sheet

@@ -1,5 +1,7 @@
 # Roadmap
 
+Current GitHub release: **v1.2.0**, introducing the RME: PDF & Document Scanner name. Google Play rollout is handled separately. The planning milestones below retain their historical context.
+
 RME PDF Scanner is in early development. This roadmap is public-facing and intentionally conservative; it does not claim that document scanning or export is production-ready.
 
 ## Completed

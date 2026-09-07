@@ -1,5 +1,7 @@
 # RME: PDF & Document Scanner branding migration
 
+> Historical rebrand validation snapshot taken before the separate v1.2.0 release bump. Version values below record the original 1.1.0 / 12 validation; the v1.2.0 release uses 1.2.0 / 13.
+
 The product formerly called PageHarbor now uses **RME: PDF & Document Scanner** as its installed Android application label and **RME PDF Scanner** for compact UI, About, privacy copy, and natural prose. This is a presentation-only change.
 
 ## Compatibility and privacy

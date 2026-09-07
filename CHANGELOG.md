@@ -6,9 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.2.0]
+
 ### Changed
 
-- Renamed the product from PageHarbor to **RME: PDF & Document Scanner** (short name: **RME PDF Scanner**) while preserving the Android application ID, signing, version metadata, and storage compatibility.
+- Renamed PageHarbor to **RME: PDF & Document Scanner**, with **RME PDF Scanner** for compact UI.
+- Updated in-app branding, About/privacy presentation, documentation, and editable branding assets.
+- Preserved the existing Android application identity, signing, and user data/settings compatibility.
+- Included release resource-shrinking improvements.
+- Set the release version to `1.2.0` (version code 13).
+
+Google Play publication is handled separately.
 
 ## [1.0.0]
 
