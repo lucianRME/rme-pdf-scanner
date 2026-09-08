@@ -62,7 +62,7 @@ privacy documentation and request mechanisms.
 ## Contact and publication requirement
 
 For source and pre-release questions, use the project's issue tracker:
-<https://github.com/lucianRME/pageharbor-android/issues>.
+<https://github.com/lucianRME/rme-pdf-scanner/issues>.
 
 Before any Google Play upload, the release owner must publish this policy at a stable, public,
 non-geofenced HTTPS URL and add a monitored privacy contact for SynapseWorks. The same URL must be
