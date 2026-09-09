@@ -8,6 +8,14 @@ Scan documents, run OCR offline, create searchable PDFs, and export your files w
 [![Latest GitHub release](https://img.shields.io/github/v/release/lucianRME/rme-pdf-scanner?display_name=tag&sort=semver)](https://github.com/lucianRME/rme-pdf-scanner/releases/latest)
 [![GitHub stars](https://img.shields.io/github/stars/lucianRME/rme-pdf-scanner)](https://github.com/lucianRME/rme-pdf-scanner)
 [![Apache 2.0 license](https://img.shields.io/github/license/lucianRME/rme-pdf-scanner)](LICENSE)
+<a href="https://alternativeto.net/software/rme-pdf-scanner/about/?utm_source=badge&amp;utm_medium=referral">
+  <img
+    src="https://alternativeto.net/static/badges/badge-compact-light.svg"
+    alt="RME PDF Scanner on AlternativeTo"
+    width="171"
+    height="58"
+  />
+</a>
 
 > ⭐ If you find RME useful or like the privacy-first approach, consider starring the repository.
 
