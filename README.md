@@ -129,7 +129,7 @@ Historical beta-testing materials are available in [docs/BETA_SMOKE_TEST.md](doc
 
 The application was originally released as **PageHarbor**.
 
-The app was renamed in v1.2.0, and development continues as **RME: PDF & Document Scanner**. The Android application ID intentionally remains `org.synapseworks.pageharbor` for upgrade compatibility. For previous planning context, see the [historical roadmap](ROADMAP.md).
+The app was renamed in v1.2.0, and development continues as **RME: PDF & Document Scanner**. The Android application ID intentionally remains `org.synapseworks.pageharbor` for upgrade compatibility. Active development continues based on user feedback and privacy-first product goals.
 
 ## License
 

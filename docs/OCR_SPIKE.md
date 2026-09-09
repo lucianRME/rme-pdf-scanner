@@ -77,9 +77,9 @@ For a future OCR feature, PageHarbor's preferred initial engine is **bundled ML 
 
 The decision does not approve adding ML Kit Text Recognition, changing the scanner, changing export, or claiming absolute offline operation today. A future implementation must complete the validation gates below and receive dependency/privacy review first.
 
-## Future roadmap
+## Historical implementation gates
 
-Do not alter the public roadmap implementation status based on this spike. When OCR work is explicitly scheduled:
+The spike recorded the following gates for the subsequent OCR implementation:
 
 1. Review the exact dependency version, licences/terms, merged manifest, transitive dependencies, and network/Play-services implications; add no `INTERNET` permission.
 2. Build a consented, non-sensitive benchmark corpus for English, German, and Romanian, including diacritics, invoices/forms, dense paragraphs, low-light scans, rotations, and multi-page documents. Define measurable accuracy, latency, memory, and APK budgets.
