@@ -5,6 +5,7 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasText
@@ -32,6 +33,11 @@ import org.synapseworks.pageharbor.document.PdfSaveState
 import org.synapseworks.pageharbor.document.PdfShareState
 import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfSaveError
 import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfSaveState
+import org.synapseworks.pageharbor.document.session.DocumentPage
+import org.synapseworks.pageharbor.document.session.DocumentPageId
+import org.synapseworks.pageharbor.document.session.DocumentResource
+import org.synapseworks.pageharbor.document.session.DocumentResourceOwnership
+import org.synapseworks.pageharbor.document.session.DocumentSourceCategory
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.ocr.OcrPageError
 import org.synapseworks.pageharbor.ocr.OcrPageResult
@@ -158,19 +164,22 @@ class HomeScreenTest {
                     hasPdf = true,
                     pdfPageCount = 3,
                 ),
+                documentPages = (1L..3L).map(::documentPage),
             )
         }
 
         composeTestRule.onNodeWithText("Scan complete").assertIsDisplayed()
         composeTestRule.onNodeWithText("3 pages ready").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Save PDF").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Share PDF").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Export Pages").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Recognize Text").assertIsDisplayed()
+        listOf("Save PDF", "Share PDF", "Export Pages", "Recognize Text").forEach { action ->
+            composeTestRule.onNodeWithText(action)
+                .assertNodeExists()
+                .performScrollTo()
+                .assertIsDisplayed()
+        }
     }
 
     @Test
-    fun savePdfButtonDoesNotAppearWhenPdfIsMissing() {
+    fun savePdfButtonAppearsForPagesOnlySessionWhenScannerPdfIsMissing() {
         composeTestRule.setContent {
             PageHarborApp(
                 scannerSpikeState = ScannerSpikeState.ResultSummary(
@@ -178,14 +187,15 @@ class HomeScreenTest {
                     hasPdf = false,
                     pdfPageCount = null,
                 ),
+                documentPages = listOf(documentPage(1L)),
             )
         }
 
-        composeTestRule.onAllNodesWithText("Save PDF").assertCountEquals(0)
+        composeTestRule.onNodeWithText("Save PDF").assertIsDisplayed().assertIsEnabled()
     }
 
     @Test
-    fun sharePdfButtonDoesNotAppearWhenPdfIsMissing() {
+    fun sharePdfButtonAppearsForPagesOnlySessionWhenScannerPdfIsMissing() {
         composeTestRule.setContent {
             PageHarborApp(
                 scannerSpikeState = ScannerSpikeState.ResultSummary(
@@ -193,10 +203,15 @@ class HomeScreenTest {
                     hasPdf = false,
                     pdfPageCount = null,
                 ),
+                documentPages = listOf(documentPage(1L)),
             )
         }
 
-        composeTestRule.onAllNodesWithText("Share PDF").assertCountEquals(0)
+        composeTestRule.onNodeWithText("Share PDF")
+            .assertNodeExists()
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertIsEnabled()
     }
 
     @Test
@@ -208,15 +223,40 @@ class HomeScreenTest {
                     hasPdf = true,
                     pdfPageCount = 1,
                 ),
+                documentPages = listOf(documentPage(1L)),
             )
         }
 
         composeTestRule.onNodeWithText("Save PDF")
+            .assertNodeExists()
+            .performScrollTo()
             .assertIsDisplayed()
             .assertIsEnabled()
         composeTestRule.onNodeWithText("Share PDF")
+            .assertNodeExists()
+            .performScrollTo()
             .assertIsDisplayed()
             .assertIsEnabled()
+    }
+
+    @Test
+    fun pdfActionsDoNotAppearForAnEmptySessionEvenWhenLegacySummaryHasPdf() {
+        composeTestRule.setContent {
+            PageHarborApp(
+                scannerSpikeState = ScannerSpikeState.ResultSummary(
+                    jpegPageCount = 0,
+                    hasPdf = true,
+                    pdfPageCount = 1,
+                ),
+                documentPages = emptyList(),
+            )
+        }
+
+        composeTestRule.onAllNodesWithText("Save PDF").assertCountEquals(0)
+        composeTestRule.onAllNodesWithText("Share PDF").assertCountEquals(0)
+        composeTestRule.onAllNodesWithText("Export Pages").assertCountEquals(0)
+        composeTestRule.onAllNodesWithText("Recognize Text").assertCountEquals(0)
+        composeTestRule.onAllNodesWithText("Save searchable PDF").assertCountEquals(0)
     }
 
     @Test
@@ -243,10 +283,12 @@ class HomeScreenTest {
                     hasPdf = false,
                     pdfPageCount = null,
                 ),
+                documentPages = listOf(documentPage(1L), documentPage(2L)),
             )
         }
 
         composeTestRule.onNodeWithText("Export Pages")
+            .performScrollTo()
             .assertIsDisplayed()
             .assertIsEnabled()
     }
@@ -262,6 +304,7 @@ class HomeScreenTest {
                     hasPdf = true,
                     pdfPageCount = 1,
                 ),
+                documentPages = listOf(documentPage(1L)),
                 onSavePdf = {
                     saveClickCount += 1
                 },
@@ -284,13 +327,17 @@ class HomeScreenTest {
                     hasPdf = true,
                     pdfPageCount = 1,
                 ),
+                documentPages = listOf(documentPage(1L)),
                 onSharePdf = {
                     shareClickCount += 1
                 },
             )
         }
 
-        composeTestRule.onNodeWithText("Share PDF").performClick()
+        composeTestRule.onNodeWithText("Share PDF")
+            .assertNodeExists()
+            .performScrollTo()
+            .performClick()
 
         assertEquals(1, shareClickCount)
     }
@@ -306,13 +353,14 @@ class HomeScreenTest {
                     hasPdf = true,
                     pdfPageCount = 2,
                 ),
+                documentPages = listOf(documentPage(1L), documentPage(2L)),
                 onExportPages = {
                     exportClickCount += 1
                 },
             )
         }
 
-        composeTestRule.onNodeWithText("Export Pages").performClick()
+        composeTestRule.onNodeWithText("Export Pages").performScrollTo().performClick()
 
         assertEquals(1, exportClickCount)
     }
@@ -326,17 +374,25 @@ class HomeScreenTest {
                     hasPdf = true,
                     pdfPageCount = 1,
                 ),
+                documentPages = listOf(documentPage(1L)),
                 pdfSaveState = PdfSaveState.Saving,
             )
         }
 
         composeTestRule.onNodeWithText("Save PDF")
+            .assertNodeExists()
+            .performScrollTo()
             .assertIsDisplayed()
             .assertIsNotEnabled()
         composeTestRule.onNodeWithText("Share PDF")
+            .assertNodeExists()
+            .performScrollTo()
             .assertIsDisplayed()
             .assertIsEnabled()
-        composeTestRule.onNodeWithText("Saving PDF…").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Saving PDF…")
+            .assertNodeExists()
+            .performScrollTo()
+            .assertIsDisplayed()
     }
 
     @Test
@@ -348,6 +404,7 @@ class HomeScreenTest {
                     hasPdf = true,
                     pdfPageCount = 1,
                 ),
+                documentPages = listOf(documentPage(1L)),
                 pdfSaveState = PdfSaveState.ChoosingDestination,
             )
         }
@@ -366,17 +423,25 @@ class HomeScreenTest {
                     hasPdf = true,
                     pdfPageCount = 1,
                 ),
+                documentPages = listOf(documentPage(1L)),
                 pdfShareState = PdfShareState.Preparing,
             )
         }
 
         composeTestRule.onNodeWithText("Share PDF")
+            .assertNodeExists()
+            .performScrollTo()
             .assertIsDisplayed()
             .assertIsNotEnabled()
         composeTestRule.onNodeWithText("Save PDF")
+            .assertNodeExists()
+            .performScrollTo()
             .assertIsDisplayed()
             .assertIsEnabled()
-        composeTestRule.onNodeWithText("Preparing share…").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Preparing share…")
+            .assertNodeExists()
+            .performScrollTo()
+            .assertIsDisplayed()
     }
 
     @Test
@@ -388,6 +453,7 @@ class HomeScreenTest {
                     hasPdf = true,
                     pdfPageCount = 3,
                 ),
+                documentPages = (1L..3L).map(::documentPage),
                 pageExportState = PageExportState.Exporting(
                     pageNumber = 2,
                     pageCount = 3,
@@ -396,11 +462,16 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("Export Pages")
+            .assertNodeExists()
+            .performScrollTo()
             .assertIsDisplayed()
             .assertIsNotEnabled()
-        composeTestRule.onNodeWithText("Exporting page 2 of 3…").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Save PDF").assertIsEnabled()
-        composeTestRule.onNodeWithText("Share PDF").assertIsEnabled()
+        composeTestRule.onNodeWithText("Exporting page 2 of 3…")
+            .assertNodeExists()
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeTestRule.onNodeWithText("Save PDF").performScrollTo().assertIsEnabled()
+        composeTestRule.onNodeWithText("Share PDF").performScrollTo().assertIsEnabled()
     }
 
     @Test
@@ -412,6 +483,7 @@ class HomeScreenTest {
                     hasPdf = false,
                     pdfPageCount = null,
                 ),
+                documentPages = listOf(documentPage(1L), documentPage(2L)),
                 pageExportState = PageExportState.ChoosingDestination(
                     pageNumber = 1,
                     pageCount = 2,
@@ -420,6 +492,7 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("Export Pages")
+            .performScrollTo()
             .assertIsDisplayed()
             .assertIsNotEnabled()
         composeTestRule.onAllNodesWithText("Exporting page 1 of 2…").assertCountEquals(0)
@@ -434,6 +507,7 @@ class HomeScreenTest {
                     hasPdf = true,
                     pdfPageCount = 1,
                 ),
+                documentPages = listOf(documentPage(1L)),
                 pdfSaveState = PdfSaveState.Saved,
             )
         }
@@ -451,6 +525,7 @@ class HomeScreenTest {
                     hasPdf = false,
                     pdfPageCount = null,
                 ),
+                documentPages = listOf(documentPage(1L), documentPage(2L)),
                 pageExportState = PageExportState.Completed(pageCount = 2),
             )
         }
@@ -467,12 +542,14 @@ class HomeScreenTest {
                     hasPdf = false,
                     pdfPageCount = null,
                 ),
+                documentPages = (1L..3L).map(::documentPage),
                 pageExportState = PageExportState.Cancelled(exportedPageCount = 1),
             )
         }
 
         composeTestRule.onNodeWithText("Page export cancelled.").assertIsDisplayed()
         composeTestRule.onNodeWithText("Export Pages")
+            .performScrollTo()
             .assertIsDisplayed()
             .assertIsEnabled()
         composeTestRule.onAllNodesWithText("Exporting page 2 of 3…").assertCountEquals(0)
@@ -487,6 +564,7 @@ class HomeScreenTest {
                     hasPdf = true,
                     pdfPageCount = 1,
                 ),
+                documentPages = listOf(documentPage(1L)),
                 pdfSaveState = PdfSaveState.Idle,
             )
         }
@@ -642,9 +720,12 @@ class HomeScreenTest {
     @Test
     fun recognizeTextAppearsWhenJpegPagesExist() {
         composeTestRule.setContent {
-            PageHarborApp(scannerSpikeState = scanSummary(jpegPageCount = 1))
+            PageHarborApp(
+                scannerSpikeState = scanSummary(jpegPageCount = 1),
+                documentPages = listOf(documentPage(1L)),
+            )
         }
-        composeTestRule.onNodeWithText("Recognize Text").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Recognize Text").performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -653,27 +734,32 @@ class HomeScreenTest {
         composeTestRule.setContent {
             PageHarborApp(
                 scannerSpikeState = scanSummary(jpegPageCount = 1),
+                documentPages = listOf(documentPage(1L)),
                 onRecognizeText = { callCount += 1 },
             )
         }
 
-        composeTestRule.onNodeWithText("Recognize Text").performClick()
+        composeTestRule.onNodeWithText("Recognize Text").performScrollTo().performClick()
 
         assertEquals(1, callCount)
     }
 
     @Test
     fun searchablePdfSaveAppearsOnlyWhenScannedPagesExist() {
-        val pageCount = mutableStateOf(1)
+        val pages = mutableStateOf(listOf(documentPage(1L)))
         composeTestRule.setContent {
-            PageHarborApp(scannerSpikeState = scanSummary(jpegPageCount = pageCount.value))
+            PageHarborApp(
+                scannerSpikeState = scanSummary(jpegPageCount = pages.value.size),
+                documentPages = pages.value,
+            )
         }
 
         composeTestRule.onNodeWithText("Save searchable PDF")
+            .performScrollTo()
             .assertIsDisplayed()
             .assertIsEnabled()
 
-        composeTestRule.runOnIdle { pageCount.value = 0 }
+        composeTestRule.runOnIdle { pages.value = emptyList() }
 
         composeTestRule.onAllNodesWithText("Save searchable PDF").assertCountEquals(0)
     }
@@ -685,17 +771,20 @@ class HomeScreenTest {
         composeTestRule.setContent {
             PageHarborApp(
                 scannerSpikeState = scanSummary(jpegPageCount = 1),
+                documentPages = listOf(documentPage(1L)),
                 searchablePdfSaveState = state.value,
                 onSaveSearchablePdf = { callCount += 1 },
             )
         }
 
-        composeTestRule.onNodeWithText("Save searchable PDF").performClick()
+        composeTestRule.onNodeWithText("Save searchable PDF").performScrollTo().performClick()
         assertEquals(1, callCount)
 
         composeTestRule.runOnIdle { state.value = SearchablePdfSaveState.ChoosingDestination }
 
-        composeTestRule.onNodeWithText("Save searchable PDF").assertIsNotEnabled()
+        composeTestRule.onNodeWithText("Save searchable PDF")
+            .performScrollTo()
+            .assertIsNotEnabled()
         composeTestRule.onAllNodesWithText("Preparing searchable PDF…").assertCountEquals(0)
     }
 
@@ -712,13 +801,16 @@ class HomeScreenTest {
         composeTestRule.setContent {
             PageHarborApp(
                 scannerSpikeState = scanSummary(jpegPageCount = 1),
+                documentPages = listOf(documentPage(1L)),
                 searchablePdfSaveState = state.value,
             )
         }
 
         progressStates.forEach { (progressState, message) ->
             composeTestRule.runOnIdle { state.value = progressState }
-            composeTestRule.onNodeWithText("Save searchable PDF").assertIsNotEnabled()
+            composeTestRule.onNodeWithText("Save searchable PDF")
+                .performScrollTo()
+                .assertIsNotEnabled()
             composeTestRule.onNodeWithText(message).performScrollTo().assertIsDisplayed()
         }
     }
@@ -729,6 +821,7 @@ class HomeScreenTest {
         composeTestRule.setContent {
             PageHarborApp(
                 scannerSpikeState = scanSummary(jpegPageCount = 1),
+                documentPages = listOf(documentPage(1L)),
                 searchablePdfSaveState = state.value,
             )
         }
@@ -751,6 +844,7 @@ class HomeScreenTest {
         composeTestRule.setContent {
             PageHarborApp(
                 scannerSpikeState = scanSummary(jpegPageCount = 1),
+                documentPages = listOf(documentPage(1L)),
                 searchablePdfSaveState = SearchablePdfSaveState.Saving,
             )
         }
@@ -767,9 +861,9 @@ class HomeScreenTest {
         composeTestRule.setContent {
             PageHarborApp(
                 scannerSpikeState = scanSummary(jpegPageCount = 2),
-                scanPages = listOf(
-                    ActiveScanPage(id = 1L, sourceUri = null),
-                    ActiveScanPage(id = 2L, sourceUri = null),
+                documentPages = listOf(
+                    documentPage(1L),
+                    documentPage(2L),
                 ),
                 onScanDocument = { addPagesCalls += 1 },
             )
@@ -795,15 +889,15 @@ class HomeScreenTest {
         var addPagesCalls = 0
         composeTestRule.setContent {
             PageHarborApp(
-                scannerSpikeState = scanSummary(jpegPageCount = MAX_SCAN_PAGES),
-                scanPages = (1L..MAX_SCAN_PAGES.toLong()).map { id ->
-                    ActiveScanPage(id = id, sourceUri = null)
+                scannerSpikeState = scanSummary(jpegPageCount = MAX_DOCUMENT_PAGES),
+                documentPages = (1L..MAX_DOCUMENT_PAGES.toLong()).map { id ->
+                    documentPage(id)
                 },
                 onScanDocument = { addPagesCalls += 1 },
             )
         }
 
-        repeat(MAX_SCAN_PAGES - 1) {
+        repeat(MAX_DOCUMENT_PAGES - 1) {
             composeTestRule.onNodeWithText("Next page").performClick()
         }
 
@@ -819,7 +913,7 @@ class HomeScreenTest {
         composeTestRule.setContent {
             PageHarborApp(
                 scannerSpikeState = scanSummary(jpegPageCount = 1),
-                scanPages = listOf(ActiveScanPage(id = 1L, sourceUri = null)),
+                documentPages = listOf(documentPage(1L)),
             )
         }
 
@@ -845,9 +939,9 @@ class HomeScreenTest {
             Box(modifier = androidx.compose.ui.Modifier.size(width = 320.dp, height = 320.dp)) {
                 PageHarborApp(
                     scannerSpikeState = scanSummary(jpegPageCount = 2),
-                    scanPages = listOf(
-                        ActiveScanPage(id = 1L, sourceUri = null),
-                        ActiveScanPage(id = 2L, sourceUri = null),
+                    documentPages = listOf(
+                        documentPage(1L),
+                        documentPage(2L),
                     ),
                 )
             }
@@ -863,6 +957,7 @@ class HomeScreenTest {
         composeTestRule.setContent {
             PageHarborApp(
                 scannerSpikeState = scanSummary(jpegPageCount = 1),
+                documentPages = listOf(documentPage(1L)),
                 ocrUiState = OcrUiState.Recognizing,
             )
         }
@@ -879,6 +974,7 @@ class HomeScreenTest {
         composeTestRule.setContent {
             PageHarborApp(
                 scannerSpikeState = scanSummary(jpegPageCount = 2),
+                documentPages = listOf(documentPage(1L), documentPage(2L)),
                 ocrUiState = OcrUiState.Success(
                     OcrResult(
                         listOf(
@@ -905,6 +1001,7 @@ class HomeScreenTest {
         composeTestRule.setContent {
             PageHarborApp(
                 scannerSpikeState = scanSummary(jpegPageCount = 2),
+                documentPages = listOf(documentPage(1L), documentPage(2L)),
                 ocrUiState = OcrUiState.Success(
                     OcrResult(
                         listOf(
@@ -944,6 +1041,7 @@ class HomeScreenTest {
                 Box(modifier = androidx.compose.ui.Modifier.size(width = 320.dp, height = 600.dp)) {
                     PageHarborApp(
                         scannerSpikeState = scanSummary(jpegPageCount = 1),
+                        documentPages = listOf(documentPage(1L)),
                         ocrUiState = OcrUiState.Success(
                             OcrResult(
                                 listOf(
@@ -973,6 +1071,7 @@ class HomeScreenTest {
         composeTestRule.setContent {
             PageHarborApp(
                 scannerSpikeState = scanSummary(jpegPageCount = 1),
+                documentPages = listOf(documentPage(1L)),
                 ocrUiState = OcrUiState.Success(
                     OcrResult(listOf(OcrPageResult(pageIndex = 0, text = ""))),
                 ),
@@ -991,6 +1090,7 @@ class HomeScreenTest {
         composeTestRule.setContent {
             PageHarborApp(
                 scannerSpikeState = scanSummary(jpegPageCount = 2),
+                documentPages = listOf(documentPage(1L), documentPage(2L)),
                 ocrUiState = OcrUiState.Success(
                     OcrResult(
                         listOf(
@@ -1019,6 +1119,7 @@ class HomeScreenTest {
         composeTestRule.setContent {
             PageHarborApp(
                 scannerSpikeState = scanSummary(jpegPageCount = 1),
+                documentPages = listOf(documentPage(1L)),
                 ocrUiState = OcrUiState.Success(
                     OcrResult(listOf(OcrPageResult(pageIndex = 0, text = "Recognized"))),
                 ),
@@ -1041,6 +1142,7 @@ class HomeScreenTest {
         composeTestRule.setContent {
             PageHarborApp(
                 scannerSpikeState = scanSummary(jpegPageCount = 1),
+                documentPages = listOf(documentPage(1L)),
                 ocrUiState = OcrUiState.Success(
                     OcrResult(listOf(OcrPageResult(pageIndex = 0, text = "Copy me"))),
                 ),
@@ -1077,6 +1179,7 @@ class HomeScreenTest {
         composeTestRule.setContent {
             PageHarborApp(
                 scannerSpikeState = scanSummary(jpegPageCount = 1),
+                documentPages = listOf(documentPage(1L)),
                 searchablePdfSaveState = SearchablePdfSaveState.Generating,
             )
         }
@@ -1084,7 +1187,7 @@ class HomeScreenTest {
         composeTestRule.onNode(
             SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite)
                 .and(hasText("Generating searchable PDF…")),
-        ).assertIsDisplayed()
+        ).performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -1093,6 +1196,7 @@ class HomeScreenTest {
         composeTestRule.setContent {
             PageHarborApp(
                 scannerSpikeState = scanSummary(jpegPageCount = 1),
+                documentPages = listOf(documentPage(1L)),
                 pdfSaveState = state.value,
             )
         }
@@ -1100,13 +1204,15 @@ class HomeScreenTest {
         composeTestRule.onNode(
             SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite)
                 .and(hasText("Saving PDF…")),
-        ).assertIsDisplayed()
+        ).assertNodeExists().performScrollTo().assertIsDisplayed()
 
         composeTestRule.runOnIdle { state.value = PdfSaveState.Saved }
 
         composeTestRule.onAllNodesWithText("Saving PDF…").assertCountEquals(0)
-        composeTestRule.onNodeWithText("PDF saved").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Save PDF").assertIsEnabled()
+        composeTestRule.onNodeWithText("PDF saved")
+            .assertNodeExists()
+            .assertIsDisplayed()
+        composeTestRule.onNodeWithText("Save PDF").performScrollTo().assertIsEnabled()
     }
 
     @Test
@@ -1114,6 +1220,7 @@ class HomeScreenTest {
         composeTestRule.setContent {
             PageHarborApp(
                 scannerSpikeState = scanSummary(jpegPageCount = 1),
+                documentPages = listOf(documentPage(1L)),
                 pdfSaveState = PdfSaveState.Error(
                     org.synapseworks.pageharbor.document.PdfExportResult.WriteFailed,
                 ),
@@ -1131,12 +1238,18 @@ class HomeScreenTest {
         composeTestRule.setContent {
             CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 2f)) {
                 Box(modifier = androidx.compose.ui.Modifier.size(width = 320.dp, height = 600.dp)) {
-                    PageHarborApp(scannerSpikeState = scanSummary(jpegPageCount = 1))
+                    PageHarborApp(
+                        scannerSpikeState = scanSummary(jpegPageCount = 1),
+                        documentPages = listOf(documentPage(1L)),
+                    )
                 }
             }
         }
 
-        composeTestRule.onNodeWithText("Save PDF").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Save PDF")
+            .assertNodeExists()
+            .performScrollTo()
+            .assertIsDisplayed()
         composeTestRule.onNodeWithText("Save searchable PDF").performScrollTo().assertIsDisplayed()
         composeTestRule.onNodeWithText("Discard").performScrollTo().assertIsDisplayed()
     }
@@ -1149,6 +1262,7 @@ class HomeScreenTest {
                 Box(modifier = androidx.compose.ui.Modifier.size(width = 320.dp, height = 600.dp)) {
                     PageHarborApp(
                         scannerSpikeState = scanSummary(jpegPageCount = 2),
+                        documentPages = listOf(documentPage(1L), documentPage(2L)),
                         ocrUiState = OcrUiState.Success(
                             OcrResult(
                                 listOf(
@@ -1176,13 +1290,26 @@ class HomeScreenTest {
             PageHarborApp(
                 darkTheme = true,
                 scannerSpikeState = scanSummary(jpegPageCount = 1),
+                documentPages = listOf(documentPage(1L)),
             )
         }
 
-        composeTestRule.onNodeWithText("Save PDF").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Save searchable PDF").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Recognize Text").assertIsDisplayed()
+        listOf("Save PDF", "Save searchable PDF", "Recognize Text").forEach { action ->
+            composeTestRule.onNodeWithText(action)
+                .assertNodeExists()
+                .performScrollTo()
+                .assertIsDisplayed()
+        }
     }
+
+    private fun documentPage(id: Long) = DocumentPage(
+        id = DocumentPageId(id),
+        source = DocumentResource(
+            reference = "content://org.synapseworks.pageharbor.test/page/$id",
+            ownership = DocumentResourceOwnership.USER_OR_EXTERNAL,
+        ),
+        sourceCategory = DocumentSourceCategory.SCAN,
+    )
 
     private fun scanSummary(jpegPageCount: Int) = ScannerSpikeState.ResultSummary(
         jpegPageCount = jpegPageCount,
@@ -1190,3 +1317,6 @@ class HomeScreenTest {
         pdfPageCount = 1,
     )
 }
+
+private fun SemanticsNodeInteraction.assertNodeExists(): SemanticsNodeInteraction =
+    assert(SemanticsMatcher("node exists") { true })

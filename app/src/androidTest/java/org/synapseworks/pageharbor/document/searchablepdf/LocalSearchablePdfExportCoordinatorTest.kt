@@ -31,6 +31,8 @@ import org.synapseworks.pageharbor.ocr.OcrResult
 import org.synapseworks.pageharbor.ocr.OcrTextBounds
 import org.synapseworks.pageharbor.ocr.OcrTextLine
 import org.synapseworks.pageharbor.image.DocumentFilter
+import org.synapseworks.pageharbor.document.session.DEFAULT_MAX_IMAGE_SOURCE_BYTES
+import org.synapseworks.pageharbor.document.session.DocumentImageMetadata
 
 class LocalSearchablePdfExportCoordinatorTest {
     private val context: Context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -72,6 +74,38 @@ class LocalSearchablePdfExportCoordinatorTest {
         } finally {
             source.delete()
         }
+    }
+
+    @Test
+    fun knownOversizedVisualFailsBeforeOcrOrGenerationWithTypedReason() = runBlocking {
+        val generator = RecordingGenerator()
+        val coordinator = LocalSearchablePdfExportCoordinator(
+            context = context,
+            ocrEngine = FailingOcrEngine,
+            generator = generator,
+        )
+        val uri = Uri.parse("content://test.provider/oversized.jpg")
+
+        val result = coordinator.prepare(
+            SearchablePdfExportRequest(
+                pageUris = listOf(uri),
+                visualPages = listOf(
+                    SearchablePdfVisualPage(
+                        pageId = 1L,
+                        originalUri = uri,
+                        imageMetadata = DocumentImageMetadata(
+                            sourceByteCount = DEFAULT_MAX_IMAGE_SOURCE_BYTES + 1L,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(
+            SearchablePdfPreparedExport.Failure(SearchablePdfPreparationError.SOURCE_TOO_LARGE),
+            result,
+        )
+        assertEquals(0, generator.requestCount)
     }
 
     @Test

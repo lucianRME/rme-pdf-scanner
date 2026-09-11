@@ -6,6 +6,8 @@ import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import org.synapseworks.pageharbor.document.session.DEFAULT_DOCUMENT_INPUT_LIMITS
+import org.synapseworks.pageharbor.document.session.imageConstraintViolation
 
 /**
  * On-device OCR implementation backed by ML Kit's bundled Latin recognizer.
@@ -52,7 +54,10 @@ class MlKitOcrEngine : OcrEngine {
         }
 
         return try {
-            val result = Tasks.await(recognizer.process(InputImage.fromBitmap(bitmap, 0)))
+            val result = Tasks.await(
+                recognizer.process(InputImage.fromBitmap(bitmap, page.rotationDegrees)),
+            )
+            val swapsDimensions = page.rotationDegrees == 90 || page.rotationDegrees == 270
             val layoutBlocks = result.textBlocks.map { block ->
                 OcrTextBlock(
                     lines = block.lines.map { line ->
@@ -75,11 +80,10 @@ class MlKitOcrEngine : OcrEngine {
                 pageIndex = pageIndex,
                 text = result.text,
                 layout = OcrPageLayout(
-                    imageWidthPx = bitmap.width,
-                    imageHeightPx = bitmap.height,
-                    // InputImage receives an upright bitmap with zero rotation. Keeping this
-                    // explicit prevents a future raw-camera input from silently changing the
-                    // searchable-PDF coordinate contract.
+                    imageWidthPx = if (swapsDimensions) bitmap.height else bitmap.width,
+                    imageHeightPx = if (swapsDimensions) bitmap.width else bitmap.height,
+                    // ML Kit returns bounds in the upright coordinate space after applying the
+                    // requested active-session rotation.
                     rotationDegrees = 0,
                     lines = layoutBlocks.flatMap { it.lines },
                     blocks = layoutBlocks,
@@ -107,6 +111,9 @@ class MlKitOcrEngine : OcrEngine {
      * at roughly 28 MB. OOM is caught only around the allocating decode operation.
      */
     private fun decodeBoundedBitmap(page: OcrPage): Bitmap? {
+        if (DEFAULT_DOCUMENT_INPUT_LIMITS.imageConstraintViolation(page.imageMetadata) != null) {
+            return null
+        }
         val bounds = BitmapFactory.Options().apply {
             inJustDecodeBounds = true
         }
@@ -116,6 +123,14 @@ class MlKitOcrEngine : OcrEngine {
                 BitmapFactory.decodeStream(stream, null, bounds)
             }
         } catch (_: Exception) {
+            return null
+        }
+
+        if (
+            DEFAULT_DOCUMENT_INPUT_LIMITS.imageConstraintViolation(
+                page.imageMetadata.copy(width = bounds.outWidth, height = bounds.outHeight),
+            ) != null
+        ) {
             return null
         }
 

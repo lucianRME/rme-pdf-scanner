@@ -12,8 +12,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.synapseworks.pageharbor.document.searchablepdf.PdfBoxSearchablePdfGenerator
 import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfGenerationResult
+import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfGenerationError
 import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfPage
 import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfRequest
+import org.synapseworks.pageharbor.document.session.toAndroidUri
 import org.synapseworks.pageharbor.image.DocumentFilter
 
 private const val NormalPdfDirectory = "normal-pdfs"
@@ -24,6 +26,7 @@ private const val NormalPdfMaxAgeMillis = 24L * 60L * 60L * 1000L
 sealed interface NormalPdfRecompositionResult {
     data class Ready(val file: File) : NormalPdfRecompositionResult
     data object SourceMissing : NormalPdfRecompositionResult
+    data object SourceTooLarge : NormalPdfRecompositionResult
     data object Failed : NormalPdfRecompositionResult
 }
 
@@ -35,7 +38,7 @@ suspend fun recomposeNormalPdf(
     context: Context,
     pages: List<NormalPdfPage>,
 ): NormalPdfRecompositionResult = withContext(Dispatchers.IO) {
-    if (pages.isEmpty() || pages.any { it.sourceUri == null }) {
+    if (pages.isEmpty()) {
         return@withContext NormalPdfRecompositionResult.SourceMissing
     }
     val outputFile = createTemporaryNormalPdf(context.cacheDir)
@@ -44,7 +47,7 @@ suspend fun recomposeNormalPdf(
 
     try {
         when (
-            PdfBoxSearchablePdfGenerator(context).generate(
+            val generated = PdfBoxSearchablePdfGenerator(context).generate(
                 SearchablePdfRequest(
                     pages = pages.map { page ->
                         SearchablePdfPage(
@@ -68,7 +71,7 @@ suspend fun recomposeNormalPdf(
 
             is SearchablePdfGenerationResult.Failure -> {
                 outputFile.deleteSafely()
-                NormalPdfRecompositionResult.Failed
+                normalPdfResultForGenerationFailure(generated.reason)
             }
         }
     } catch (error: CancellationException) {
@@ -78,6 +81,16 @@ suspend fun recomposeNormalPdf(
         outputFile.deleteSafely()
         NormalPdfRecompositionResult.Failed
     }
+}
+
+internal fun normalPdfResultForGenerationFailure(
+    error: SearchablePdfGenerationError,
+): NormalPdfRecompositionResult = if (
+    error == SearchablePdfGenerationError.PAGE_IMAGE_TOO_LARGE
+) {
+    NormalPdfRecompositionResult.SourceTooLarge
+} else {
+    NormalPdfRecompositionResult.Failed
 }
 
 fun deleteNormalPdfRecomposition(file: File) {
@@ -104,15 +117,36 @@ fun deleteStaleNormalPdfs(
 
 private class NormalPdfVisualStreamProvider(private val context: Context) {
     fun open(page: NormalPdfPage): InputStream = when (page.filter) {
-        DocumentFilter.ORIGINAL -> openOriginal(page.sourceUri)
-        else -> openFiltered(page.sourceUri, page.filter)
+        DocumentFilter.ORIGINAL -> if (
+            page.rotation.degrees == 0 && page.contentType == "image/jpeg"
+        ) {
+            pageSourcePreflight(page.imageMetadata)?.let { throw PageExportFailureException(it) }
+            openOriginal(page.source.toAndroidUri())
+        } else {
+            openFiltered(
+                page.source.toAndroidUri(),
+                page.filter,
+                page.rotation,
+                page.imageMetadata,
+            )
+        }
+        else -> openFiltered(
+            page.source.toAndroidUri(),
+            page.filter,
+            page.rotation,
+            page.imageMetadata,
+        )
     }
 
-    private fun openOriginal(sourceUri: Uri?): InputStream =
-        sourceUri?.let { context.contentResolver.openInputStream(it) } ?: throw FileNotFoundException()
+    private fun openOriginal(sourceUri: Uri): InputStream =
+        context.contentResolver.openInputStream(sourceUri) ?: throw FileNotFoundException()
 
-    private fun openFiltered(sourceUri: Uri?, filter: DocumentFilter): InputStream {
-        val uri = sourceUri ?: throw FileNotFoundException()
+    private fun openFiltered(
+        sourceUri: Uri,
+        filter: DocumentFilter,
+        rotation: org.synapseworks.pageharbor.document.session.DocumentPageRotation,
+        imageMetadata: org.synapseworks.pageharbor.document.session.DocumentImageMetadata,
+    ): InputStream {
         val temporaryImage = createTemporaryNormalVisual(context.cacheDir) ?: throw FileNotFoundException()
         val destination = try {
             temporaryImage.outputStream()
@@ -124,13 +158,30 @@ private class NormalPdfVisualStreamProvider(private val context: Context) {
             throw FileNotFoundException()
         }
         val result = writeFilteredJpegToDestination(
-            openSource = { context.contentResolver.openInputStream(uri) },
+            openSource = { context.contentResolver.openInputStream(sourceUri) },
             destination = destination,
             filter = filter,
+            rotation = rotation,
+            imageMetadata = imageMetadata,
         )
-        if (result != PageExportResult.Success) {
-            temporaryImage.deleteSafely()
-            throw FileNotFoundException()
+        when (result) {
+            PageExportResult.Success -> Unit
+            PageExportResult.SourceTooLarge -> {
+                temporaryImage.deleteSafely()
+                throw PageExportFailureException(result)
+            }
+
+            PageExportResult.SourceMissing -> {
+                temporaryImage.deleteSafely()
+                throw FileNotFoundException()
+            }
+
+            PageExportResult.DestinationUnavailable,
+            PageExportResult.WriteFailed,
+            -> {
+                temporaryImage.deleteSafely()
+                throw IOException()
+            }
         }
         return try {
             DeleteOnCloseInputStream(temporaryImage.inputStream(), temporaryImage)

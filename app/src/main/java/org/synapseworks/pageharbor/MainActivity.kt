@@ -18,13 +18,18 @@ import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import java.io.FileNotFoundException
 import java.io.IOException
 import java.io.InputStream
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.synapseworks.pageharbor.document.PageExportResult
 import org.synapseworks.pageharbor.document.PageExportState
 import org.synapseworks.pageharbor.document.PageJpegExportPlan
+import org.synapseworks.pageharbor.document.DocumentOperationTracker
+import org.synapseworks.pageharbor.document.DocumentOperationToken
 import org.synapseworks.pageharbor.document.NormalPdfExportPlan
 import org.synapseworks.pageharbor.document.NormalPdfRecompositionResult
 import org.synapseworks.pageharbor.document.PdfExportResult
@@ -34,9 +39,11 @@ import org.synapseworks.pageharbor.document.PdfShareIntentResult
 import org.synapseworks.pageharbor.document.PdfSharePreparationResult
 import org.synapseworks.pageharbor.document.PdfShareState
 import org.synapseworks.pageharbor.document.copyPageToDestination
+import org.synapseworks.pageharbor.document.canExportNormalPdf
 import org.synapseworks.pageharbor.document.copyPdfToDestination
 import org.synapseworks.pageharbor.document.createPdfShareIntent
 import org.synapseworks.pageharbor.document.deleteStaleSharedPdfs
+import org.synapseworks.pageharbor.document.discardPreparedPdfShare
 import org.synapseworks.pageharbor.document.deleteNormalPdfRecomposition
 import org.synapseworks.pageharbor.document.deleteStaleNormalPdfs
 import org.synapseworks.pageharbor.document.normalPdfExportPlan
@@ -61,6 +68,10 @@ import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfSaveState
 import org.synapseworks.pageharbor.document.searchablepdf.deleteStaleSearchablePdfs
 import org.synapseworks.pageharbor.document.searchablepdf.isInProgress
 import org.synapseworks.pageharbor.document.searchablepdf.searchablePdfSaveStateForProgress
+import org.synapseworks.pageharbor.document.session.DocumentPage
+import org.synapseworks.pageharbor.document.session.DocumentSession
+import org.synapseworks.pageharbor.document.session.readDocumentImageMetadata
+import org.synapseworks.pageharbor.document.session.toAndroidUri
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.scanner.createScannerResultSummary
 import org.synapseworks.pageharbor.ui.PageHarborApp
@@ -98,9 +109,6 @@ class MainActivity : ComponentActivity() {
     private var searchablePdfSaveState: SearchablePdfSaveState
         get() = session.searchablePdfSaveState
         set(value) { session.searchablePdfSaveState = value }
-    private var scannedPdfUri: Uri?
-        get() = session.scannedPdfUri
-        set(value) { session.scannedPdfUri = value }
     private val scannedPageUris: List<Uri>
         get() = session.scannedPageUris
     private var ocrEngine: OcrEngine = MlKitOcrEngine()
@@ -117,6 +125,24 @@ class MainActivity : ComponentActivity() {
     private val searchablePdfOperationTracker = SearchablePdfOperationTracker()
     private var searchablePdfDestinationLauncherOverride: ((String) -> Unit)? = null
     private var ocrTerminalStateObserverForTest: (() -> Unit)? = null
+    private var documentSessionLeaseReleaseObserverForTest: (() -> Unit)? = null
+    private val normalPdfSaveOperationTracker = DocumentOperationTracker()
+    private val pdfShareOperationTracker = DocumentOperationTracker()
+    private val pageExportOperationTracker = DocumentOperationTracker()
+    private var normalPdfSaveJob: Job? = null
+    private var pdfShareJob: Job? = null
+    private var pageExportJob: Job? = null
+    private var pendingNormalPdfDestinationToken: DocumentOperationToken? = null
+    private var pendingPageDestinationToken: DocumentOperationToken? = null
+    private var normalPdfWriteOverride:
+        (suspend (NormalPdfExportPlan, Uri) -> PdfExportResult)? = null
+    private var pdfSharePreparationOverride:
+        (suspend (NormalPdfExportPlan) -> PdfSharePreparationResult)? = null
+    private var pageExportOverride:
+        (suspend (DocumentPage, Uri) -> PageExportResult)? = null
+    private var normalPdfDestinationLauncherOverride: ((String) -> Unit)? = null
+    private var pageDestinationLauncherOverride: ((String) -> Unit)? = null
+    private var pdfShareLauncherOverride: ((Uri) -> Unit)? = null
 
     private val scanLauncher = registerForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult(),
@@ -138,6 +164,7 @@ class MainActivity : ComponentActivity() {
             if (scannerResult == null || (jpegPageCount == 0 && pdfPageCount == null)) {
                 session.completeScannerRequestWithoutResult()
             } else {
+                val pageUris = scannerResult.pages.orEmpty().map { page -> page.imageUri }
                 clearRecognizedText()
                 clearSearchablePdfSave()
                 session.completeScannerRequest(
@@ -146,7 +173,8 @@ class MainActivity : ComponentActivity() {
                         pdfPageCount = pdfPageCount,
                     ),
                     scannedPdfUri = scannerResult.pdf?.uri,
-                    scannedPageUris = scannerResult.pages.orEmpty().map { page -> page.imageUri },
+                    scannedPageUris = pageUris,
+                    scannedPageMetadata = pageUris.map(contentResolver::readDocumentImageMetadata),
                 )
             }
         }.onFailure {
@@ -156,28 +184,13 @@ class MainActivity : ComponentActivity() {
 
     private val createPdfDocumentLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/pdf"),
-    ) { destinationUri ->
-        if (destinationUri == null) {
-            pdfSaveState = PdfSaveState.Idle
-            return@registerForActivityResult
-        }
-
-        savePdfToDestination(destinationUri)
-    }
+        ::handleNormalPdfDestinationResult,
+    )
 
     private val createPageDocumentLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("image/jpeg"),
-    ) { destinationUri ->
-        val currentState = pageExportState as? PageExportState.ChoosingDestination
-            ?: return@registerForActivityResult
-
-        if (destinationUri == null) {
-            pageExportState = pageExportStateAfterCancellation(currentState.pageNumber)
-            return@registerForActivityResult
-        }
-
-        exportPageToDestination(currentState, destinationUri)
-    }
+        ::handlePageDestinationResult,
+    )
 
     private val createSearchablePdfDocumentLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/pdf"),
@@ -220,6 +233,14 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        var observedDocumentRevision = session.documentRevision
+        lifecycleScope.launch {
+            session.documentRevisionChanges.collect { revision ->
+                if (revision == observedDocumentRevision) return@collect
+                observedDocumentRevision = revision
+                clearStaleNormalDocumentOperations(revision)
+            }
+        }
         lifecycleScope.launch(Dispatchers.IO) {
             deleteStaleSharedPdfs(cacheDir)
             deleteStaleSearchablePdfs(cacheDir)
@@ -243,7 +264,7 @@ class MainActivity : ComponentActivity() {
                 ocrUiState = ocrUiState,
                 ocrSelectedPageIndex = ocrSelectedPageIndex,
                 scannedPageUris = scannedPageUris,
-                scanPages = session.scanPages,
+                documentPages = session.documentPages,
                 onOcrSelectedPageChange = { ocrSelectedPageIndex = it },
                 onPageFilterChange = session::setPageFilter,
                 searchablePdfSaveState = searchablePdfSaveState,
@@ -258,6 +279,7 @@ class MainActivity : ComponentActivity() {
                 onClearScanResult = {
                     clearRecognizedText()
                     clearSearchablePdfSave()
+                    clearNormalDocumentOperations()
                     session.clearScan()
                 },
             )
@@ -266,6 +288,7 @@ class MainActivity : ComponentActivity() {
 
     private fun launchDocumentScanner() {
         if (session.beginScannerRequest() == null) return
+        clearNormalDocumentOperations()
         val remainingPageCapacity = session.remainingPageCapacity()
 
         val options = GmsDocumentScannerOptions.Builder()
@@ -292,12 +315,21 @@ class MainActivity : ComponentActivity() {
     private fun recognizeText() {
         if (!canStartOcr(ocrUiState)) return
 
-        val pages = scannedPageUris.map { pageUri ->
-            OcrPage {
-                contentResolver.openInputStream(pageUri) ?: throw FileNotFoundException()
+        val lease = session.acquireDocumentSessionLease(documentSessionLeaseReleaseObserverForTest) ?: run {
+            ocrUiState = OcrUiState.Error(OcrUiError.NO_PAGES)
+            return
+        }
+        val pages = lease.session.pages.map { page ->
+            OcrPage(
+                rotationDegrees = page.rotation.degrees,
+                imageMetadata = page.imageMetadata,
+            ) {
+                contentResolver.openInputStream(page.source.toAndroidUri())
+                    ?: throw FileNotFoundException()
             }
         }
         if (pages.isEmpty()) {
+            session.releaseDocumentSessionLease(lease)
             ocrUiState = OcrUiState.Error(OcrUiError.NO_PAGES)
             return
         }
@@ -305,29 +337,33 @@ class MainActivity : ComponentActivity() {
         ocrUiState = OcrUiState.Recognizing
         val operationId = ocrOperationTracker.begin()
         ocrJob = lifecycleScope.launch {
-            val result = try {
-                withContext(Dispatchers.IO) {
-                    ocrEngine.recognize(pages)
+            try {
+                val result = try {
+                    withContext(Dispatchers.IO) {
+                        ocrEngine.recognize(pages)
+                    }
+                } catch (_: kotlinx.coroutines.CancellationException) {
+                    return@launch
+                } catch (_: Exception) {
+                    if (ocrOperationTracker.claimCompletion(operationId) ==
+                        OcrOperationTracker.CompletionClaim.CLAIMED
+                    ) {
+                        ocrUiState = OcrUiState.Error(OcrUiError.UNEXPECTED_FAILURE)
+                        ocrTerminalStateObserverForTest?.invoke()
+                    }
+                    return@launch
                 }
-            } catch (_: kotlinx.coroutines.CancellationException) {
-                return@launch
-            } catch (_: Exception) {
-                if (ocrOperationTracker.claimCompletion(operationId) ==
+                if (ocrOperationTracker.claimCompletion(operationId) !=
                     OcrOperationTracker.CompletionClaim.CLAIMED
                 ) {
-                    ocrUiState = OcrUiState.Error(OcrUiError.UNEXPECTED_FAILURE)
-                    ocrTerminalStateObserverForTest?.invoke()
+                    return@launch
                 }
-                return@launch
+                ocrUiState = ocrStateAfterResult(result)
+                ocrSelectedPageIndex = 0
+                ocrTerminalStateObserverForTest?.invoke()
+            } finally {
+                session.releaseDocumentSessionLease(lease)
             }
-            if (ocrOperationTracker.claimCompletion(operationId) !=
-                OcrOperationTracker.CompletionClaim.CLAIMED
-            ) {
-                return@launch
-            }
-            ocrUiState = ocrStateAfterResult(result)
-            ocrSelectedPageIndex = 0
-            ocrTerminalStateObserverForTest?.invoke()
         }
     }
 
@@ -344,101 +380,155 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        val plan = normalPdfExportPlan(scannedPdfUri, session.scanPages)
-        if (plan is NormalPdfExportPlan.DirectScannerPdf && plan.sourceUri == null) {
+        if (!canExportNormalPdf(session.documentSession)) {
+            pdfSaveState = PdfSaveState.Error(PdfExportResult.SourceMissing)
+            return
+        }
+        val plan = normalPdfExportPlan(session.documentSession)
+        if (plan is NormalPdfExportPlan.DirectScannerPdf && plan.source == null) {
             pdfSaveState = PdfSaveState.Error(PdfExportResult.SourceMissing)
             return
         }
 
+        val operationId = normalPdfSaveOperationTracker.begin(session.documentRevision)
+        pendingNormalPdfDestinationToken = operationId
         pdfSaveState = PdfSaveState.ChoosingDestination
-        createPdfDocumentLauncher.launch(getString(R.string.pdf_default_filename))
+        try {
+            val filename = getString(R.string.pdf_default_filename)
+            normalPdfDestinationLauncherOverride?.invoke(filename)
+                ?: createPdfDocumentLauncher.launch(filename)
+        } catch (_: ActivityNotFoundException) {
+            pendingNormalPdfDestinationToken = null
+            if (normalPdfSaveOperationTracker.finishForCurrentDocument(operationId)) {
+                pdfSaveState = PdfSaveState.Error(PdfExportResult.DestinationUnavailable)
+            }
+        } catch (_: RuntimeException) {
+            pendingNormalPdfDestinationToken = null
+            if (normalPdfSaveOperationTracker.finishForCurrentDocument(operationId)) {
+                pdfSaveState = PdfSaveState.Error(PdfExportResult.DestinationUnavailable)
+            }
+        }
+    }
+
+    private fun handleNormalPdfDestinationResult(destinationUri: Uri?) {
+        val operationId = pendingNormalPdfDestinationToken ?: return
+        pendingNormalPdfDestinationToken = null
+        if (!normalPdfSaveOperationTracker.isCurrentForCurrentDocument(operationId)) return
+        if (destinationUri == null) {
+            if (normalPdfSaveOperationTracker.finishForCurrentDocument(operationId)) {
+                pdfSaveState = PdfSaveState.Idle
+            }
+            return
+        }
+        savePdfToDestination(destinationUri, operationId)
     }
 
     private fun saveSearchablePdf() {
         if (searchablePdfSaveState.isInProgress()) return
-        val scanPages = session.scanPages
-        if (scanPages.isEmpty() || scanPages.any { it.sourceUri == null }) {
+        val lease = session.acquireDocumentSessionLease(documentSessionLeaseReleaseObserverForTest)
+        if (lease == null) {
             searchablePdfSaveState = SearchablePdfSaveState.Error(SearchablePdfSaveError.NO_PAGES)
             return
         }
+        val documentPages = lease.session.pages
 
         clearSearchablePdfSave()
         val operationId = searchablePdfOperationTracker.begin()
         searchablePdfSaveState = SearchablePdfSaveState.Preparing
         val existingOcrResult = (ocrUiState as? OcrUiState.Success)?.result
         searchablePdfExportJob = lifecycleScope.launch {
-            val preparedExport = searchablePdfExportCoordinator.prepare(
-                SearchablePdfExportRequest(
-                    pageUris = scanPages.map { requireNotNull(it.sourceUri) },
-                    visualPages = scanPages.map { page ->
-                        SearchablePdfVisualPage(
-                            pageId = page.id,
-                            originalUri = requireNotNull(page.sourceUri),
-                            filter = page.filter,
-                        )
-                    },
-                    ocrResult = existingOcrResult,
-                    progressListener = SearchablePdfExportProgressListener { progress ->
-                        runOnUiThread {
-                            if (searchablePdfOperationTracker.acceptsProgress(operationId)) {
-                                searchablePdfSaveState = searchablePdfSaveStateForProgress(progress)
-                            }
-                        }
-                    },
-                ),
-            )
-            when (searchablePdfOperationTracker.claimCompletion(operationId)) {
-                SearchablePdfOperationTracker.CompletionClaim.SUPERSEDED -> {
-                    if (preparedExport is SearchablePdfPreparedExport.Ready) {
-                        searchablePdfExportCoordinator.discardPreparedExport(preparedExport)
-                    }
-                    return@launch
-                }
-
-                SearchablePdfOperationTracker.CompletionClaim.DUPLICATE -> return@launch
-                SearchablePdfOperationTracker.CompletionClaim.CLAIMED -> Unit
-            }
-            when (preparedExport) {
-                is SearchablePdfPreparedExport.Ready -> {
-                    searchablePdfPreparedExport = preparedExport
-                    searchablePdfSaveState = SearchablePdfSaveState.ChoosingDestination
-                    try {
-                        val filename = preparedExport.filenameSuggestion.filename
-                        val launcher = searchablePdfDestinationLauncherOverride
-                        if (launcher != null) {
-                            launcher(filename)
-                        } else {
-                            createSearchablePdfDocumentLauncher.launch(filename)
-                        }
-                    } catch (_: ActivityNotFoundException) {
-                        searchablePdfExportCoordinator.discardPreparedExport(preparedExport)
-                        searchablePdfPreparedExport = null
-                        searchablePdfSaveState = SearchablePdfSaveState.Error(
-                            SearchablePdfSaveError.DESTINATION_UNAVAILABLE,
-                        )
-                    } catch (_: RuntimeException) {
-                        searchablePdfExportCoordinator.discardPreparedExport(preparedExport)
-                        searchablePdfPreparedExport = null
-                        searchablePdfSaveState = SearchablePdfSaveState.Error(
-                            SearchablePdfSaveError.DESTINATION_UNAVAILABLE,
-                        )
-                    }
-                }
-
-                is SearchablePdfPreparedExport.Failure -> {
-                    searchablePdfSaveState = SearchablePdfSaveState.Error(
-                        when (preparedExport.reason) {
-                            org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfPreparationError.NO_PAGES ->
-                                SearchablePdfSaveError.NO_PAGES
-
-                            org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfPreparationError.OCR_FAILED,
-                            org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfPreparationError.OCR_RESULT_MISMATCH,
-                            org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfPreparationError.TEMPORARY_STORAGE_UNAVAILABLE,
-                            org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfPreparationError.GENERATION_FAILED,
-                            -> SearchablePdfSaveError.PREPARATION_FAILED
+            try {
+                val preparedExport = searchablePdfExportCoordinator.prepare(
+                    SearchablePdfExportRequest(
+                        pageUris = documentPages.map { page -> page.source.toAndroidUri() },
+                        visualPages = documentPages.map { page ->
+                            SearchablePdfVisualPage(
+                                pageId = page.id.value,
+                                originalUri = page.source.toAndroidUri(),
+                                filter = page.filter,
+                                rotation = page.rotation,
+                                contentType = page.contentType,
+                                imageMetadata = page.imageMetadata,
+                            )
                         },
+                        ocrResult = existingOcrResult,
+                        progressListener = SearchablePdfExportProgressListener { progress ->
+                            runOnUiThread {
+                                if (searchablePdfOperationTracker.acceptsProgress(operationId)) {
+                                    searchablePdfSaveState = searchablePdfSaveStateForProgress(progress)
+                                }
+                            }
+                        },
+                    ),
+                )
+                when (searchablePdfOperationTracker.claimCompletion(operationId)) {
+                    SearchablePdfOperationTracker.CompletionClaim.SUPERSEDED -> {
+                        if (preparedExport is SearchablePdfPreparedExport.Ready) {
+                            searchablePdfExportCoordinator.discardPreparedExport(preparedExport)
+                        }
+                        return@launch
+                    }
+
+                    SearchablePdfOperationTracker.CompletionClaim.DUPLICATE -> return@launch
+                    SearchablePdfOperationTracker.CompletionClaim.CLAIMED -> Unit
+                }
+                when (preparedExport) {
+                    is SearchablePdfPreparedExport.Ready -> {
+                        searchablePdfPreparedExport = preparedExport
+                        searchablePdfSaveState = SearchablePdfSaveState.ChoosingDestination
+                        try {
+                            val filename = preparedExport.filenameSuggestion.filename
+                            val launcher = searchablePdfDestinationLauncherOverride
+                            if (launcher != null) {
+                                launcher(filename)
+                            } else {
+                                createSearchablePdfDocumentLauncher.launch(filename)
+                            }
+                        } catch (_: ActivityNotFoundException) {
+                            searchablePdfExportCoordinator.discardPreparedExport(preparedExport)
+                            searchablePdfPreparedExport = null
+                            searchablePdfSaveState = SearchablePdfSaveState.Error(
+                                SearchablePdfSaveError.DESTINATION_UNAVAILABLE,
+                            )
+                        } catch (_: RuntimeException) {
+                            searchablePdfExportCoordinator.discardPreparedExport(preparedExport)
+                            searchablePdfPreparedExport = null
+                            searchablePdfSaveState = SearchablePdfSaveState.Error(
+                                SearchablePdfSaveError.DESTINATION_UNAVAILABLE,
+                            )
+                        }
+                    }
+
+                    is SearchablePdfPreparedExport.Failure -> {
+                        searchablePdfSaveState = SearchablePdfSaveState.Error(
+                            when (preparedExport.reason) {
+                                org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfPreparationError.NO_PAGES ->
+                                    SearchablePdfSaveError.NO_PAGES
+
+                                org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfPreparationError.SOURCE_TOO_LARGE ->
+                                    SearchablePdfSaveError.SOURCE_TOO_LARGE
+
+                                org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfPreparationError.OCR_FAILED,
+                                org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfPreparationError.OCR_RESULT_MISMATCH,
+                                org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfPreparationError.TEMPORARY_STORAGE_UNAVAILABLE,
+                                org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfPreparationError.GENERATION_FAILED,
+                                -> SearchablePdfSaveError.PREPARATION_FAILED
+                            },
+                        )
+                    }
+                }
+            } catch (_: CancellationException) {
+                // The invalidating action owns user-visible state.
+            } catch (_: Exception) {
+                if (searchablePdfOperationTracker.claimCompletion(operationId) ==
+                    SearchablePdfOperationTracker.CompletionClaim.CLAIMED
+                ) {
+                    searchablePdfSaveState = SearchablePdfSaveState.Error(
+                        SearchablePdfSaveError.PREPARATION_FAILED,
                     )
                 }
+            } finally {
+                session.releaseDocumentSessionLease(lease)
             }
         }
     }
@@ -455,55 +545,117 @@ class MainActivity : ComponentActivity() {
     private fun sharePdf() {
         if (pdfShareState == PdfShareState.Preparing) return
 
-        val plan = normalPdfExportPlan(scannedPdfUri, session.scanPages)
+        if (!canExportNormalPdf(session.documentSession)) {
+            pdfShareState = PdfShareState.Error(PdfShareError.NoPdfAvailable)
+            return
+        }
+
+        val lease = session.acquireDocumentSessionLease(documentSessionLeaseReleaseObserverForTest) ?: run {
+            pdfShareState = PdfShareState.Error(PdfShareError.NoPdfAvailable)
+            return
+        }
+        val plan = normalPdfExportPlan(lease.session)
+        val operationId = pdfShareOperationTracker.begin(session.documentRevision)
         pdfShareState = PdfShareState.Preparing
-        lifecycleScope.launch {
-            val preparationResult = withContext(Dispatchers.IO) {
-                prepareNormalPdfForSharing(plan)
-            }
-            when (preparationResult) {
-                is PdfSharePreparationResult.Ready -> launchPdfShare(preparationResult.uri)
-
-                PdfSharePreparationResult.SourceMissing -> {
-                    pdfShareState = PdfShareState.Error(PdfShareError.NoPdfAvailable)
+        pdfShareJob = lifecycleScope.launch {
+            val preparedOwner = AtomicReference<PdfSharePreparationResult.Ready?>()
+            var handedOff = false
+            try {
+                val preparationResult = withContext(Dispatchers.IO) {
+                    val result = pdfSharePreparationOverride?.invoke(plan)
+                        ?: prepareNormalPdfForSharing(plan)
+                    if (result is PdfSharePreparationResult.Ready) preparedOwner.set(result)
+                    if (!pdfShareOperationTracker.isCurrentForCurrentDocument(operationId)) {
+                        preparedOwner.getAndSet(null)?.let(::discardPreparedPdfShare)
+                    }
+                    result
                 }
+                if (!pdfShareOperationTracker.isCurrentForCurrentDocument(operationId)) return@launch
+                when (preparationResult) {
+                    is PdfSharePreparationResult.Ready -> {
+                        handedOff = launchPdfShare(preparationResult, operationId)
+                        if (handedOff) preparedOwner.set(null)
+                    }
 
-                PdfSharePreparationResult.Failed -> {
-                    pdfShareState = PdfShareState.Error(PdfShareError.UnexpectedFailure)
+                    PdfSharePreparationResult.SourceMissing -> if (
+                        pdfShareOperationTracker.finishForCurrentDocument(operationId)
+                    ) {
+                        pdfShareState = PdfShareState.Error(PdfShareError.NoPdfAvailable)
+                    }
+
+                    PdfSharePreparationResult.SourceTooLarge -> if (
+                        pdfShareOperationTracker.finishForCurrentDocument(operationId)
+                    ) {
+                        pdfShareState = PdfShareState.Error(PdfShareError.SourceTooLarge)
+                    }
+
+                    PdfSharePreparationResult.Failed -> if (
+                        pdfShareOperationTracker.finishForCurrentDocument(operationId)
+                    ) {
+                        pdfShareState = PdfShareState.Error(PdfShareError.UnexpectedFailure)
+                    }
                 }
+            } catch (_: CancellationException) {
+                // Invalidation owns user-visible state; the finally block owns private cleanup.
+            } finally {
+                if (!handedOff) {
+                    preparedOwner.getAndSet(null)?.let(::discardPreparedPdfShare)
+                }
+                session.releaseDocumentSessionLease(lease)
             }
         }
     }
 
-    private fun launchPdfShare(pdfUri: Uri) {
-        when (val result = createPdfShareIntent(pdfUri)) {
+    private fun launchPdfShare(
+        preparation: PdfSharePreparationResult.Ready,
+        operationId: DocumentOperationToken,
+    ): Boolean {
+        if (!pdfShareOperationTracker.isCurrentForCurrentDocument(operationId)) return false
+        when (val result = createPdfShareIntent(preparation.uri)) {
             is PdfShareIntentResult.Success -> {
                 try {
-                    val chooser = Intent.createChooser(
-                        result.intent,
-                        getString(R.string.pdf_share_chooser_title),
-                    )
-                    startActivity(chooser)
+                    pdfShareLauncherOverride?.invoke(preparation.uri) ?: run {
+                        val chooser = Intent.createChooser(
+                            result.intent,
+                            getString(R.string.pdf_share_chooser_title),
+                        )
+                        startActivity(chooser)
+                    }
+                    if (!pdfShareOperationTracker.finishForCurrentDocument(operationId)) return false
                     pdfShareState = PdfShareState.Idle
+                    return true
                 } catch (_: ActivityNotFoundException) {
-                    pdfShareState = PdfShareState.Error(PdfShareError.ShareTargetUnavailable)
+                    if (pdfShareOperationTracker.finishForCurrentDocument(operationId)) {
+                        pdfShareState = PdfShareState.Error(PdfShareError.ShareTargetUnavailable)
+                    }
                 } catch (_: SecurityException) {
-                    pdfShareState = PdfShareState.Error(PdfShareError.UnexpectedFailure)
+                    if (pdfShareOperationTracker.finishForCurrentDocument(operationId)) {
+                        pdfShareState = PdfShareState.Error(PdfShareError.UnexpectedFailure)
+                    }
                 } catch (_: IllegalArgumentException) {
-                    pdfShareState = PdfShareState.Error(PdfShareError.UnexpectedFailure)
+                    if (pdfShareOperationTracker.finishForCurrentDocument(operationId)) {
+                        pdfShareState = PdfShareState.Error(PdfShareError.UnexpectedFailure)
+                    }
                 } catch (_: RuntimeException) {
-                    pdfShareState = PdfShareState.Error(PdfShareError.UnexpectedFailure)
+                    if (pdfShareOperationTracker.finishForCurrentDocument(operationId)) {
+                        pdfShareState = PdfShareState.Error(PdfShareError.UnexpectedFailure)
+                    }
                 }
             }
 
             PdfShareIntentResult.NoPdfAvailable -> {
-                pdfShareState = PdfShareState.Error(PdfShareError.NoPdfAvailable)
+                if (pdfShareOperationTracker.finishForCurrentDocument(operationId)) {
+                    pdfShareState = PdfShareState.Error(PdfShareError.NoPdfAvailable)
+                }
             }
 
             PdfShareIntentResult.InvalidUri -> {
-                pdfShareState = PdfShareState.Error(PdfShareError.InvalidUri)
+                if (pdfShareOperationTracker.finishForCurrentDocument(operationId)) {
+                    pdfShareState = PdfShareState.Error(PdfShareError.InvalidUri)
+                }
             }
         }
+        return false
     }
 
     private fun exportPages() {
@@ -513,30 +665,67 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        pageExportState = startPageExport(session.scanPages.size)
+        pageExportState = startPageExport(session.documentPages.size)
         val initialState = pageExportState as? PageExportState.ChoosingDestination ?: return
-        launchPageDestination(initialState)
+        val operationId = pageExportOperationTracker.begin(session.documentRevision)
+        launchPageDestination(initialState, operationId)
     }
 
-    private fun launchPageDestination(state: PageExportState.ChoosingDestination) {
+    private fun launchPageDestination(
+        state: PageExportState.ChoosingDestination,
+        operationId: DocumentOperationToken,
+    ) {
+        if (!pageExportOperationTracker.isCurrentForCurrentDocument(operationId)) return
+        pendingPageDestinationToken = operationId
         try {
-            createPageDocumentLauncher.launch(
-                getString(R.string.page_export_default_filename, state.pageNumber),
-            )
+            val filename = getString(R.string.page_export_default_filename, state.pageNumber)
+            pageDestinationLauncherOverride?.invoke(filename)
+                ?: createPageDocumentLauncher.launch(filename)
         } catch (_: ActivityNotFoundException) {
-            pageExportState = PageExportState.Error(PageExportResult.DestinationUnavailable)
+            pendingPageDestinationToken = null
+            if (pageExportOperationTracker.finishForCurrentDocument(operationId)) {
+                pageExportState = PageExportState.Error(PageExportResult.DestinationUnavailable)
+            }
         } catch (_: RuntimeException) {
-            pageExportState = PageExportState.Error(PageExportResult.DestinationUnavailable)
+            pendingPageDestinationToken = null
+            if (pageExportOperationTracker.finishForCurrentDocument(operationId)) {
+                pageExportState = PageExportState.Error(PageExportResult.DestinationUnavailable)
+            }
         }
+    }
+
+    private fun handlePageDestinationResult(destinationUri: Uri?) {
+        val operationId = pendingPageDestinationToken ?: return
+        pendingPageDestinationToken = null
+        if (!pageExportOperationTracker.isCurrentForCurrentDocument(operationId)) return
+        val currentState = pageExportState as? PageExportState.ChoosingDestination ?: return
+        if (destinationUri == null) {
+            if (pageExportOperationTracker.finishForCurrentDocument(operationId)) {
+                pageExportState = pageExportStateAfterCancellation(currentState.pageNumber)
+            }
+            return
+        }
+        exportPageToDestination(currentState, destinationUri, operationId)
     }
 
     private fun exportPageToDestination(
         state: PageExportState.ChoosingDestination,
         destinationUri: Uri,
+        operationId: DocumentOperationToken,
     ) {
-        val page = session.scanPages.getOrNull(state.pageNumber - 1)
-        if (page?.sourceUri == null) {
-            pageExportState = PageExportState.Error(PageExportResult.SourceMissing)
+        if (!pageExportOperationTracker.isCurrentForCurrentDocument(operationId)) return
+        val lease = session.acquireDocumentSessionLease(documentSessionLeaseReleaseObserverForTest) ?: run {
+            if (pageExportOperationTracker.finishForCurrentDocument(operationId)) {
+                pageExportState = PageExportState.Error(PageExportResult.SourceMissing)
+            }
+            return
+        }
+        val page = lease.session.pages.getOrNull(state.pageNumber - 1)
+        if (page == null) {
+            session.releaseDocumentSessionLease(lease)
+            if (pageExportOperationTracker.finishForCurrentDocument(operationId)) {
+                pageExportState = PageExportState.Error(PageExportResult.SourceMissing)
+            }
             return
         }
 
@@ -544,52 +733,131 @@ class MainActivity : ComponentActivity() {
             pageNumber = state.pageNumber,
             pageCount = state.pageCount,
         )
-        lifecycleScope.launch {
-            val result = withContext(Dispatchers.IO) {
-                exportScannedPage(page, destinationUri)
-            }
-            if (result != PageExportResult.Success) {
-                pageExportState = PageExportState.Error(result)
-                return@launch
-            }
+        pageExportJob = lifecycleScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    pageExportOverride?.invoke(page, destinationUri)
+                        ?: exportScannedPage(page, destinationUri)
+                }
+                if (!pageExportOperationTracker.isCurrentForCurrentDocument(operationId)) return@launch
+                if (result != PageExportResult.Success) {
+                    if (pageExportOperationTracker.finishForCurrentDocument(operationId)) {
+                        pageExportState = PageExportState.Error(result)
+                    }
+                    return@launch
+                }
 
-            pageExportState = pageExportStateAfterSuccess(
-                pageNumber = state.pageNumber,
-                pageCount = state.pageCount,
-            )
-            (pageExportState as? PageExportState.ChoosingDestination)?.let(::launchPageDestination)
+                pageExportState = pageExportStateAfterSuccess(
+                    pageNumber = state.pageNumber,
+                    pageCount = state.pageCount,
+                )
+                val next = pageExportState as? PageExportState.ChoosingDestination
+                if (next == null) {
+                    pageExportOperationTracker.finishForCurrentDocument(operationId)
+                } else {
+                    launchPageDestination(next, operationId)
+                }
+            } catch (_: CancellationException) {
+                // A stale operation owns no UI state or subsequent picker.
+            } finally {
+                session.releaseDocumentSessionLease(lease)
+            }
         }
     }
 
-    private fun savePdfToDestination(destinationUri: Uri) {
-        val plan = normalPdfExportPlan(scannedPdfUri, session.scanPages)
-        if (plan is NormalPdfExportPlan.DirectScannerPdf && plan.sourceUri == null) {
-            pdfSaveState = PdfSaveState.Error(PdfExportResult.SourceMissing)
+    private fun savePdfToDestination(destinationUri: Uri, operationId: DocumentOperationToken) {
+        if (!normalPdfSaveOperationTracker.isCurrentForCurrentDocument(operationId)) return
+        val lease = session.acquireDocumentSessionLease(documentSessionLeaseReleaseObserverForTest) ?: run {
+            if (normalPdfSaveOperationTracker.finishForCurrentDocument(operationId)) {
+                pdfSaveState = PdfSaveState.Error(PdfExportResult.SourceMissing)
+            }
+            return
+        }
+        val plan = normalPdfExportPlan(lease.session)
+        if (plan is NormalPdfExportPlan.DirectScannerPdf && plan.source == null) {
+            session.releaseDocumentSessionLease(lease)
+            if (normalPdfSaveOperationTracker.finishForCurrentDocument(operationId)) {
+                pdfSaveState = PdfSaveState.Error(PdfExportResult.SourceMissing)
+            }
             return
         }
 
         pdfSaveState = PdfSaveState.Saving
-        lifecycleScope.launch {
-            val result = withContext(Dispatchers.IO) {
-                writeNormalPdfToDestination(plan, destinationUri)
-            }
-            pdfSaveState = when (result) {
-                PdfExportResult.Success -> PdfSaveState.Saved
-                PdfExportResult.SourceMissing,
-                PdfExportResult.DestinationUnavailable,
-                PdfExportResult.WriteFailed,
-                -> PdfSaveState.Error(result)
+        normalPdfSaveJob = lifecycleScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    normalPdfWriteOverride?.invoke(plan, destinationUri)
+                        ?: writeNormalPdfToDestination(plan, destinationUri)
+                }
+                if (!normalPdfSaveOperationTracker.finishForCurrentDocument(operationId)) return@launch
+                pdfSaveState = when (result) {
+                    PdfExportResult.Success -> PdfSaveState.Saved
+                    PdfExportResult.SourceMissing,
+                    PdfExportResult.SourceTooLarge,
+                    PdfExportResult.DestinationUnavailable,
+                    PdfExportResult.WriteFailed,
+                    -> PdfSaveState.Error(result)
+                }
+            } catch (_: CancellationException) {
+                // The invalidating action already restored the correct retryable state.
+            } finally {
+                session.releaseDocumentSessionLease(lease)
             }
         }
     }
+
+    private fun clearNormalDocumentOperations() {
+        normalPdfSaveOperationTracker.invalidate()
+        pdfShareOperationTracker.invalidate()
+        pageExportOperationTracker.invalidate()
+        pendingNormalPdfDestinationToken = null
+        pendingPageDestinationToken = null
+        normalPdfSaveJob?.cancel()
+        pdfShareJob?.cancel()
+        pageExportJob?.cancel()
+        normalPdfSaveJob = null
+        pdfShareJob = null
+        pageExportJob = null
+        pdfSaveState = PdfSaveState.Idle
+        pdfShareState = PdfShareState.Idle
+        pageExportState = PageExportState.Idle
+    }
+
+    private fun clearStaleNormalDocumentOperations(documentRevision: Long) {
+        if (normalPdfSaveOperationTracker.invalidateIfDocumentRevisionChanged(documentRevision)) {
+            pendingNormalPdfDestinationToken = null
+            normalPdfSaveJob?.cancel()
+            normalPdfSaveJob = null
+            pdfSaveState = PdfSaveState.Idle
+        }
+        if (pdfShareOperationTracker.invalidateIfDocumentRevisionChanged(documentRevision)) {
+            pdfShareJob?.cancel()
+            pdfShareJob = null
+            pdfShareState = PdfShareState.Idle
+        }
+        if (pageExportOperationTracker.invalidateIfDocumentRevisionChanged(documentRevision)) {
+            pendingPageDestinationToken = null
+            pageExportJob?.cancel()
+            pageExportJob = null
+            pageExportState = PageExportState.Idle
+        }
+    }
+
+    private fun DocumentOperationTracker.isCurrentForCurrentDocument(
+        operation: DocumentOperationToken,
+    ): Boolean = isCurrent(operation, session.documentRevision)
+
+    private fun DocumentOperationTracker.finishForCurrentDocument(
+        operation: DocumentOperationToken,
+    ): Boolean = finish(operation, session.documentRevision)
 
     private suspend fun writeNormalPdfToDestination(
         plan: NormalPdfExportPlan,
         destinationUri: Uri,
     ): PdfExportResult = when (plan) {
         is NormalPdfExportPlan.DirectScannerPdf -> {
-            val sourceUri = plan.sourceUri ?: return PdfExportResult.SourceMissing
-            copyScannedPdf(sourceUri, destinationUri)
+            val source = plan.source ?: return PdfExportResult.SourceMissing
+            copyScannedPdf(source.toAndroidUri(), destinationUri)
         }
 
         is NormalPdfExportPlan.RecomposeFromPages -> when (
@@ -602,6 +870,7 @@ class MainActivity : ComponentActivity() {
             }
 
             NormalPdfRecompositionResult.SourceMissing -> PdfExportResult.SourceMissing
+            NormalPdfRecompositionResult.SourceTooLarge -> PdfExportResult.SourceTooLarge
             NormalPdfRecompositionResult.Failed -> PdfExportResult.WriteFailed
         }
     }
@@ -610,7 +879,7 @@ class MainActivity : ComponentActivity() {
         plan: NormalPdfExportPlan,
     ): PdfSharePreparationResult = when (plan) {
         is NormalPdfExportPlan.DirectScannerPdf -> {
-            preparePdfForSharing(this@MainActivity, plan.sourceUri)
+            preparePdfForSharing(this@MainActivity, plan.source?.toAndroidUri())
         }
 
         is NormalPdfExportPlan.RecomposeFromPages -> when (
@@ -623,6 +892,7 @@ class MainActivity : ComponentActivity() {
             }
 
             NormalPdfRecompositionResult.SourceMissing -> PdfSharePreparationResult.SourceMissing
+            NormalPdfRecompositionResult.SourceTooLarge -> PdfSharePreparationResult.SourceTooLarge
             NormalPdfRecompositionResult.Failed -> PdfSharePreparationResult.Failed
         }
     }
@@ -687,7 +957,11 @@ class MainActivity : ComponentActivity() {
         return copyPdfToDestination(source, destination)
     }
 
-    private fun copyScannedPage(sourceUri: Uri, destinationUri: Uri): PageExportResult {
+    private fun copyScannedPage(
+        sourceUri: Uri,
+        destinationUri: Uri,
+        imageMetadata: org.synapseworks.pageharbor.document.session.DocumentImageMetadata,
+    ): PageExportResult {
         val source = try {
             contentResolver.openInputStream(sourceUri)
         } catch (_: FileNotFoundException) {
@@ -716,20 +990,22 @@ class MainActivity : ComponentActivity() {
             return PageExportResult.DestinationUnavailable
         }
 
-        return copyPageToDestination(source, destination)
+        return copyPageToDestination(source, destination, imageMetadata)
     }
 
-    private fun exportScannedPage(page: ActiveScanPage, destinationUri: Uri): PageExportResult =
+    private fun exportScannedPage(page: DocumentPage, destinationUri: Uri): PageExportResult =
         when (val plan = pageJpegExportPlan(page)) {
             is PageJpegExportPlan.DirectCopy -> {
-                copyScannedPage(requireNotNull(page.sourceUri), destinationUri)
+                copyScannedPage(page.source.toAndroidUri(), destinationUri, page.imageMetadata)
             }
 
             is PageJpegExportPlan.Filtered -> {
                 writeFilteredScannedPage(
-                    sourceUri = requireNotNull(page.sourceUri),
+                    sourceUri = page.source.toAndroidUri(),
                     destinationUri = destinationUri,
                     filter = plan.filter,
+                    rotation = plan.rotation,
+                    imageMetadata = page.imageMetadata,
                 )
             }
         }
@@ -738,6 +1014,8 @@ class MainActivity : ComponentActivity() {
         sourceUri: Uri,
         destinationUri: Uri,
         filter: org.synapseworks.pageharbor.image.DocumentFilter,
+        rotation: org.synapseworks.pageharbor.document.session.DocumentPageRotation,
+        imageMetadata: org.synapseworks.pageharbor.document.session.DocumentImageMetadata,
     ): PageExportResult {
         val destination = try {
             contentResolver.openOutputStream(destinationUri)
@@ -767,6 +1045,8 @@ class MainActivity : ComponentActivity() {
             },
             destination = destination,
             filter = filter,
+            rotation = rotation,
+            imageMetadata = imageMetadata,
         )
     }
 
@@ -782,6 +1062,7 @@ class MainActivity : ComponentActivity() {
         ocrJob?.cancel()
         ocrJob = null
         clearSearchablePdfSave()
+        clearNormalDocumentOperations()
         session.resetTransientStateForRecreation()
         super.onDestroy()
     }
@@ -794,7 +1075,19 @@ class MainActivity : ComponentActivity() {
         searchablePdfSaveState: SearchablePdfSaveState = SearchablePdfSaveState.Idle,
         pageUris: List<Uri> = emptyList(),
     ) {
-        session.replaceScan(summary, scannedPdfUri = null, scannedPageUris = pageUris)
+        clearNormalDocumentOperations()
+        if (session.documentPages.isNotEmpty()) session.clearScan()
+        val restoredPageUris = pageUris.ifEmpty {
+            List(summary.jpegPageCount) { index ->
+                Uri.Builder()
+                    .scheme("content")
+                    .authority("${packageName}.test")
+                    .appendPath("restored-session")
+                    .appendPath(index.toString())
+                    .build()
+            }
+        }
+        session.replaceScan(summary, scannedPdfUri = null, scannedPageUris = restoredPageUris)
         session.ocrUiState = ocrResult?.let(OcrUiState::Success) ?: OcrUiState.Idle
         session.screen = screen
         session.ocrSelectedPageIndex = selectedOcrPageIndex
@@ -824,6 +1117,17 @@ class MainActivity : ComponentActivity() {
 
     internal fun saveSearchablePdfForTest() = saveSearchablePdf()
 
+    internal fun chooseNormalPdfDestinationForTest() = choosePdfDestination()
+
+    internal fun deliverNormalPdfDestinationForTest(uri: Uri?) =
+        handleNormalPdfDestinationResult(uri)
+
+    internal fun sharePdfForTest() = sharePdf()
+
+    internal fun exportPagesForTest() = exportPages()
+
+    internal fun deliverPageDestinationForTest(uri: Uri?) = handlePageDestinationResult(uri)
+
     internal fun sessionScreenForTest(): PageHarborScreen = session.screen
 
     internal fun sessionSummaryForTest(): ScannerSpikeState = session.scannerState
@@ -834,9 +1138,61 @@ class MainActivity : ComponentActivity() {
 
     internal fun ocrStateForTest(): OcrUiState = session.ocrUiState
 
+    internal fun normalPdfStateForTest(): PdfSaveState = session.pdfSaveState
+
+    internal fun pdfShareStateForTest(): PdfShareState = session.pdfShareState
+
+    internal fun pageExportStateForTest(): PageExportState = session.pageExportState
+
+    internal fun documentRevisionForTest(): Long = session.documentRevision
+
+    internal fun setFirstPageFilterForTest(
+        filter: org.synapseworks.pageharbor.image.DocumentFilter,
+    ): Boolean = session.documentPages.firstOrNull()?.let { page ->
+        session.setPageFilter(page.id.value, filter)
+    } ?: false
+
+    internal fun rotateFirstPageForTest(): Boolean = session.documentPages.firstOrNull()?.let { page ->
+        session.rotatePageClockwise(page.id.value)
+    } ?: false
+
+    internal fun reorderPagesForTest(pageIds: List<Long>): Boolean = session.reorderPages(pageIds)
+
+    internal fun installDocumentSessionForTest(documentSession: DocumentSession) {
+        clearRecognizedText()
+        clearSearchablePdfSave()
+        clearNormalDocumentOperations()
+        if (session.documentPages.isNotEmpty()) session.clearScan()
+        session.installDocumentSessionForTest(documentSession)
+    }
+
+    internal fun observeDocumentSessionLeaseReleaseForTest(observer: () -> Unit) {
+        documentSessionLeaseReleaseObserverForTest = observer
+    }
+
+    internal fun replaceNormalOperationsForTest(
+        writeNormalPdf: (suspend (NormalPdfExportPlan, Uri) -> PdfExportResult)? =
+            normalPdfWriteOverride,
+        preparePdfShare: (suspend (NormalPdfExportPlan) -> PdfSharePreparationResult)? =
+            pdfSharePreparationOverride,
+        exportPage: (suspend (DocumentPage, Uri) -> PageExportResult)? = pageExportOverride,
+        onNormalPdfDestinationRequested: ((String) -> Unit)? =
+            normalPdfDestinationLauncherOverride,
+        onPageDestinationRequested: ((String) -> Unit)? = pageDestinationLauncherOverride,
+        onPdfShareRequested: ((Uri) -> Unit)? = pdfShareLauncherOverride,
+    ) {
+        normalPdfWriteOverride = writeNormalPdf
+        pdfSharePreparationOverride = preparePdfShare
+        pageExportOverride = exportPage
+        normalPdfDestinationLauncherOverride = onNormalPdfDestinationRequested
+        pageDestinationLauncherOverride = onPageDestinationRequested
+        pdfShareLauncherOverride = onPdfShareRequested
+    }
+
     internal fun discardForTest() {
         clearRecognizedText()
         clearSearchablePdfSave()
+        clearNormalDocumentOperations()
         session.clearScan()
     }
 

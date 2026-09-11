@@ -21,6 +21,8 @@ import org.synapseworks.pageharbor.ocr.OcrPageLayout
 import org.synapseworks.pageharbor.ocr.OcrPageResult
 import org.synapseworks.pageharbor.ocr.OcrTextBounds
 import org.synapseworks.pageharbor.ocr.OcrTextLine
+import org.synapseworks.pageharbor.document.PageExportFailureException
+import org.synapseworks.pageharbor.document.PageExportResult
 
 class PdfBoxSearchablePdfGeneratorTest {
     private val context: Context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -176,6 +178,32 @@ class PdfBoxSearchablePdfGeneratorTest {
         assertEquals(
             SearchablePdfGenerationResult.Failure(
                 SearchablePdfGenerationError.PAGE_IMAGE_UNREADABLE,
+            ),
+            result,
+        )
+        assertFalse(output.exists())
+    }
+
+    @Test
+    fun preservesTypedOversizedPageFailureAndRemovesPartialOutput() = runBlocking {
+        val output = outputFile().apply { writeText("partial") }
+
+        val result = generator.generate(
+            SearchablePdfRequest(
+                pages = listOf(
+                    SearchablePdfPage(
+                        openJpegStream = {
+                            throw PageExportFailureException(PageExportResult.SourceTooLarge)
+                        },
+                    ),
+                ),
+                outputFile = output,
+            ),
+        )
+
+        assertEquals(
+            SearchablePdfGenerationResult.Failure(
+                SearchablePdfGenerationError.PAGE_IMAGE_TOO_LARGE,
             ),
             result,
         )

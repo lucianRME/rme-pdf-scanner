@@ -9,6 +9,7 @@ private const val PdfCopyBufferSize = 8 * 1024
 sealed interface PdfExportResult {
     data object Success : PdfExportResult
     data object SourceMissing : PdfExportResult
+    data object SourceTooLarge : PdfExportResult
     data object DestinationUnavailable : PdfExportResult
     data object WriteFailed : PdfExportResult
 }

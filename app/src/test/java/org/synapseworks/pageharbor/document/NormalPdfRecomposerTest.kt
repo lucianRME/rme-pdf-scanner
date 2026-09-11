@@ -5,6 +5,7 @@ import java.nio.file.Files
 import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
 
@@ -37,6 +38,17 @@ class NormalPdfRecomposerTest {
         assertFalse(staleVisual.exists())
         assertTrue(freshPdf.exists())
         assertTrue(unrelated.exists())
+    }
+
+    @Test
+    fun oversizedPageGenerationFailureRemainsTypedDuringNormalPdfRecomposition() {
+        assertEquals(
+            NormalPdfRecompositionResult.SourceTooLarge,
+            normalPdfResultForGenerationFailure(
+                org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfGenerationError
+                    .PAGE_IMAGE_TOO_LARGE,
+            ),
+        )
     }
 
     private fun file(name: String, ageMillis: Long): File = File(normalPdfDirectory, name).apply {

@@ -8,14 +8,38 @@ import java.io.File
 import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 
 private const val SharedPdfDirectory = "shared-pdfs"
 private const val SharedPdfMaxAgeMillis = 24L * 60L * 60L * 1000L
 
 sealed interface PdfSharePreparationResult {
-    data class Ready(val uri: Uri) : PdfSharePreparationResult
+    @ConsistentCopyVisibility
+    data class Ready internal constructor(
+        val uri: Uri,
+        internal val temporaryFile: PreparedPdfShareFile? = null,
+    ) : PdfSharePreparationResult
     data object SourceMissing : PdfSharePreparationResult
+    data object SourceTooLarge : PdfSharePreparationResult
     data object Failed : PdfSharePreparationResult
+}
+
+/** Idempotent ownership for a private share copy that must survive only a successful hand-off. */
+internal class PreparedPdfShareFile(
+    private val file: File,
+    private val deleteFile: (File) -> Boolean = File::delete,
+) {
+    private val released = AtomicBoolean(false)
+
+    fun release(): Boolean = released.compareAndSet(false, true) && try {
+        deleteFile(file)
+    } catch (_: SecurityException) {
+        false
+    }
+}
+
+internal fun discardPreparedPdfShare(result: PdfSharePreparationResult.Ready) {
+    result.temporaryFile?.release()
 }
 
 fun preparePdfForSharing(
@@ -71,6 +95,7 @@ fun preparePdfForSharing(
         temporaryPdf.deleteSafely()
         return when (copyResult) {
             PdfExportResult.SourceMissing -> PdfSharePreparationResult.SourceMissing
+            PdfExportResult.SourceTooLarge -> PdfSharePreparationResult.SourceTooLarge
             PdfExportResult.DestinationUnavailable,
             PdfExportResult.WriteFailed,
             -> PdfSharePreparationResult.Failed
@@ -80,11 +105,12 @@ fun preparePdfForSharing(
 
     return try {
         PdfSharePreparationResult.Ready(
-            FileProvider.getUriForFile(
+            uri = FileProvider.getUriForFile(
                 context,
                 "${context.packageName}.fileprovider",
                 temporaryPdf,
             ),
+            temporaryFile = PreparedPdfShareFile(temporaryPdf),
         )
     } catch (_: IllegalArgumentException) {
         temporaryPdf.deleteSafely()
@@ -115,10 +141,11 @@ fun deleteStaleSharedPdfs(
     }
 }
 
-private fun File.deleteSafely() {
-    try {
+private fun File.deleteSafely(): Boolean {
+    return try {
         delete()
     } catch (_: SecurityException) {
         // Cache cleanup is best-effort and must not expose document details.
+        false
     }
 }

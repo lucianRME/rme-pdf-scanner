@@ -14,7 +14,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.synapseworks.pageharbor.document.PageExportResult
+import org.synapseworks.pageharbor.document.PageExportFailureException
 import org.synapseworks.pageharbor.document.classification.DocumentClassifier
+import org.synapseworks.pageharbor.document.pageSourcePreflight
 import org.synapseworks.pageharbor.document.writeFilteredJpegToDestination
 import org.synapseworks.pageharbor.document.filename.FilenameSuggestion
 import org.synapseworks.pageharbor.document.filename.FilenameSuggestionEngine
@@ -79,6 +81,7 @@ enum class SearchablePdfPreparationError {
     OCR_FAILED,
     OCR_RESULT_MISMATCH,
     TEMPORARY_STORAGE_UNAVAILABLE,
+    SOURCE_TOO_LARGE,
     GENERATION_FAILED,
 }
 
@@ -123,6 +126,13 @@ class LocalSearchablePdfExportCoordinator(
     override suspend fun prepare(request: SearchablePdfExportRequest): SearchablePdfPreparedExport {
         if (request.visualPages.isEmpty()) {
             return SearchablePdfPreparedExport.Failure(SearchablePdfPreparationError.NO_PAGES)
+        }
+        request.visualPages.forEach { page ->
+            if (pageSourcePreflight(page.imageMetadata) == PageExportResult.SourceTooLarge) {
+                return SearchablePdfPreparedExport.Failure(
+                    SearchablePdfPreparationError.SOURCE_TOO_LARGE,
+                )
+            }
         }
 
         val ocrResult = request.ocrResult ?: recognize(request)
@@ -172,7 +182,9 @@ class LocalSearchablePdfExportCoordinator(
 
                 is SearchablePdfGenerationResult.Failure -> {
                     deleteTemporaryPdf(temporaryFile)
-                    SearchablePdfPreparedExport.Failure(SearchablePdfPreparationError.GENERATION_FAILED)
+                    SearchablePdfPreparedExport.Failure(
+                        searchablePreparationErrorForGenerationFailure(generated.reason),
+                    )
                 }
             }
         } catch (error: CancellationException) {
@@ -259,9 +271,12 @@ class LocalSearchablePdfExportCoordinator(
             withContext(Dispatchers.IO) {
                 coroutineContext.ensureActive()
                 ocrEngine.recognize(
-                    request.pageUris.map { uri ->
-                        OcrPage {
-                            openSourceInputStream(uri)
+                    request.visualPages.map { page ->
+                        OcrPage(
+                            rotationDegrees = page.rotation.degrees,
+                            imageMetadata = page.imageMetadata,
+                        ) {
+                            openSourceInputStream(page.originalUri)
                                 ?: throw FileNotFoundException()
                         }
                     },
@@ -287,6 +302,9 @@ class LocalSearchablePdfExportCoordinator(
     private fun openVisualJpegStream(page: SearchablePdfVisualPage): InputStream =
         when (val plan = searchablePdfVisualPlan(page)) {
             is SearchablePdfVisualPlan.Original -> {
+                pageSourcePreflight(page.imageMetadata)?.let {
+                    throw PageExportFailureException(it)
+                }
                 openSourceInputStream(page.originalUri) ?: throw FileNotFoundException()
             }
 
@@ -312,10 +330,27 @@ class LocalSearchablePdfExportCoordinator(
             openSource = { openSourceInputStream(page.originalUri) },
             destination = destination,
             filter = filter,
+            rotation = page.rotation,
+            imageMetadata = page.imageMetadata,
         )
-        if (result != PageExportResult.Success) {
-            deleteTemporaryVisualJpeg(temporaryImage)
-            throw FileNotFoundException()
+        when (result) {
+            PageExportResult.Success -> Unit
+            PageExportResult.SourceTooLarge -> {
+                deleteTemporaryVisualJpeg(temporaryImage)
+                throw PageExportFailureException(result)
+            }
+
+            PageExportResult.SourceMissing -> {
+                deleteTemporaryVisualJpeg(temporaryImage)
+                throw FileNotFoundException()
+            }
+
+            PageExportResult.DestinationUnavailable,
+            PageExportResult.WriteFailed,
+            -> {
+                deleteTemporaryVisualJpeg(temporaryImage)
+                throw IOException()
+            }
         }
         return try {
             DeleteOnCloseInputStream(temporaryImage.inputStream(), temporaryImage)
@@ -403,4 +438,14 @@ class LocalSearchablePdfExportCoordinator(
             }
         }
     }
+}
+
+internal fun searchablePreparationErrorForGenerationFailure(
+    error: SearchablePdfGenerationError,
+): SearchablePdfPreparationError = if (
+    error == SearchablePdfGenerationError.PAGE_IMAGE_TOO_LARGE
+) {
+    SearchablePdfPreparationError.SOURCE_TOO_LARGE
+} else {
+    SearchablePdfPreparationError.GENERATION_FAILED
 }

@@ -88,5 +88,47 @@ class DocumentImageFilterEngineTest {
         assertEquals(false, ArgbImage.isSupportedDimensions(46_341, 46_341))
     }
 
+    @Test
+    fun scanlineFilteringMatchesWholeImageFilteringForEveryNonOriginalFilter() {
+        val source = ArgbImage(
+            width = 4,
+            height = 2,
+            pixels = intArrayOf(
+                0xff101820.toInt(), 0xff405060.toInt(), 0xff708090.toInt(), 0xffa0b0c0.toInt(),
+                0xff203040.toInt(), 0xff506070.toInt(), 0xff8090a0.toInt(), 0xffd0e0f0.toInt(),
+            ),
+        )
+
+        DocumentFilter.entries.filterNot { it == DocumentFilter.ORIGINAL }.forEach { filter ->
+            val histogram = if (DocumentImageFilterEngine.requiresHistogram(filter)) {
+                IntArray(256).also { counts ->
+                    source.pixels.asList().chunked(source.width).forEach { values ->
+                        DocumentImageFilterEngine.accumulateLuminanceHistogram(
+                            values.toIntArray(),
+                            counts,
+                        )
+                    }
+                }
+            } else {
+                null
+            }
+            val plan = DocumentImageFilterEngine.createRowFilterPlan(
+                filter,
+                histogram,
+                source.pixels.size,
+            )
+            val rowOutput = source.pixels.copyOf()
+            rowOutput.indices.chunked(source.width).forEach { indices ->
+                val row = indices.map(rowOutput::get).toIntArray()
+                DocumentImageFilterEngine.applyRowFilterInPlace(row, plan)
+                indices.forEachIndexed { rowIndex, outputIndex ->
+                    rowOutput[outputIndex] = row[rowIndex]
+                }
+            }
+
+            assertArrayEquals(DocumentImageFilterEngine.apply(source, filter).pixels, rowOutput)
+        }
+    }
+
     private fun image(vararg pixels: Int): ArgbImage = ArgbImage(pixels.size, 1, pixels)
 }

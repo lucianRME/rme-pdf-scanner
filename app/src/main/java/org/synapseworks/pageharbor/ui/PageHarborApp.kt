@@ -14,7 +14,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.launch
 import android.net.Uri
-import org.synapseworks.pageharbor.ActiveScanPage
 import org.synapseworks.pageharbor.BuildConfig
 import org.synapseworks.pageharbor.R
 import org.synapseworks.pageharbor.document.PageExportResult
@@ -25,6 +24,7 @@ import org.synapseworks.pageharbor.document.PdfShareError
 import org.synapseworks.pageharbor.document.PdfShareState
 import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfSaveError
 import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfSaveState
+import org.synapseworks.pageharbor.document.session.DocumentPage
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.image.DocumentFilter
 import org.synapseworks.pageharbor.ocr.OcrUiState
@@ -45,7 +45,7 @@ fun PageHarborApp(
     ocrUiState: OcrUiState = OcrUiState.Idle,
     ocrSelectedPageIndex: Int = 0,
     scannedPageUris: List<Uri> = emptyList(),
-    scanPages: List<ActiveScanPage> = emptyList(),
+    documentPages: List<DocumentPage> = emptyList(),
     onPageFilterChange: (Long, DocumentFilter) -> Unit = { _, _ -> },
     onOcrSelectedPageChange: (Int) -> Unit = {},
     searchablePdfSaveState: SearchablePdfSaveState = SearchablePdfSaveState.Idle,
@@ -72,6 +72,7 @@ fun PageHarborApp(
         val scanCancelledMessage = stringResource(R.string.home_scan_cancelled)
         val scannerErrorMessage = stringResource(R.string.home_scanner_error)
         val pdfSourceMissingMessage = stringResource(R.string.pdf_save_source_missing)
+        val sourceTooLargeMessage = stringResource(R.string.document_source_too_large)
         val pdfDestinationUnavailableMessage = stringResource(R.string.pdf_save_destination_unavailable)
         val pdfWriteFailedMessage = stringResource(R.string.pdf_save_failed)
         val pdfSavedMessage = stringResource(R.string.pdf_save_success)
@@ -122,6 +123,7 @@ fun PageHarborApp(
             OcrResultScreen(
                 result = ocrUiState.result,
                 pageUris = scannedPageUris,
+                pageMetadata = documentPages.map(DocumentPage::imageMetadata),
                 selectedPageIndex = ocrSelectedPageIndex,
                 onSelectedPageChange = onOcrSelectedPageChange,
                 snackbarHostState = snackbarHostState,
@@ -160,7 +162,7 @@ fun PageHarborApp(
             pageExportState = pageExportState,
             ocrUiState = ocrUiState,
             searchablePdfSaveState = searchablePdfSaveState,
-            scanPages = scanPages,
+            documentPages = documentPages,
             onPageFilterChange = onPageFilterChange,
             onBack = { navigateTo(PageHarborScreen.Home) },
             onSavePdf = onSavePdf,
@@ -225,6 +227,7 @@ fun PageHarborApp(
             val message = when (pdfSaveState) {
                 is PdfSaveState.Error -> when (pdfSaveState.result) {
                     PdfExportResult.SourceMissing -> pdfSourceMissingMessage
+                    PdfExportResult.SourceTooLarge -> sourceTooLargeMessage
                     PdfExportResult.DestinationUnavailable -> pdfDestinationUnavailableMessage
                     PdfExportResult.WriteFailed -> pdfWriteFailedMessage
                     PdfExportResult.Success -> null
@@ -247,6 +250,7 @@ fun PageHarborApp(
             val message = when (pdfShareState) {
                 is PdfShareState.Error -> when (pdfShareState.result) {
                     PdfShareError.NoPdfAvailable -> pdfShareNoPdfMessage
+                    PdfShareError.SourceTooLarge -> sourceTooLargeMessage
                     PdfShareError.ShareTargetUnavailable -> pdfShareTargetUnavailableMessage
                     PdfShareError.InvalidUri -> pdfShareInvalidUriMessage
                     PdfShareError.UnexpectedFailure -> pdfShareFailedMessage
@@ -266,6 +270,7 @@ fun PageHarborApp(
             val message = when (searchablePdfSaveState) {
                 is SearchablePdfSaveState.Error -> when (searchablePdfSaveState.reason) {
                     SearchablePdfSaveError.NO_PAGES -> searchablePdfNoPagesMessage
+                    SearchablePdfSaveError.SOURCE_TOO_LARGE -> sourceTooLargeMessage
                     SearchablePdfSaveError.PREPARATION_FAILED -> searchablePdfPreparationFailedMessage
                     SearchablePdfSaveError.DESTINATION_UNAVAILABLE -> searchablePdfDestinationUnavailableMessage
                     SearchablePdfSaveError.WRITE_FAILED -> searchablePdfWriteFailedMessage
@@ -292,6 +297,7 @@ fun PageHarborApp(
             val message = when (pageExportState) {
                 is PageExportState.Error -> when (pageExportState.result) {
                     PageExportResult.SourceMissing -> pageExportSourceMissingMessage
+                    PageExportResult.SourceTooLarge -> pageExportFailedMessage
                     PageExportResult.DestinationUnavailable ->
                         pageExportDestinationUnavailableMessage
                     PageExportResult.WriteFailed -> pageExportFailedMessage

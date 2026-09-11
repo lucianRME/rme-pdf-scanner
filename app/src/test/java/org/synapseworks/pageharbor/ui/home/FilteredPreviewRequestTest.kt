@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.synapseworks.pageharbor.document.session.DocumentPageRotation
 import org.synapseworks.pageharbor.image.DocumentFilter
 
 class FilteredPreviewRequestTest {
@@ -14,6 +15,14 @@ class FilteredPreviewRequestTest {
 
         assertFalse(FilteredPreviewRequest(1L, "page-a", DocumentFilter.GRAYSCALE).isCurrentFor(current))
         assertFalse(FilteredPreviewRequest(2L, "page-b", DocumentFilter.ORIGINAL).isCurrentFor(current))
+        assertFalse(
+            FilteredPreviewRequest(
+                2L,
+                "page-b",
+                DocumentFilter.GRAYSCALE,
+                DocumentPageRotation.DEGREES_90,
+            ).isCurrentFor(current),
+        )
         assertTrue(current.isCurrentFor(current))
     }
 

@@ -5,7 +5,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.synapseworks.pageharbor.ActiveScanPage
+import org.synapseworks.pageharbor.document.session.DocumentPage
+import org.synapseworks.pageharbor.document.session.DocumentPageId
+import org.synapseworks.pageharbor.document.session.DocumentPageRotation
+import org.synapseworks.pageharbor.document.session.DocumentResource
+import org.synapseworks.pageharbor.document.session.DocumentResourceOwnership
+import org.synapseworks.pageharbor.document.session.DocumentSourceCategory
 import org.synapseworks.pageharbor.image.ArgbImage
 import org.synapseworks.pageharbor.image.DocumentFilter
 
@@ -15,6 +20,37 @@ class PageJpegExportPlanTest {
         assertEquals(
             PageJpegExportPlan.DirectCopy(pageId = 10L),
             pageJpegExportPlan(pageId = 10L, filter = DocumentFilter.ORIGINAL),
+        )
+    }
+
+    @Test
+    fun rotatedOriginalUsesTheSharedTransformationPlan() {
+        assertEquals(
+            PageJpegExportPlan.Filtered(
+                pageId = 10L,
+                filter = DocumentFilter.ORIGINAL,
+                rotation = DocumentPageRotation.DEGREES_90,
+            ),
+            pageJpegExportPlan(
+                pageId = 10L,
+                filter = DocumentFilter.ORIGINAL,
+                rotation = DocumentPageRotation.DEGREES_90,
+            ),
+        )
+    }
+
+    @Test
+    fun nonJpegOriginalUsesTheSharedTransformationPlan() {
+        assertEquals(
+            PageJpegExportPlan.Filtered(
+                pageId = 11L,
+                filter = DocumentFilter.ORIGINAL,
+            ),
+            pageJpegExportPlan(
+                pageId = 11L,
+                filter = DocumentFilter.ORIGINAL,
+                contentType = "image/png",
+            ),
         )
     }
 
@@ -113,8 +149,15 @@ class PageJpegExportPlanTest {
         )
     }
 
-    private fun page(id: Long, filter: DocumentFilter): ActiveScanPage =
-        ActiveScanPage(id = id, sourceUri = null, filter = filter)
+    private fun page(id: Long, filter: DocumentFilter): DocumentPage = DocumentPage(
+        id = DocumentPageId(id),
+        source = DocumentResource(
+            reference = "page-$id",
+            ownership = DocumentResourceOwnership.USER_OR_EXTERNAL,
+        ),
+        sourceCategory = DocumentSourceCategory.SCAN,
+        filter = filter,
+    )
 
     private fun image(vararg pixels: Int): ArgbImage = ArgbImage(pixels.size, 1, pixels)
 }

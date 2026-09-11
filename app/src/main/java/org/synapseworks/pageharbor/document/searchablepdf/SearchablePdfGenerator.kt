@@ -16,6 +16,8 @@ import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import org.synapseworks.pageharbor.document.PageExportFailureException
+import org.synapseworks.pageharbor.document.PageExportResult
 import org.synapseworks.pageharbor.ocr.OcrPageResult
 
 /** Creates a local PDF with scanned JPEG pages and an optional invisible OCR text layer. */
@@ -58,6 +60,7 @@ enum class SearchablePdfGenerationError {
     EMPTY_REQUEST,
     OUTPUT_UNAVAILABLE,
     PAGE_IMAGE_UNREADABLE,
+    PAGE_IMAGE_TOO_LARGE,
     GENERATION_FAILED,
 }
 
@@ -83,7 +86,7 @@ class PdfBoxSearchablePdfGenerator(context: Context) : SearchablePdfGenerator {
                 )
             }
 
-            var pageImageUnreadable = false
+            var pageImageFailure: SearchablePdfGenerationError? = null
             try {
                 coroutineContext.ensureActive()
                 PDFBoxResourceLoader.init(applicationContext)
@@ -110,8 +113,16 @@ class PdfBoxSearchablePdfGenerator(context: Context) : SearchablePdfGenerator {
                             }
                         } catch (error: CancellationException) {
                             throw error
+                        } catch (error: PageExportFailureException) {
+                            pageImageFailure = when (error.result) {
+                                PageExportResult.SourceTooLarge ->
+                                    SearchablePdfGenerationError.PAGE_IMAGE_TOO_LARGE
+
+                                else -> SearchablePdfGenerationError.PAGE_IMAGE_UNREADABLE
+                            }
+                            throw PageImageException
                         } catch (_: Exception) {
-                            pageImageUnreadable = true
+                            pageImageFailure = SearchablePdfGenerationError.PAGE_IMAGE_UNREADABLE
                             throw PageImageException
                         }
                     }
@@ -128,20 +139,12 @@ class PdfBoxSearchablePdfGenerator(context: Context) : SearchablePdfGenerator {
             } catch (_: SecurityException) {
                 cleanupOutput(request.outputFile)
                 SearchablePdfGenerationResult.Failure(
-                    if (pageImageUnreadable) {
-                        SearchablePdfGenerationError.PAGE_IMAGE_UNREADABLE
-                    } else {
-                        SearchablePdfGenerationError.OUTPUT_UNAVAILABLE
-                    },
+                    pageImageFailure ?: SearchablePdfGenerationError.OUTPUT_UNAVAILABLE,
                 )
             } catch (_: Exception) {
                 cleanupOutput(request.outputFile)
                 SearchablePdfGenerationResult.Failure(
-                    if (pageImageUnreadable) {
-                        SearchablePdfGenerationError.PAGE_IMAGE_UNREADABLE
-                    } else {
-                        SearchablePdfGenerationError.GENERATION_FAILED
-                    },
+                    pageImageFailure ?: SearchablePdfGenerationError.GENERATION_FAILED,
                 )
             }
         }

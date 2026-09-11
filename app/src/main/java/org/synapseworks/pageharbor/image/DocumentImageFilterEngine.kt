@@ -15,45 +15,97 @@ object DocumentImageFilterEngine {
     private const val AutoBlackPointPercentile = 0.04f
     private const val AutoWhitePointPercentile = 0.96f
 
-    fun apply(source: ArgbImage, filter: DocumentFilter): ArgbImage = when (filter) {
-        DocumentFilter.ORIGINAL -> source
-        DocumentFilter.GRAYSCALE -> transform(source) { alpha, red, green, blue ->
-            val luminance = luminance(red, green, blue)
-            argb(alpha, luminance, luminance, luminance)
+    fun apply(source: ArgbImage, filter: DocumentFilter): ArgbImage {
+        if (filter == DocumentFilter.ORIGINAL) return source
+        val output = source.pixels.copyOf()
+        val histogram = if (requiresHistogram(filter)) {
+            IntArray(256).also { accumulateLuminanceHistogram(source.pixels, it) }
+        } else {
+            null
         }
-        DocumentFilter.HIGH_CONTRAST -> transform(source) { alpha, red, green, blue ->
-            argb(alpha, contrast(red), contrast(green), contrast(blue))
-        }
-        DocumentFilter.AUTO_ENHANCE -> autoEnhance(source)
-        DocumentFilter.BLACK_AND_WHITE -> blackAndWhite(source)
+        applyRowFilterInPlace(
+            pixels = output,
+            plan = createRowFilterPlan(filter, histogram, source.pixels.size),
+        )
+        return ArgbImage(source.width, source.height, output)
     }
 
-    private fun autoEnhance(source: ArgbImage): ArgbImage {
-        val histogram = luminanceHistogram(source)
-        val blackPoint = percentile(histogram, source.pixels.size, AutoBlackPointPercentile)
-        val whitePoint = percentile(histogram, source.pixels.size, AutoWhitePointPercentile)
-        if (whitePoint <= blackPoint) return apply(source, DocumentFilter.HIGH_CONTRAST)
-        return transform(source) { alpha, red, green, blue ->
-            argb(
-                alpha,
-                stretch(red, blackPoint, whitePoint),
-                stretch(green, blackPoint, whitePoint),
-                stretch(blue, blackPoint, whitePoint),
-            )
-        }
-    }
+    internal fun requiresHistogram(filter: DocumentFilter): Boolean =
+        filter == DocumentFilter.AUTO_ENHANCE || filter == DocumentFilter.BLACK_AND_WHITE
 
-    private fun blackAndWhite(source: ArgbImage): ArgbImage {
-        val threshold = otsuThreshold(luminanceHistogram(source), source.pixels.size)
-        return transform(source) { alpha, red, green, blue ->
-            val value = if (luminance(red, green, blue) <= threshold) 0 else 255
-            argb(alpha, value, value, value)
-        }
-    }
-
-    private fun luminanceHistogram(source: ArgbImage): IntArray = IntArray(256).also { histogram ->
-        source.pixels.forEach { pixel ->
+    internal fun accumulateLuminanceHistogram(pixels: IntArray, histogram: IntArray) {
+        require(histogram.size == 256)
+        pixels.forEach { pixel ->
             histogram[luminance(red(pixel), green(pixel), blue(pixel))]++
+        }
+    }
+
+    internal fun createRowFilterPlan(
+        filter: DocumentFilter,
+        histogram: IntArray?,
+        totalPixelCount: Int,
+    ): DocumentRowFilterPlan {
+        if (!requiresHistogram(filter)) return DocumentRowFilterPlan(filter)
+        require(histogram?.size == 256)
+        require(totalPixelCount > 0)
+        return when (filter) {
+            DocumentFilter.AUTO_ENHANCE -> {
+                val blackPoint = percentile(histogram, totalPixelCount, AutoBlackPointPercentile)
+                val whitePoint = percentile(histogram, totalPixelCount, AutoWhitePointPercentile)
+                DocumentRowFilterPlan(
+                    filter = filter,
+                    blackPoint = blackPoint,
+                    whitePoint = whitePoint,
+                    useHighContrastFallback = whitePoint <= blackPoint,
+                )
+            }
+
+            DocumentFilter.BLACK_AND_WHITE -> DocumentRowFilterPlan(
+                filter = filter,
+                threshold = otsuThreshold(histogram, totalPixelCount),
+            )
+
+            else -> error("Histogram is not required for this filter.")
+        }
+    }
+
+    internal fun applyRowFilterInPlace(pixels: IntArray, plan: DocumentRowFilterPlan) {
+        pixels.indices.forEach { index ->
+            val value = pixels[index]
+            val alpha = alpha(value)
+            val red = red(value)
+            val green = green(value)
+            val blue = blue(value)
+            pixels[index] = when (plan.filter) {
+                DocumentFilter.ORIGINAL -> value
+                DocumentFilter.GRAYSCALE -> {
+                    val luminance = luminance(red, green, blue)
+                    argb(alpha, luminance, luminance, luminance)
+                }
+
+                DocumentFilter.HIGH_CONTRAST -> argb(
+                    alpha,
+                    contrast(red),
+                    contrast(green),
+                    contrast(blue),
+                )
+
+                DocumentFilter.AUTO_ENHANCE -> if (plan.useHighContrastFallback) {
+                    argb(alpha, contrast(red), contrast(green), contrast(blue))
+                } else {
+                    argb(
+                        alpha,
+                        stretch(red, plan.blackPoint, plan.whitePoint),
+                        stretch(green, plan.blackPoint, plan.whitePoint),
+                        stretch(blue, plan.blackPoint, plan.whitePoint),
+                    )
+                }
+
+                DocumentFilter.BLACK_AND_WHITE -> {
+                    val channel = if (luminance(red, green, blue) <= plan.threshold) 0 else 255
+                    argb(alpha, channel, channel, channel)
+                }
+            }
         }
     }
 
@@ -92,18 +144,6 @@ object DocumentImageFilterEngine {
         return bestThreshold
     }
 
-    private inline fun transform(
-        source: ArgbImage,
-        pixel: (alpha: Int, red: Int, green: Int, blue: Int) -> Int,
-    ): ArgbImage = ArgbImage(
-        width = source.width,
-        height = source.height,
-        pixels = IntArray(source.pixels.size) { index ->
-            val value = source.pixels[index]
-            pixel(alpha(value), red(value), green(value), blue(value))
-        },
-    )
-
     private fun stretch(value: Int, low: Int, high: Int): Int =
         (((value - low) * 255f) / (high - low)).roundToInt().coerceIn(0, 255)
 
@@ -122,6 +162,14 @@ object DocumentImageFilterEngine {
     private fun argb(alpha: Int, red: Int, green: Int, blue: Int): Int =
         alpha shl 24 or (red shl 16) or (green shl 8) or blue
 }
+
+internal data class DocumentRowFilterPlan(
+    val filter: DocumentFilter,
+    val blackPoint: Int = 0,
+    val whitePoint: Int = 255,
+    val threshold: Int = 127,
+    val useHighContrastFallback: Boolean = false,
+)
 
 data class ArgbImage(
     val width: Int,

@@ -3,6 +3,7 @@ package org.synapseworks.pageharbor.document.searchablepdf
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.synapseworks.pageharbor.document.session.DocumentPageRotation
 import org.synapseworks.pageharbor.image.DocumentFilter
 
 class SearchablePdfVisualPlanTest {
@@ -35,6 +36,40 @@ class SearchablePdfVisualPlanTest {
         assertEquals(
             SearchablePdfVisualPlan.Filtered(5L, DocumentFilter.HIGH_CONTRAST),
             searchablePdfVisualPlan(5L, DocumentFilter.HIGH_CONTRAST),
+        )
+    }
+
+    @Test
+    fun rotatedOriginalUsesAVisualTransformationWithoutChangingTheOcrSource() {
+        val plan = searchablePdfVisualPlan(
+            pageId = 6L,
+            filter = DocumentFilter.ORIGINAL,
+            rotation = DocumentPageRotation.DEGREES_90,
+        )
+
+        assertEquals(
+            SearchablePdfVisualPlan.Filtered(
+                pageId = 6L,
+                filter = DocumentFilter.ORIGINAL,
+                rotation = DocumentPageRotation.DEGREES_90,
+            ),
+            plan,
+        )
+        assertEquals(SearchablePdfOcrSource.ORIGINAL, plan.ocrSource)
+    }
+
+    @Test
+    fun nonJpegOriginalUsesTheSharedJpegVisualTransformation() {
+        assertEquals(
+            SearchablePdfVisualPlan.Filtered(
+                pageId = 7L,
+                filter = DocumentFilter.ORIGINAL,
+            ),
+            searchablePdfVisualPlan(
+                pageId = 7L,
+                filter = DocumentFilter.ORIGINAL,
+                contentType = "image/png",
+            ),
         )
     }
 

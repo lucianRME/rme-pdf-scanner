@@ -39,14 +39,15 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
-import org.synapseworks.pageharbor.ActiveScanPage
-import org.synapseworks.pageharbor.MAX_SCAN_PAGES
+import org.synapseworks.pageharbor.MAX_DOCUMENT_PAGES
 import org.synapseworks.pageharbor.R
 import org.synapseworks.pageharbor.document.PageExportState
 import org.synapseworks.pageharbor.document.PdfSaveState
 import org.synapseworks.pageharbor.document.PdfShareState
 import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfSaveState
 import org.synapseworks.pageharbor.document.searchablepdf.isInProgress
+import org.synapseworks.pageharbor.document.session.DocumentPage
+import org.synapseworks.pageharbor.document.session.toAndroidUri
 import org.synapseworks.pageharbor.image.DocumentFilter
 import org.synapseworks.pageharbor.ocr.OcrUiState
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
@@ -63,7 +64,7 @@ fun ScanResultScreen(
     pageExportState: PageExportState,
     ocrUiState: OcrUiState,
     searchablePdfSaveState: SearchablePdfSaveState,
-    scanPages: List<ActiveScanPage>,
+    documentPages: List<DocumentPage>,
     onPageFilterChange: (Long, DocumentFilter) -> Unit,
     onBack: () -> Unit,
     onSavePdf: () -> Unit,
@@ -76,16 +77,17 @@ fun ScanResultScreen(
     onDiscard: () -> Unit,
 ) {
     var selectedPageId by rememberSaveable { mutableStateOf<Long?>(null) }
-    LaunchedEffect(scanPages) {
-        if (scanPages.none { it.id == selectedPageId }) {
-            selectedPageId = scanPages.firstOrNull()?.id
+    LaunchedEffect(documentPages) {
+        if (documentPages.none { it.id.value == selectedPageId }) {
+            selectedPageId = documentPages.firstOrNull()?.id?.value
         }
     }
-    val selectedPageIndex = scanPages.indexOfFirst { it.id == selectedPageId }
+    val selectedPageIndex = documentPages.indexOfFirst { it.id.value == selectedPageId }
         .takeIf { it >= 0 } ?: 0
-    val selectedPage = scanPages.getOrNull(selectedPageIndex)
-    val displayedPageCount = scanPages.size.takeIf { it > 0 } ?: result.jpegPageCount
-    val canAddPages = displayedPageCount < MAX_SCAN_PAGES
+    val selectedPage = documentPages.getOrNull(selectedPageIndex)
+    val displayedPageCount = documentPages.size.takeIf { it > 0 } ?: result.jpegPageCount
+    val hasProcessablePages = documentPages.isNotEmpty()
+    val canAddPages = displayedPageCount < MAX_DOCUMENT_PAGES
     val saving = pdfSaveState == PdfSaveState.ChoosingDestination ||
         pdfSaveState == PdfSaveState.Saving
     val sharing = pdfShareState == PdfShareState.Preparing
@@ -134,9 +136,9 @@ fun ScanResultScreen(
                     PageEditingSection(
                         page = page,
                         selectedPageIndex = selectedPageIndex,
-                        pageCount = scanPages.size,
+                        pageCount = documentPages.size,
                         canAddPages = canAddPages,
-                        onSelectedPageChange = { index -> selectedPageId = scanPages[index].id },
+                        onSelectedPageChange = { index -> selectedPageId = documentPages[index].id.value },
                         onPageFilterChange = onPageFilterChange,
                         onAddPages = onScanAgain,
                     )
@@ -149,8 +151,8 @@ fun ScanResultScreen(
                 )
 
                 DocumentActionLayer(
-                    hasPdf = result.hasPdf,
-                    hasPages = result.jpegPageCount > 0,
+                    canExportPdf = hasProcessablePages,
+                    hasPages = hasProcessablePages,
                     saving = saving,
                     savingSearchablePdf = savingSearchablePdf,
                     sharing = sharing,
@@ -208,7 +210,7 @@ private fun ScanContext(pageCount: Int) {
 
 @Composable
 private fun PageEditingSection(
-    page: ActiveScanPage,
+    page: DocumentPage,
     selectedPageIndex: Int,
     pageCount: Int,
     canAddPages: Boolean,
@@ -217,22 +219,20 @@ private fun PageEditingSection(
     onAddPages: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium)) {
-        if (page.sourceUri != null) {
-            FilteredDocumentPreview(
-                request = FilteredPreviewRequest(
-                    pageId = page.id,
-                    sourceKey = page.sourceUri.toString(),
-                    filter = page.filter,
-                ),
-                pageUri = page.sourceUri,
-                pageNumber = selectedPageIndex + 1,
-                pageCount = pageCount,
-                minHeight = PageHarborLayout.editorDocumentPreviewMinHeight,
-                maxHeight = PageHarborLayout.editorDocumentPreviewMaxHeight,
-            )
-        } else {
-            Text(stringResource(R.string.scan_preview_unavailable))
-        }
+        FilteredDocumentPreview(
+            request = FilteredPreviewRequest(
+                pageId = page.id.value,
+                sourceKey = page.source.reference,
+                filter = page.filter,
+                rotation = page.rotation,
+                imageMetadata = page.imageMetadata,
+            ),
+            pageUri = page.source.toAndroidUri(),
+            pageNumber = selectedPageIndex + 1,
+            pageCount = pageCount,
+            minHeight = PageHarborLayout.editorDocumentPreviewMinHeight,
+            maxHeight = PageHarborLayout.editorDocumentPreviewMaxHeight,
+        )
         PageToolbar(
             selectedPageIndex = selectedPageIndex,
             pageCount = pageCount,
@@ -242,14 +242,14 @@ private fun PageEditingSection(
         )
         FilterSelector(
             selectedFilter = page.filter,
-            onFilterSelected = { onPageFilterChange(page.id, it) },
+            onFilterSelected = { onPageFilterChange(page.id.value, it) },
         )
     }
 }
 
 @Composable
 private fun DocumentActionLayer(
-    hasPdf: Boolean,
+    canExportPdf: Boolean,
     hasPages: Boolean,
     saving: Boolean,
     savingSearchablePdf: Boolean,
@@ -264,7 +264,7 @@ private fun DocumentActionLayer(
     onViewRecognizedText: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
-        if (hasPdf) {
+        if (canExportPdf) {
             Button(
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !saving,
@@ -302,7 +302,7 @@ private fun DocumentActionLayer(
                 }
             }
         }
-        if (ocrUiState is OcrUiState.Success) {
+        if (hasPages && ocrUiState is OcrUiState.Success) {
             TextButton(
                 modifier = Modifier.fillMaxWidth(),
                 onClick = onViewRecognizedText,
@@ -310,12 +310,12 @@ private fun DocumentActionLayer(
                 Text(stringResource(R.string.ocr_view_action))
             }
         }
-        if (hasPdf || hasPages) {
+        if (canExportPdf || hasPages) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
             ) {
-                if (hasPdf) {
+                if (canExportPdf) {
                     TextButton(
                         modifier = Modifier.weight(1f),
                         enabled = !sharing,

@@ -8,6 +8,7 @@ sealed interface PdfShareState {
 
 enum class PdfShareError {
     NoPdfAvailable,
+    SourceTooLarge,
     ShareTargetUnavailable,
     InvalidUri,
     UnexpectedFailure,

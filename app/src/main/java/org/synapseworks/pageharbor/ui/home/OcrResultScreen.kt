@@ -28,7 +28,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
@@ -42,9 +41,10 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.synapseworks.pageharbor.R
+import org.synapseworks.pageharbor.document.session.DEFAULT_DOCUMENT_INPUT_LIMITS
+import org.synapseworks.pageharbor.document.session.DocumentImageMetadata
+import org.synapseworks.pageharbor.document.session.imageConstraintViolation
 import org.synapseworks.pageharbor.ocr.OcrPageResult
 import org.synapseworks.pageharbor.ocr.OcrResult
 import org.synapseworks.pageharbor.ocr.copyableOcrPreview
@@ -59,6 +59,7 @@ import org.synapseworks.pageharbor.ui.theme.PageHarborSpacing
 fun OcrResultScreen(
     result: OcrResult,
     pageUris: List<Uri>,
+    pageMetadata: List<DocumentImageMetadata>,
     selectedPageIndex: Int,
     onSelectedPageChange: (Int) -> Unit,
     snackbarHostState: SnackbarHostState,
@@ -70,6 +71,7 @@ fun OcrResultScreen(
     val pageCount = result.pages.size
     val selectedIndex = selectedPageIndex.coerceIn(0, (pageCount - 1).coerceAtLeast(0))
     val selectedPage = result.pages.getOrNull(selectedIndex)
+    val selectedPageMetadata = pageMetadata.getOrNull(selectedIndex) ?: DocumentImageMetadata()
     val textFoundPageCount = result.textFoundPageCount()
     val context = LocalContext.current
     val copyPayload = copyableOcrPreview(
@@ -131,6 +133,7 @@ fun OcrResultScreen(
                     OcrPageText(page)
                     ScannedDocumentPreview(
                         pageUri = pageUris.getOrNull(selectedIndex),
+                        imageMetadata = selectedPageMetadata,
                         pageNumber = selectedIndex + 1,
                         pageCount = pageCount,
                     )
@@ -248,6 +251,7 @@ private fun OcrPageText(page: OcrPageResult) {
 @Composable
 private fun ScannedDocumentPreview(
     pageUri: Uri?,
+    imageMetadata: DocumentImageMetadata,
     pageNumber: Int,
     pageCount: Int,
 ) {
@@ -265,7 +269,11 @@ private fun ScannedDocumentPreview(
             )
         } else {
             val contentResolver = LocalContext.current.contentResolver
-            val previewState by rememberDocumentPreview(pageUri, contentResolver)
+            val previewState by rememberDocumentPreview(
+                pageUri,
+                imageMetadata,
+                contentResolver,
+            )
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -282,19 +290,19 @@ private fun ScannedDocumentPreview(
                     contentAlignment = Alignment.Center,
                 ) {
                     when (val state = previewState) {
-                        DocumentPreviewState.Loading -> Text(
+                        ManagedDocumentPreviewState.Loading -> Text(
                             text = stringResource(R.string.ocr_preview_loading),
                             style = MaterialTheme.typography.bodyMedium,
                         )
 
-                        DocumentPreviewState.Unavailable -> Text(
+                        ManagedDocumentPreviewState.Unavailable -> Text(
                             text = stringResource(R.string.ocr_preview_unavailable),
                             style = MaterialTheme.typography.bodyMedium,
                         )
 
-                        is DocumentPreviewState.Ready -> Image(
+                        is ManagedDocumentPreviewState.Ready -> Image(
                             modifier = Modifier.fillMaxSize(),
-                            bitmap = state.bitmap.asImageBitmap(),
+                            bitmap = state.owner.bitmap.asImageBitmap(),
                             contentDescription = null,
                             contentScale = ContentScale.Fit,
                         )
@@ -308,35 +316,34 @@ private fun ScannedDocumentPreview(
 @Composable
 private fun rememberDocumentPreview(
     pageUri: Uri,
+    imageMetadata: DocumentImageMetadata,
     contentResolver: android.content.ContentResolver,
-) = produceState<DocumentPreviewState>(
-    initialValue = DocumentPreviewState.Loading,
-    key1 = pageUri,
-) {
-    value = when (val decoded = withContext(Dispatchers.IO) {
-        decodeDocumentPreview(contentResolver, pageUri)
-    }) {
-        null -> DocumentPreviewState.Unavailable
-        else -> DocumentPreviewState.Ready(decoded)
-    }
-}
-
-private sealed interface DocumentPreviewState {
-    data object Loading : DocumentPreviewState
-    data object Unavailable : DocumentPreviewState
-    data class Ready(val bitmap: Bitmap) : DocumentPreviewState
-}
+) = rememberManagedDocumentPreview(
+    requestKey = pageUri to imageMetadata,
+    decode = { decodeDocumentPreview(contentResolver, pageUri, imageMetadata) },
+)
 
 private fun decodeDocumentPreview(
     contentResolver: android.content.ContentResolver,
     pageUri: Uri,
+    imageMetadata: DocumentImageMetadata,
 ): Bitmap? {
+    if (DEFAULT_DOCUMENT_INPUT_LIMITS.imageConstraintViolation(imageMetadata) != null) {
+        return null
+    }
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     runCatching {
         contentResolver.openInputStream(pageUri)?.use { stream ->
             BitmapFactory.decodeStream(stream, null, bounds)
         }
     }.getOrNull()
+    if (
+        DEFAULT_DOCUMENT_INPUT_LIMITS.imageConstraintViolation(
+            imageMetadata.copy(width = bounds.outWidth, height = bounds.outHeight),
+        ) != null
+    ) {
+        return null
+    }
     val sampleSize = DocumentPreviewDecodePolicy.calculateInSampleSize(
         width = bounds.outWidth,
         height = bounds.outHeight,

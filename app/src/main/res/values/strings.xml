@@ -68,6 +68,7 @@
     <string name="pdf_save_progress">Saving PDF…</string>
     <string name="pdf_save_success">PDF saved</string>
     <string name="pdf_save_source_missing">PDF could not be saved because the scan result is no longer available.</string>
+    <string name="document_source_too_large">A document page is too large to process safely.</string>
     <string name="pdf_save_destination_unavailable">Selected destination is unavailable.</string>
     <string name="pdf_save_failed">PDF could not be saved. Try another destination.</string>
     <string name="searchable_pdf_save_action">Save searchable PDF</string>

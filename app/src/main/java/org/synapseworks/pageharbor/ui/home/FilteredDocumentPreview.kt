@@ -3,6 +3,7 @@ package org.synapseworks.pageharbor.ui.home
 import android.content.ContentResolver
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
@@ -14,7 +15,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,11 +25,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.withContext
 import org.synapseworks.pageharbor.R
+import org.synapseworks.pageharbor.document.session.DEFAULT_DOCUMENT_INPUT_LIMITS
+import org.synapseworks.pageharbor.document.session.DocumentPageRotation
+import org.synapseworks.pageharbor.document.session.imageConstraintViolation
 import org.synapseworks.pageharbor.image.ArgbImage
 import org.synapseworks.pageharbor.image.DocumentFilter
 import org.synapseworks.pageharbor.image.DocumentImageFilterEngine
@@ -51,29 +50,14 @@ internal fun FilteredDocumentPreview(
 ) {
     val contentResolver = LocalContext.current.contentResolver
     val currentRequest by rememberUpdatedState(request)
-    val previewState by produceState<FilteredDocumentPreviewState>(
-        initialValue = FilteredDocumentPreviewState.Loading,
-        key1 = request,
-    ) {
-        val decoded = withContext(Dispatchers.IO) {
-            decodeDocumentPreview(contentResolver, pageUri)
-        }
-        currentCoroutineContext().ensureActive()
-        if (!request.isCurrentFor(currentRequest)) return@produceState
-
-        value = when (decoded) {
-            null -> FilteredDocumentPreviewState.Unavailable
-            else -> FilteredDocumentPreviewState.Ready(
-                if (request.filter == DocumentFilter.ORIGINAL) {
-                    decoded
-                } else {
-                    withContext(Dispatchers.Default) {
-                        applyPreviewFilterOrOriginal(decoded, request.filter)
-                    }
-                },
-            )
-        }
-    }
+    val previewState by rememberManagedDocumentPreview(
+        requestKey = request,
+        isCurrent = { request.isCurrentFor(currentRequest) },
+        decode = { decodeDocumentPreview(contentResolver, pageUri, request) },
+        transform = { decoded ->
+            applyPreviewRotationAndFilter(decoded, request.rotation, request.filter)
+        },
+    )
     val description = stringResource(R.string.scan_preview_description, pageNumber, pageCount)
     Surface(
         modifier = Modifier
@@ -91,31 +75,25 @@ internal fun FilteredDocumentPreview(
             contentAlignment = Alignment.Center,
         ) {
             when (val state = previewState) {
-                FilteredDocumentPreviewState.Loading -> Text(
+                ManagedDocumentPreviewState.Loading -> Text(
                     text = stringResource(R.string.scan_preview_loading),
                     style = MaterialTheme.typography.bodyMedium,
                 )
 
-                FilteredDocumentPreviewState.Unavailable -> Text(
+                ManagedDocumentPreviewState.Unavailable -> Text(
                     text = stringResource(R.string.scan_preview_unavailable),
                     style = MaterialTheme.typography.bodyMedium,
                 )
 
-                is FilteredDocumentPreviewState.Ready -> Image(
+                is ManagedDocumentPreviewState.Ready -> Image(
                     modifier = Modifier.fillMaxSize(),
-                    bitmap = state.bitmap.asImageBitmap(),
+                    bitmap = state.owner.bitmap.asImageBitmap(),
                     contentDescription = null,
                     contentScale = ContentScale.Fit,
                 )
             }
         }
     }
-}
-
-private sealed interface FilteredDocumentPreviewState {
-    data object Loading : FilteredDocumentPreviewState
-    data object Unavailable : FilteredDocumentPreviewState
-    data class Ready(val bitmap: Bitmap) : FilteredDocumentPreviewState
 }
 
 /** ORIGINAL returns [source] directly; transformation failures preserve the source preview. */
@@ -139,16 +117,57 @@ internal fun applyPreviewFilterOrOriginal(source: Bitmap, filter: DocumentFilter
         Bitmap.createBitmap(filtered.pixels, filtered.width, filtered.height, Bitmap.Config.ARGB_8888)
     }
 
+internal fun applyPreviewRotationAndFilter(
+    source: Bitmap,
+    rotation: DocumentPageRotation,
+    filter: DocumentFilter,
+): Bitmap {
+    var intermediate: Bitmap? = null
+    return try {
+        val rotated = if (rotation == DocumentPageRotation.DEGREES_0) {
+            source
+        } else {
+            Bitmap.createBitmap(
+                source,
+                0,
+                0,
+                source.width,
+                source.height,
+                Matrix().apply { setRotate(rotation.degrees.toFloat()) },
+                true,
+            ).also { intermediate = it }
+        }
+        val filtered = applyPreviewFilterOrOriginal(rotated, filter)
+        if (filtered !== rotated && rotated !== source) recyclePreviewBitmap(rotated)
+        intermediate = null
+        filtered
+    } catch (error: Throwable) {
+        intermediate?.let(::recyclePreviewBitmap)
+        throw error
+    }
+}
+
 private fun decodeDocumentPreview(
     contentResolver: ContentResolver,
     pageUri: Uri,
+    request: FilteredPreviewRequest,
 ): Bitmap? {
+    if (DEFAULT_DOCUMENT_INPUT_LIMITS.imageConstraintViolation(request.imageMetadata) != null) {
+        return null
+    }
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     runCatching {
         contentResolver.openInputStream(pageUri)?.use { stream ->
             BitmapFactory.decodeStream(stream, null, bounds)
         }
     }.getOrNull()
+    if (
+        DEFAULT_DOCUMENT_INPUT_LIMITS.imageConstraintViolation(
+            request.imageMetadata.copy(width = bounds.outWidth, height = bounds.outHeight),
+        ) != null
+    ) {
+        return null
+    }
     val sampleSize = DocumentPreviewDecodePolicy.calculateInSampleSize(
         width = bounds.outWidth,
         height = bounds.outHeight,

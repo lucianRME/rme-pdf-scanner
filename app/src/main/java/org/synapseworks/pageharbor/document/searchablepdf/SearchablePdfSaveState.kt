@@ -16,6 +16,7 @@ sealed interface SearchablePdfSaveState {
 /** Safe error categories that deliberately exclude document and destination details. */
 enum class SearchablePdfSaveError {
     NO_PAGES,
+    SOURCE_TOO_LARGE,
     PREPARATION_FAILED,
     DESTINATION_UNAVAILABLE,
     WRITE_FAILED,

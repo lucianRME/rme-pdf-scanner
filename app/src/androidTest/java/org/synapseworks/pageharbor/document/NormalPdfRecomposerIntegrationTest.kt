@@ -18,6 +18,10 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.synapseworks.pageharbor.image.DocumentFilter
+import org.synapseworks.pageharbor.document.session.DocumentResource
+import org.synapseworks.pageharbor.document.session.DocumentResourceOwnership
+import org.synapseworks.pageharbor.document.session.DEFAULT_MAX_IMAGE_SOURCE_BYTES
+import org.synapseworks.pageharbor.document.session.DocumentImageMetadata
 
 class NormalPdfRecomposerIntegrationTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -35,8 +39,8 @@ class NormalPdfRecomposerIntegrationTest {
             val recomposed = recomposeNormalPdf(
                 context,
                 listOf(
-                    NormalPdfPage(1L, fileUri(original), DocumentFilter.ORIGINAL),
-                    NormalPdfPage(2L, fileUri(filtered), DocumentFilter.GRAYSCALE),
+                    NormalPdfPage(1L, resource(original), DocumentFilter.ORIGINAL),
+                    NormalPdfPage(2L, resource(filtered), DocumentFilter.GRAYSCALE),
                 ),
             )
 
@@ -71,6 +75,27 @@ class NormalPdfRecomposerIntegrationTest {
             original.delete()
             filtered.delete()
         }
+    }
+
+    @Test
+    fun knownOversizedOriginalJpegReturnsTypedFailureBeforeOpeningTheSource() = runBlocking {
+        val missingSource = sourceFile("oversized-missing.jpg")
+
+        val result = recomposeNormalPdf(
+            context,
+            listOf(
+                NormalPdfPage(
+                    pageId = 1L,
+                    source = resource(missingSource),
+                    filter = DocumentFilter.ORIGINAL,
+                    imageMetadata = DocumentImageMetadata(
+                        sourceByteCount = DEFAULT_MAX_IMAGE_SOURCE_BYTES + 1L,
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(NormalPdfRecompositionResult.SourceTooLarge, result)
     }
 
     private fun renderPixel(pdf: File, pageIndex: Int): Int {
@@ -108,5 +133,10 @@ class NormalPdfRecomposerIntegrationTest {
         context,
         "${context.packageName}.fileprovider",
         file,
+    )
+
+    private fun resource(file: File) = DocumentResource(
+        reference = fileUri(file).toString(),
+        ownership = DocumentResourceOwnership.USER_OR_EXTERNAL,
     )
 }
