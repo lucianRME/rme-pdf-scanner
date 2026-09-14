@@ -36,6 +36,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import org.synapseworks.pageharbor.R
 import org.synapseworks.pageharbor.document.PageExportState
+import org.synapseworks.pageharbor.document.importing.DocumentImportUiState
 import org.synapseworks.pageharbor.document.PdfSaveState
 import org.synapseworks.pageharbor.document.PdfShareState
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
@@ -52,6 +53,8 @@ import org.synapseworks.pageharbor.ui.theme.PageHarborSpacing
 fun HomeScreen(
     snackbarHostState: SnackbarHostState,
     scannerSpikeState: ScannerSpikeState,
+    hasActiveSession: Boolean,
+    importUiState: DocumentImportUiState,
     showBuildDetails: Boolean,
     buildTypeLabel: String,
     versionName: String,
@@ -60,6 +63,8 @@ fun HomeScreen(
     showPrivacyInfo: Boolean,
     showAbout: Boolean,
     onScanDocument: () -> Unit,
+    onImportFiles: () -> Unit,
+    onCancelImport: () -> Unit,
     onViewScanResult: () -> Unit,
     onPrivacyInfo: () -> Unit,
     onDismissPrivacyInfo: () -> Unit,
@@ -68,6 +73,8 @@ fun HomeScreen(
     onViewSourceCode: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val importInProgress = importUiState == DocumentImportUiState.Selecting ||
+        importUiState is DocumentImportUiState.Processing
     Scaffold(
         modifier = modifier,
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -127,14 +134,33 @@ fun HomeScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = PageHarborSpacing.extraLarge),
-                        enabled = scannerSpikeState != ScannerSpikeState.Preparing,
+                        enabled = scannerSpikeState != ScannerSpikeState.Preparing && !importInProgress,
                         onClick = onScanDocument,
                     ) {
                         Text(text = stringResource(R.string.home_scan_document))
                     }
+                    OutlinedButton(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = PageHarborSpacing.small),
+                        enabled = scannerSpikeState != ScannerSpikeState.Preparing && !importInProgress,
+                        onClick = onImportFiles,
+                    ) {
+                        Text(text = stringResource(R.string.home_import_files))
+                    }
+                    Text(
+                        modifier = Modifier.padding(top = PageHarborSpacing.small),
+                        text = stringResource(R.string.home_import_supporting_text),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
                     HomeScanStatus(
                         scannerSpikeState = scannerSpikeState,
+                        hasActiveSession = hasActiveSession,
+                        importUiState = importUiState,
                         onViewScanResult = onViewScanResult,
+                        onCancelImport = onCancelImport,
                     )
                     TextButton(
                         modifier = Modifier.padding(top = PageHarborSpacing.small),
@@ -194,17 +220,56 @@ fun HomeScreen(
 @Composable
 private fun HomeScanStatus(
     scannerSpikeState: ScannerSpikeState,
+    hasActiveSession: Boolean,
+    importUiState: DocumentImportUiState,
     onViewScanResult: () -> Unit,
+    onCancelImport: () -> Unit,
 ) {
-    when (scannerSpikeState) {
-        ScannerSpikeState.Preparing -> {
+    when {
+        importUiState is DocumentImportUiState.Processing -> {
+            Row(
+                modifier = Modifier
+                    .padding(top = PageHarborSpacing.large)
+                    .semantics { liveRegion = LiveRegionMode.Polite },
+                horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(PageHarborLayout.inlineProgressIndicatorSize),
+                )
+                Text(
+                    text = if (importUiState.totalItems > 0 && importUiState.preparedPages > 0) {
+                        stringResource(
+                            R.string.import_progress_with_pages,
+                            importUiState.completedItems,
+                            importUiState.totalItems,
+                            importUiState.preparedPages,
+                        )
+                    } else if (importUiState.totalItems > 0) {
+                        stringResource(
+                            R.string.import_progress,
+                            importUiState.completedItems,
+                            importUiState.totalItems,
+                        )
+                    } else {
+                        stringResource(R.string.import_progress_preparing)
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            TextButton(onClick = onCancelImport) {
+                Text(stringResource(R.string.import_cancel_action))
+            }
+        }
+
+        scannerSpikeState == ScannerSpikeState.Preparing -> {
             InlineOperationStatus(
                 messageRes = R.string.home_scan_preparing,
                 modifier = Modifier.padding(top = PageHarborSpacing.large),
             )
         }
 
-        is ScannerSpikeState.ResultSummary -> {
+        hasActiveSession -> {
             TextButton(
                 modifier = Modifier.padding(top = PageHarborSpacing.small),
                 onClick = onViewScanResult,
@@ -213,10 +278,7 @@ private fun HomeScanStatus(
             }
         }
 
-        ScannerSpikeState.Idle,
-        ScannerSpikeState.Cancelled,
-        ScannerSpikeState.Error,
-        -> Unit
+        else -> Unit
     }
 }
 

@@ -28,6 +28,14 @@ import kotlinx.coroutines.withContext
 import org.synapseworks.pageharbor.document.PageExportResult
 import org.synapseworks.pageharbor.document.PageExportState
 import org.synapseworks.pageharbor.document.PageJpegExportPlan
+import org.synapseworks.pageharbor.document.importing.DocumentImportOrigin
+import org.synapseworks.pageharbor.document.importing.DocumentImportPreparationResult
+import org.synapseworks.pageharbor.document.importing.DocumentImportProcessor
+import org.synapseworks.pageharbor.document.importing.DocumentImportProgressListener
+import org.synapseworks.pageharbor.document.importing.InboundShareInput
+import org.synapseworks.pageharbor.document.importing.SUPPORTED_IMPORT_MIME_TYPES
+import org.synapseworks.pageharbor.document.importing.deleteStaleDocumentImports
+import org.synapseworks.pageharbor.document.importing.extractInboundShareInput
 import org.synapseworks.pageharbor.document.DocumentOperationTracker
 import org.synapseworks.pageharbor.document.DocumentOperationToken
 import org.synapseworks.pageharbor.document.NormalPdfExportPlan
@@ -143,6 +151,13 @@ class MainActivity : ComponentActivity() {
     private var normalPdfDestinationLauncherOverride: ((String) -> Unit)? = null
     private var pageDestinationLauncherOverride: ((String) -> Unit)? = null
     private var pdfShareLauncherOverride: ((Uri) -> Unit)? = null
+    private var importJob: Job? = null
+    private val importProcessor by lazy {
+        DocumentImportProcessor(this) { resource ->
+            session.registerPendingAcquisitionResources(listOf(resource)) ==
+                org.synapseworks.pageharbor.document.session.PendingResourceRegistrationResult.Registered
+        }
+    }
 
     private val scanLauncher = registerForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult(),
@@ -179,6 +194,19 @@ class MainActivity : ComponentActivity() {
             }
         }.onFailure {
             session.failScannerRequest()
+        }
+    }
+
+    private val openDocumentsLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris ->
+        if (uris.isEmpty()) {
+            session.cancelImportRequest()
+        } else {
+            processImportedUris(
+                uris = uris,
+                imageSourceCategory = org.synapseworks.pageharbor.document.session.DocumentSourceCategory.SELECTED_IMAGE,
+            )
         }
     }
 
@@ -245,6 +273,9 @@ class MainActivity : ComponentActivity() {
             deleteStaleSharedPdfs(cacheDir)
             deleteStaleSearchablePdfs(cacheDir)
             deleteStaleNormalPdfs(cacheDir)
+            if (session.documentPages.isEmpty()) {
+                deleteStaleDocumentImports(cacheDir)
+            }
         }
         setContent {
             PageHarborApp(
@@ -265,10 +296,16 @@ class MainActivity : ComponentActivity() {
                 ocrSelectedPageIndex = ocrSelectedPageIndex,
                 scannedPageUris = scannedPageUris,
                 documentPages = session.documentPages,
+                importUiState = session.importUiState,
                 onOcrSelectedPageChange = { ocrSelectedPageIndex = it },
                 onPageFilterChange = session::setPageFilter,
+                onPageRotate = session::rotatePageClockwise,
+                onPageMove = session::movePage,
+                onPageRemove = session::removePage,
                 searchablePdfSaveState = searchablePdfSaveState,
                 onScanDocument = ::launchDocumentScanner,
+                onImportFiles = ::launchFileImport,
+                onCancelImport = ::cancelImport,
                 onSavePdf = ::choosePdfDestination,
                 onSaveSearchablePdf = ::saveSearchablePdf,
                 onSharePdf = ::sharePdf,
@@ -284,6 +321,13 @@ class MainActivity : ComponentActivity() {
                 },
             )
         }
+        if (savedInstanceState == null) handleInboundIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleInboundIntent(intent)
     }
 
     private fun launchDocumentScanner() {
@@ -310,6 +354,82 @@ class MainActivity : ComponentActivity() {
             .addOnFailureListener {
                 session.failScannerRequest()
             }
+    }
+
+    private fun launchFileImport() {
+        if (!session.beginImportRequest(DocumentImportOrigin.PICKER)) return
+        try {
+            openDocumentsLauncher.launch(SUPPORTED_IMPORT_MIME_TYPES)
+        } catch (_: ActivityNotFoundException) {
+            session.failImportRequest(
+                org.synapseworks.pageharbor.document.importing.DocumentImportError.UNREADABLE_SOURCE,
+            )
+        }
+    }
+
+    private fun handleInboundIntent(intent: Intent) {
+        when (val input = extractInboundShareInput(intent)) {
+            InboundShareInput.NotShareIntent -> Unit
+            is InboundShareInput.Failure -> session.failImportRequest(input.reason)
+            is InboundShareInput.Ready -> {
+                if (!session.beginImportRequest(DocumentImportOrigin.INBOUND_SHARE)) return
+                processImportedUris(
+                    uris = input.uris,
+                    imageSourceCategory =
+                        org.synapseworks.pageharbor.document.session.DocumentSourceCategory.INBOUND_SHARE,
+                )
+            }
+        }
+    }
+
+    private fun processImportedUris(
+        uris: List<Uri>,
+        imageSourceCategory: org.synapseworks.pageharbor.document.session.DocumentSourceCategory,
+    ) {
+        importJob?.cancel()
+        session.beginImportProcessing(uris.size)
+        val capacity = session.remainingPageCapacity()
+        importJob = lifecycleScope.launch {
+            val result = try {
+                importProcessor.prepare(
+                    uris = uris,
+                    imageSourceCategory = imageSourceCategory,
+                    pageCapacity = capacity,
+                    progressListener = DocumentImportProgressListener { completed, total, pages ->
+                        runOnUiThread {
+                            session.updateImportProgress(completed, total, pages)
+                        }
+                    },
+                )
+            } catch (_: CancellationException) {
+                return@launch
+            } catch (_: RuntimeException) {
+                session.failImportRequest(
+                    org.synapseworks.pageharbor.document.importing.DocumentImportError.UNREADABLE_SOURCE,
+                )
+                importJob = null
+                return@launch
+            }
+            when (result) {
+                is DocumentImportPreparationResult.Success -> {
+                    clearRecognizedText()
+                    clearSearchablePdfSave()
+                    clearNormalDocumentOperations()
+                    session.completeImportRequest(result)
+                }
+
+                is DocumentImportPreparationResult.Failure -> {
+                    session.failImportRequest(result.reason)
+                }
+            }
+            importJob = null
+        }
+    }
+
+    private fun cancelImport() {
+        importJob?.cancel()
+        importJob = null
+        session.cancelImportRequest()
     }
 
     private fun recognizeText() {
@@ -1059,6 +1179,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        importJob?.cancel()
+        importJob = null
         ocrJob?.cancel()
         ocrJob = null
         clearSearchablePdfSave()

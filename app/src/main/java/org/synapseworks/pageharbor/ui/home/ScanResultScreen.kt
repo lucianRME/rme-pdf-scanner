@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
@@ -42,6 +43,7 @@ import androidx.compose.ui.text.style.TextAlign
 import org.synapseworks.pageharbor.MAX_DOCUMENT_PAGES
 import org.synapseworks.pageharbor.R
 import org.synapseworks.pageharbor.document.PageExportState
+import org.synapseworks.pageharbor.document.importing.DocumentImportUiState
 import org.synapseworks.pageharbor.document.PdfSaveState
 import org.synapseworks.pageharbor.document.PdfShareState
 import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfSaveState
@@ -65,7 +67,11 @@ fun ScanResultScreen(
     ocrUiState: OcrUiState,
     searchablePdfSaveState: SearchablePdfSaveState,
     documentPages: List<DocumentPage>,
+    importUiState: DocumentImportUiState,
     onPageFilterChange: (Long, DocumentFilter) -> Unit,
+    onPageRotate: (Long) -> Unit,
+    onPageMove: (Long, Int) -> Unit,
+    onPageRemove: (Long) -> Unit,
     onBack: () -> Unit,
     onSavePdf: () -> Unit,
     onSaveSearchablePdf: () -> Unit,
@@ -74,6 +80,8 @@ fun ScanResultScreen(
     onRecognizeText: () -> Unit,
     onViewRecognizedText: () -> Unit,
     onScanAgain: () -> Unit,
+    onImportFiles: () -> Unit,
+    onCancelImport: () -> Unit,
     onDiscard: () -> Unit,
 ) {
     var selectedPageId by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -94,6 +102,8 @@ fun ScanResultScreen(
     val exporting = pageExportState is PageExportState.ChoosingDestination ||
         pageExportState is PageExportState.Exporting
     val savingSearchablePdf = searchablePdfSaveState.isInProgress()
+    val importing = importUiState == DocumentImportUiState.Selecting ||
+        importUiState is DocumentImportUiState.Processing
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -102,7 +112,7 @@ fun ScanResultScreen(
                 title = {
                     Text(
                         modifier = Modifier.semantics { heading() },
-                        text = stringResource(R.string.scan_result_title),
+                        text = stringResource(R.string.document_result_title),
                     )
                 },
                 navigationIcon = {
@@ -130,7 +140,7 @@ fun ScanResultScreen(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium),
             ) {
-                ScanContext(result.jpegPageCount)
+                ScanContext(displayedPageCount)
 
                 selectedPage?.let { page ->
                     PageEditingSection(
@@ -141,6 +151,8 @@ fun ScanResultScreen(
                         onSelectedPageChange = { index -> selectedPageId = documentPages[index].id.value },
                         onPageFilterChange = onPageFilterChange,
                         onAddPages = onScanAgain,
+                        onImportFiles = onImportFiles,
+                        actionsEnabled = !importing,
                     )
                 } ?: PageToolbar(
                     selectedPageIndex = null,
@@ -148,6 +160,8 @@ fun ScanResultScreen(
                     canAddPages = canAddPages,
                     onSelectedPageChange = {},
                     onAddPages = onScanAgain,
+                    onImportFiles = onImportFiles,
+                    actionsEnabled = !importing,
                 )
 
                 DocumentActionLayer(
@@ -157,6 +171,7 @@ fun ScanResultScreen(
                     savingSearchablePdf = savingSearchablePdf,
                     sharing = sharing,
                     exporting = exporting,
+                    importing = importing,
                     ocrUiState = ocrUiState,
                     onSavePdf = onSavePdf,
                     onSaveSearchablePdf = onSaveSearchablePdf,
@@ -166,12 +181,26 @@ fun ScanResultScreen(
                     onViewRecognizedText = onViewRecognizedText,
                 )
 
+                selectedPage?.let { page ->
+                    PageActions(
+                        page = page,
+                        selectedPageIndex = selectedPageIndex,
+                        pageCount = documentPages.size,
+                        actionsEnabled = !importing,
+                        onPageRotate = onPageRotate,
+                        onPageMove = onPageMove,
+                        onPageRemove = onPageRemove,
+                    )
+                }
+
                 OperationStatus(
                     pdfSaveState = pdfSaveState,
                     searchablePdfSaveState = searchablePdfSaveState,
                     sharing = sharing,
                     pageExportState = pageExportState,
                     ocrUiState = ocrUiState,
+                    importUiState = importUiState,
+                    onCancelImport = onCancelImport,
                 )
 
                 TextButton(
@@ -194,7 +223,7 @@ private fun ScanContext(pageCount: Int) {
     ) {
         Text(
             modifier = Modifier.semantics { heading() },
-            text = stringResource(R.string.scan_complete),
+            text = stringResource(R.string.document_ready),
             style = MaterialTheme.typography.titleMedium,
         )
         Text(
@@ -217,6 +246,8 @@ private fun PageEditingSection(
     onSelectedPageChange: (Int) -> Unit,
     onPageFilterChange: (Long, DocumentFilter) -> Unit,
     onAddPages: () -> Unit,
+    onImportFiles: () -> Unit,
+    actionsEnabled: Boolean,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium)) {
         FilteredDocumentPreview(
@@ -239,11 +270,69 @@ private fun PageEditingSection(
             canAddPages = canAddPages,
             onSelectedPageChange = onSelectedPageChange,
             onAddPages = onAddPages,
+            onImportFiles = onImportFiles,
+            actionsEnabled = actionsEnabled,
         )
         FilterSelector(
             selectedFilter = page.filter,
             onFilterSelected = { onPageFilterChange(page.id.value, it) },
         )
+    }
+}
+
+@Composable
+private fun PageActions(
+    page: DocumentPage,
+    selectedPageIndex: Int,
+    pageCount: Int,
+    actionsEnabled: Boolean,
+    onPageRotate: (Long) -> Unit,
+    onPageMove: (Long, Int) -> Unit,
+    onPageRemove: (Long) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall)) {
+        Text(
+            modifier = Modifier.semantics { heading() },
+            text = stringResource(R.string.page_actions_heading),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedButton(
+            modifier = Modifier.fillMaxWidth(),
+            enabled = actionsEnabled,
+            onClick = { onPageRotate(page.id.value) },
+        ) {
+            Text(stringResource(R.string.page_rotate_action))
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
+        ) {
+            OutlinedButton(
+                modifier = Modifier.weight(1f),
+                enabled = actionsEnabled && selectedPageIndex > 0,
+                onClick = { onPageMove(page.id.value, -1) },
+            ) {
+                Text(stringResource(R.string.page_move_earlier_action))
+            }
+            OutlinedButton(
+                modifier = Modifier.weight(1f),
+                enabled = actionsEnabled && selectedPageIndex < pageCount - 1,
+                onClick = { onPageMove(page.id.value, 1) },
+            ) {
+                Text(stringResource(R.string.page_move_later_action))
+            }
+        }
+        TextButton(
+            modifier = Modifier.fillMaxWidth(),
+            enabled = actionsEnabled,
+            colors = ButtonDefaults.textButtonColors(
+                contentColor = MaterialTheme.colorScheme.error,
+            ),
+            onClick = { onPageRemove(page.id.value) },
+        ) {
+            Text(stringResource(R.string.page_remove_action))
+        }
     }
 }
 
@@ -255,6 +344,7 @@ private fun DocumentActionLayer(
     savingSearchablePdf: Boolean,
     sharing: Boolean,
     exporting: Boolean,
+    importing: Boolean,
     onSavePdf: () -> Unit,
     onSaveSearchablePdf: () -> Unit,
     onSharePdf: () -> Unit,
@@ -267,7 +357,7 @@ private fun DocumentActionLayer(
         if (canExportPdf) {
             Button(
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !saving,
+                enabled = !saving && !importing,
                 onClick = onSavePdf,
             ) {
                 Text(stringResource(R.string.pdf_save_action))
@@ -280,7 +370,7 @@ private fun DocumentActionLayer(
             ) {
                 FilledTonalButton(
                     modifier = Modifier.weight(1f),
-                    enabled = ocrUiState != OcrUiState.Recognizing,
+                    enabled = ocrUiState != OcrUiState.Recognizing && !importing,
                     onClick = onRecognizeText,
                 ) {
                     Text(
@@ -295,7 +385,7 @@ private fun DocumentActionLayer(
                 }
                 TextButton(
                     modifier = Modifier.weight(1f),
-                    enabled = !savingSearchablePdf,
+                    enabled = !savingSearchablePdf && !importing,
                     onClick = onSaveSearchablePdf,
                 ) {
                     Text(stringResource(R.string.searchable_pdf_save_action))
@@ -318,7 +408,7 @@ private fun DocumentActionLayer(
                 if (canExportPdf) {
                     TextButton(
                         modifier = Modifier.weight(1f),
-                        enabled = !sharing,
+                        enabled = !sharing && !importing,
                         onClick = onSharePdf,
                     ) {
                         Text(stringResource(R.string.pdf_share_action))
@@ -327,7 +417,7 @@ private fun DocumentActionLayer(
                 if (hasPages) {
                     TextButton(
                         modifier = Modifier.weight(1f),
-                        enabled = !exporting,
+                        enabled = !exporting && !importing,
                         onClick = onExportPages,
                     ) {
                         Text(stringResource(R.string.page_export_action))
@@ -345,6 +435,8 @@ private fun PageToolbar(
     canAddPages: Boolean,
     onSelectedPageChange: (Int) -> Unit,
     onAddPages: () -> Unit,
+    onImportFiles: () -> Unit,
+    actionsEnabled: Boolean,
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -389,12 +481,24 @@ private fun PageToolbar(
                     }
                 }
             }
-            TextButton(
-                modifier = Modifier.align(Alignment.End),
-                enabled = canAddPages,
-                onClick = onAddPages,
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
             ) {
-                Text(stringResource(R.string.scan_again_action))
+                TextButton(
+                    modifier = Modifier.weight(1f),
+                    enabled = canAddPages && actionsEnabled,
+                    onClick = onAddPages,
+                ) {
+                    Text(stringResource(R.string.scan_again_action))
+                }
+                TextButton(
+                    modifier = Modifier.weight(1f),
+                    enabled = canAddPages && actionsEnabled,
+                    onClick = onImportFiles,
+                ) {
+                    Text(stringResource(R.string.import_add_files_action))
+                }
             }
             if (!canAddPages) {
                 Text(
@@ -413,6 +517,8 @@ private fun OperationStatus(
     sharing: Boolean,
     pageExportState: PageExportState,
     ocrUiState: OcrUiState,
+    importUiState: DocumentImportUiState,
+    onCancelImport: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
         if (pdfSaveState == PdfSaveState.Saving) {
@@ -466,6 +572,32 @@ private fun OperationStatus(
             is OcrUiState.Error,
             is OcrUiState.Success,
             -> Unit
+        }
+        if (importUiState is DocumentImportUiState.Processing) {
+            if (importUiState.totalItems > 0) {
+                if (importUiState.preparedPages > 0) {
+                    InlineOperationStatus(
+                        R.string.import_progress_with_pages,
+                        importUiState.completedItems,
+                        importUiState.totalItems,
+                        importUiState.preparedPages,
+                    )
+                } else {
+                    InlineOperationStatus(
+                        R.string.import_progress,
+                        importUiState.completedItems,
+                        importUiState.totalItems,
+                    )
+                }
+            } else {
+                InlineOperationStatus(R.string.import_progress_preparing)
+            }
+            TextButton(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onCancelImport,
+            ) {
+                Text(stringResource(R.string.import_cancel_action))
+            }
         }
     }
 }

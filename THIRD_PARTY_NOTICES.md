@@ -1,7 +1,7 @@
 # Third-Party Notices
 
 RME PDF Scanner is licensed under Apache License 2.0; see [LICENSE](LICENSE). This file records the
-third-party components packaged by the `0.7.0-dev` Android application. It is a repository-level
+third-party components packaged by the `1.3.0` Android application. It is a repository-level
 distribution notice and must accompany any source or binary release made outside Google Play.
 Before a Play upload, the release owner must confirm with counsel or the distribution process that
 the Play-delivered binary is accompanied by any notices required for that channel.
@@ -67,8 +67,8 @@ for the future Play Data safety draft.
 
 ## Distribution decision
 
-`v0.7.0-dev` does not add an in-app license screen: none of the reviewed licenses expressly
-requires a particular UI. This repository notice is the v0.7 source/release notice. A release owner
+`v1.3.0` does not add an in-app license screen: none of the reviewed licenses expressly
+requires a particular UI. This repository notice is the v1.3 source/release notice. A release owner
 must ensure that any independently distributed APK/AAB is accompanied by these notices and the
 Apache and OFL licence texts in the chosen delivery channel. Google Play upload readiness therefore
 includes a final distribution/legal-channel check rather than an unreviewed in-app UI addition.

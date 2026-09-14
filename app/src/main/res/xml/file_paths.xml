@@ -3,4 +3,7 @@
     <cache-path
         name="shared_pdfs"
         path="shared-pdfs/" />
+    <cache-path
+        name="document_imports"
+        path="document-imports/" />
 </paths>

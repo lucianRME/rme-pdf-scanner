@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.3.0]
+
+### Added
+
+- Added one-tap multi-file JPEG, PNG, WebP, and PDF import through Android's system picker.
+- Added narrowly scoped Android `ACTION_SEND` and `ACTION_SEND_MULTIPLE` targets for supported images and PDFs.
+- Added bounded, sequential, cancellable local PDF rendering through Android `PdfRenderer`.
+
+### Changed
+
+- Unified scanner, selected-image, inbound-share, and rendered-PDF pages in the same active document review, OCR, and export workflow.
+- Added page rotation, move earlier/later, removal, and scan/import append actions to Document review.
+- Modernized Home with dominant Scan, visible Import, and conditional Resume actions.
+- Set the release version to `1.3.0` (version code 14) without changing `org.synapseworks.pageharbor`.
+
+Google Play and GitHub release publication are handled separately.
+
 ## [1.2.0]
 
 ### Changed

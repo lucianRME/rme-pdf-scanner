@@ -158,7 +158,7 @@ Keep `org.synapseworks.pageharbor` as both application ID and namespace. Preserv
 ## ADR-013: One Session-Local Document Acquisition Pipeline
 
 Decision:
-Represent the active document as one in-memory `DocumentSession` containing ordered pages with stable session-only identities, source categories, rotation, and non-destructive filter state. Route scanner output and future selected-image, inbound-share, and rendered-PDF-page inputs through one `DocumentAcquisitionCoordinator` with a 20-page default limit, typed errors, interruption, and explicit resource ownership.
+Represent the active document as one in-memory `DocumentSession` containing ordered pages with stable session-only identities, source categories, rotation, and non-destructive filter state. Route scanner output, selected-image, inbound-share, and rendered-PDF-page inputs through one `DocumentAcquisitionCoordinator` with a 20-page default limit, typed errors, interruption, and explicit resource ownership.
 
 Rationale:
 Review, reorder, filter, OCR, PDF export, save, and share operate on effective ordered pages rather than on the API that acquired them. Opaque resource references keep URI parsing and stream access at Android boundaries. A single coordinator prevents future import sources from creating parallel document pipelines and centralizes the safety rules for limits, stable identity, cancellation, replacement, and cleanup.
@@ -166,7 +166,7 @@ Review, reorder, filter, OCR, PDF export, save, and share operate on effective o
 Consequences:
 The existing scanner is the first acquisition adapter. Its PDF remains an optional direct-copy optimization only while the active pages match the original order and have no app-level filter or rotation; appended, reordered, rotated, filtered, or non-scanner pages use the existing local recomposition path. This fixes the prior risk of saving a scanner PDF that covered only the pages before an add-pages operation.
 
-Resources are classified as user/external or RME-owned temporary files. User files and external content URIs are never deleted. Acquisition staging files are cleaned on every terminal path, RME-owned page resources transfer to the active session on success, and transferred resources are cleaned on replacement, discard, or final ViewModel invalidation. Cleanup accepts only regular files canonically located below the private root declared by the creating adapter. The session is not persisted, and this decision adds no picker, share receiver, manifest filter, `PdfRenderer` workflow, dependency, permission, network access, or document library.
+Resources are classified as user/external or RME-owned temporary files. User files and external content URIs are never deleted. Acquisition staging files are cleaned on every terminal path, RME-owned page resources transfer to the active session on success, and transferred resources are cleaned on replacement, discard, or final ViewModel invalidation. Cleanup accepts only regular files canonically located below the private root declared by the creating adapter. The session is not persisted. The Stage 0 form of this decision added no picker, share receiver, manifest filter, or `PdfRenderer` workflow; ADR-014 records those v1.3 adapters.
 
 Adapters register RME-owned staging resources with the active acquisition token as soon as those files exist, so cancellation and lifecycle invalidation do not depend on receiving a later completion payload. Canonical file identity is shared by preservation, deduplication, same-file checks, and deletion; paths that resolve to the root, outside it, through an escaping symlink, or cannot be canonicalized are preserved rather than deleted.
 
@@ -179,3 +179,20 @@ Scan-result and OCR-result previews share one Activity-composition ownership bou
 Page inputs use a shared pre-allocation policy: at most 64 MiB when the provider exposes source size, at most 6,000 pixels on either edge, and at most 12.5 megapixels. The pixel limit admits a common 4032-by-3024 camera page and typical A4 scans near 300 dpi while bounding ARGB bitmap and filter working memory. Preview and OCR retain their smaller sampled decode policies, but reject sources outside the shared input bounds; transformed JPEG/PDF export rejects an oversized page with a typed failure instead of silently reducing output resolution.
 
 Android acquisition adapters attach a known provider or file-descriptor byte length before decode; an unavailable length remains unknown rather than becoming a rejection. The full-resolution transform combines EXIF orientation with session rotation, recycles the replaced bitmap immediately, and filters through one scanline plus a 256-entry histogram. It therefore holds no full-page pixel arrays and at most two full-resolution ARGB bitmaps under its control (about 97.6 MB for 4032 by 3024), while keeping the existing 12.5-megapixel quality ceiling. Physical-device heap behavior remains a release check.
+
+## ADR-014: Standards-Based Import Into the Active Document
+
+Decision:
+Use Android's multi-document Storage Access Framework picker and narrowly scoped `ACTION_SEND` / `ACTION_SEND_MULTIPLE` intent filters for JPEG, PNG, WebP, and PDF. Route all accepted inputs through the existing acquisition coordinator. Append to a useful active session; replace only an empty session.
+
+For PDF input, copy at most 128 MiB to a seekable app-private file and use Android `PdfRenderer` sequentially. Render each page as a temporary JPEG at 144 dpi where possible, bounded to 4,096 pixels per edge and 12.5 megapixels, and retain no source-PDF modification or persistent private copy.
+
+Rationale:
+System pickers and Android sharing make exported scans from other apps available without broad storage permission, provider SDKs, accounts, or proprietary migration formats. Converging before review preserves one OCR/export pipeline and makes active-session behavior predictable.
+
+Consequences:
+RME validates signatures and actual readability rather than trusting names or declared provider types. A document remains limited to 20 pages. Invalid items may be skipped when another selected item succeeds; a page-limit violation rejects the operation so the active document is never partially overfilled. Encrypted, damaged, or unsupported PDFs share one user-safe unreadable-PDF result because `PdfRenderer` does not expose a stable cross-version encryption classification.
+
+Picker cancellation and explicit processing cancellation preserve an existing session. Activity recreation or destruction interrupts active preparation, registered owned resources are cleaned, and stale completion is rejected. External URIs are never deleted. Rendered pages live below a dedicated private import root and are removed on page removal, replacement, discard, cancellation, or final session cleanup; process-death orphans are removed when stale.
+
+This adds no dependency, `INTERNET` permission, broad storage permission, persistable URI grant, document library, analytics, account, backend, or cloud-provider integration. Process-death session recovery remains unsupported.

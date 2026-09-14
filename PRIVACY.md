@@ -13,19 +13,26 @@ not operate a document backend, cloud storage service, account system, advertisi
 own analytics or tracking service. RME PDF Scanner does not send document images, OCR text, or generated
 PDF content to an RME PDF Scanner server because it has no such server.
 
-Pages and OCR results are active-session data. OCR text is held in memory unless the user explicitly
-copies it. A temporary searchable PDF or share copy may be held in the app cache only while it is
-needed for the requested save, share, retry, or cleanup operation. RME PDF Scanner removes prepared
-searchable PDFs after success, failure, cancellation, or discard; completed share copies are cache
-data and are cleaned when stale. RME PDF Scanner disables Android backup and excludes its private data
-from cloud backup and device transfer.
+Scanned pages, user-selected images, Android-shared images, locally rendered PDF pages, and OCR
+results are active-session data. External content URIs remain user/provider owned and RME never
+deletes them. PDF import uses a bounded app-private source copy and temporary rendered page files;
+the source copy is removed after preparation and rendered pages are removed on cancellation,
+replacement, removal, discard, or session cleanup. Orphaned cache files from process death are
+removed when stale. OCR text is held in memory unless the user explicitly copies it.
+
+A temporary searchable PDF or share copy may be held in the app cache only while it is needed for
+the requested save, share, retry, or cleanup operation. RME PDF Scanner removes prepared searchable
+PDFs after success, failure, cancellation, or discard; completed share copies are cache data and are
+cleaned when stale. RME PDF Scanner disables Android backup and excludes its private data from cloud
+backup and device transfer.
 
 ## Saving and sharing
 
-RME PDF Scanner uses Android's system file picker for saving and Android's share sheet for sharing. The
-user chooses the destination or receiving app. If the user selects a third-party storage provider or
-share target, that provider handles the selected file under its own terms and privacy policy.
-RME PDF Scanner does not receive that provider's account credentials.
+RME PDF Scanner uses Android's system file picker for selecting imports and save destinations, and
+Android's share sheet for receiving supported user-shared files and sending exports. The user chooses
+the source, destination, or receiving app. If the user selects a third-party storage provider or share
+target, that provider handles the selected file under its own terms and privacy policy. RME PDF
+Scanner does not receive that provider's account credentials and requests no broad storage access.
 
 ## Google ML Kit and Google Play services
 
@@ -48,8 +55,10 @@ send document content to a server.
 
 RME PDF Scanner declares no `INTERNET`, broad-storage, account, location, contacts, microphone, phone,
 or advertising permissions. The Google-provided scanner flow owns its camera interaction; RME PDF Scanner
-does not request camera permission directly. Files shared through RME PDF Scanner use a non-exported
-FileProvider with temporary read access limited to the cache subdirectory used for share copies.
+does not request camera permission directly. Files shared from RME PDF Scanner use a non-exported
+FileProvider with temporary read access limited to the private cache subdirectories used for share
+copies and rendered import pages. The exported launcher Activity accepts only supported image/PDF send
+intents and validates every incoming URI before it enters the active document.
 
 ## Retention and deletion
 

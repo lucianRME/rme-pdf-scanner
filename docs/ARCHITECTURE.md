@@ -1,100 +1,44 @@
 # Architecture
 
-RME PDF Scanner should use a minimal architecture for the MVP. The goal is clear ownership of UI, document handling, platform integrations, and cleanup without adding framework ceremony before the scanner and export behavior are validated.
+RME PDF Scanner uses a small, session-local architecture for scanning, import, review, OCR, and export. Documents remain on the device and RME keeps no persistent document library.
 
-This document records the implemented MVP architecture and guidance for narrowly scoped future work. It does not require specific class names.
+## UI and state
 
-## UI Layer
+The Compose UI has three surfaces: Home, Document review, and OCR Result. Home presents one-tap Scan and Import actions and shows Resume only while a useful active session exists. Document review presents the ordered pages, non-destructive filters, rotation, move, remove, add, OCR, save, share, and JPEG export actions.
 
-Responsibilities:
+`MainActivity` owns Android result launchers and active asynchronous jobs. It starts the ML Kit scanner, the Storage Access Framework picker, local import preparation, OCR, PDF preparation, SAF writes, and the Android share sheet. Activity recreation cancels active work and rejects stale completion, while the Activity-scoped `PageHarborSessionViewModel` retains only stable in-memory session and completed OCR state.
 
-- Compose screens.
-- Displaying state.
-- Triggering user actions.
-- Showing loading, errors, cancellation, and completion feedback.
+The ViewModel deliberately has no `SavedStateHandle`, database, retained document copy, `Context`, stream, bitmap, or background job. Configuration changes retain a stable result; process death starts a fresh session.
 
-Possible screens:
+## Unified document session
 
-- Home.
-- Scan result review.
-- Export result or completion state.
+`DocumentSession` is the downstream source of truth. It contains ordered `DocumentPage` values with stable session-only IDs, opaque resource references, source category, MIME type, dimensions, rotation, and filter state. Source categories distinguish scanner pages, selected images, inbound shares, and locally rendered PDF pages without changing review, OCR, or export behavior.
 
-Current UI uses local screen-state navigation for three simple surfaces: Home, Scan Result, and OCR Result. Scan Result owns save/share/export/OCR feedback, including the user-initiated searchable-PDF save flow; OCR Result owns page-specific text viewing and copy actions. For a multipage completed result, it displays only the selected scanner JPEG preview and corresponding recognized text, with local previous/next controls. This deliberately avoids Navigation Compose, bottom navigation, drawers, and tabs. `MainActivity` uses one Activity-scoped `PageHarborSessionViewModel` only for the active in-memory scan session: the current screen, scan summary, scanner-returned page/PDF URIs, completed OCR result, and selected OCR page index. That ViewModel survives configuration changes but has no `SavedStateHandle`, database, file persistence, or process-death recovery.
+`DocumentAcquisitionCoordinator` serializes replace or append operations, applies the shared 20-page and image-size limits, assigns page IDs, rejects stale tokens, and transfers only validated resources into the session. Scanner, picker, share intent, and PDF import therefore converge before the UI and processing pipelines.
 
-Static screens should not receive ViewModels by default. A coordinator or ViewModel should be introduced only when a screen has meaningful state, asynchronous work, or platform result handling that would otherwise make the composable difficult to test or maintain.
+An existing scanner PDF is only a direct-copy optimization while its pages remain unchanged and in their original order. Imported, appended, removed, reordered, rotated, or filtered pages use the existing local PDF recomposition path.
 
-## Application Coordination
+## Import adapters
 
-The scan flow uses one small Activity-scoped ViewModel responsible for retaining stable active-session state across configuration changes. `MainActivity` continues to own Activity-bound work and platform callbacks:
+The picker uses `OpenMultipleDocuments` with JPEG, PNG, WebP, and PDF MIME types. Inbound `ACTION_SEND` and `ACTION_SEND_MULTIPLE` intents advertise the same exact types. Both preserve incoming order and append to an existing session; they never silently replace useful pages.
 
-- Launching the scanner.
-- Interpreting scanner results.
-- Holding stable in-memory scan-session state across Activity recreation.
-- Starting PDF preparation.
-- Coordinating save and share actions.
-- Surfacing errors to the UI.
+The import processor checks file signatures and readability instead of trusting extensions or provider labels. External image URIs remain user/provider owned. PDF input is copied with a 128 MiB bound to a seekable app-private file, opened with Android `PdfRenderer`, and rendered sequentially to bounded JPEG pages. A document contains at most 20 pages. Rendering targets 144 dpi where possible and never exceeds 4,096 pixels on an edge or 12.5 megapixels.
 
-Keep this coordination local to the scan flow. Avoid global mutable state, service locators, and broad application-level managers unless a concrete need appears.
+## Ownership and cleanup
 
-Active OCR, PDF generation, SAF writes, picker ownership, progress, success/error feedback, coroutine jobs, streams, preview bitmaps, and prepared private searchable-PDF output are Activity-owned. They are cancelled or reset when an Activity is recreated and are never resumed automatically. OCR Result decodes only the currently selected JPEG on a background dispatcher using bounded sampling; it keeps no memory or disk image cache. The retained ViewModel does not hold an `Activity`, `Context`, streams, bitmaps, PdfBox objects, prepared outputs, or active jobs. A final Activity/task destruction also clears Activity-owned temporary output; process death starts a fresh Home state.
+Every resource is either user/external or RME-owned temporary data. RME never deletes an external URI. App-created PDF import files are registered with the active acquisition token immediately and live only below `cache/document-imports`. Source copies are deleted after preparation; rendered pages transfer to the active session and are deleted on removal, replacement, discard, cancellation, lifecycle invalidation, or final ViewModel cleanup. Old orphaned import files are removed on a later cold session.
 
-## Platform Integrations
+Short-lived session leases keep owned page sources alive while OCR or export code is reading them. Canonical-path checks constrain deletion to the private root that created each file. Share copies, normal-PDF preparation, and searchable-PDF preparation use separate private cache roots and lifetimes.
 
-Future platform integrations should have narrow responsibilities:
+## Dependency and privacy boundaries
 
-- Document scanner adapter: launches the selected scanner and converts scanner-specific results into RME PDF Scanner concepts.
-- PDF generator: prepares a PDF locally from scanned page data.
-- Searchable-PDF generator: rebuilds a PDF locally from active-session JPEG page streams and engine-neutral OCR geometry, embedding an invisible Unicode text layer.
-- Searchable-PDF export coordinator: combines active-session page URIs and local OCR, owns a prepared private-cache PDF, copies it to a caller-selected SAF destination, and deletes it after use, failure, or cancellation.
-- Smart-output boundary: active in-memory OCR text flows to `DocumentClassifier`, then only its `DocumentCategory` flows to `FilenameSuggestionEngine`, which supplies a fixed safe category-only suggestion to the searchable-PDF SAF picker. The user confirms or edits that value; the provider controls the final destination and name. This boundary retains neither OCR text nor filename history, adds no PDF metadata, and has no network or backend dependency.
-- Temporary file manager: owns temporary file creation, lifetime, and cleanup.
-- File export writer: writes a prepared document to the user-selected destination.
-- Android share launcher: starts the system share sheet for a prepared or saved PDF.
+- Compose does not perform document I/O.
+- Scanner-specific types stop at the Activity adapter.
+- UI and downstream processors use the common page model.
+- OCR text remains active-session data and is never logged.
+- SAF and the Android share sheet keep destinations under user control.
+- RME declares no `INTERNET` or broad-storage permission and adds no account, analytics, advertising, telemetry, backend, or cloud-provider SDK.
 
-Platform APIs and third-party APIs should be isolated behind small components only when isolation improves testability or keeps Android-specific code out of UI code. Do not require an interface for every class.
+## Validation
 
-## Suggested Data Concepts
-
-- ScanSession: represents an active scan workflow and the temporary resources associated with it.
-- ScannedPage: represents one captured page returned by the scanner in a form RME PDF Scanner can review or export.
-- PreparedDocument: represents a locally prepared export, such as a generated searchable PDF awaiting a SAF write.
-- ExportResult: records whether a save or share preparation completed, was cancelled, or failed.
-- ScanError: describes scanner startup, cancellation, availability, or result errors without document content.
-- ExportError: describes PDF generation or file writing failures without file paths or document content.
-
-These are concepts only. Avoid detailed schemas until the scanner API and PDF implementation are validated.
-
-## Possible State Model
-
-A scan flow may use a state model similar to:
-
-- Idle.
-- LaunchingScanner.
-- Reviewing.
-- PreparingPdf.
-- AwaitingSaveDestination.
-- Saving.
-- Completed.
-- Cancelled.
-- Error.
-
-Implementation may simplify this model where appropriate. For example, cancellation may return directly to Idle if no user-visible cancelled state is useful.
-
-## Dependency Direction
-
-- Compose UI should not directly perform file I/O.
-- Document content should not be stored in long-lived global state.
-- Scanner-specific result types should not leak throughout the application.
-- PDF and file-export logic should remain independent of screen rendering.
-- OCR text must not cross from classification into the filename-suggestion API; only the broad category may do so.
-- Android Context should be passed only where platform APIs require it.
-- Avoid service locators and global mutable singletons.
-- Avoid Clean Architecture ceremony that does not provide practical value.
-
-## Testing Strategy
-
-- Use Compose UI tests for visible states and user actions.
-- Use unit tests for state transitions and error handling.
-- Use integration tests for temporary files, searchable-PDF generation, Unicode text extraction, cleanup, cancellation, and SAF export where practical.
-- Use instrumentation tests for Storage Access Framework and scanner integration where possible.
-- Manually validate scanner, save, share, cancellation, and cleanup behavior on at least one physical device before release.
+Pure state, ordering, limits, errors, and ownership are unit tested. Android instrumentation covers Compose behavior, content URIs, local image/PDF processing, OCR/export integration, lifecycle invalidation, and temporary-file cleanup. Physical-device smoke testing uses only synthetic files.

@@ -13,6 +13,10 @@ import org.synapseworks.pageharbor.document.PageExportState
 import org.synapseworks.pageharbor.document.PdfSaveState
 import org.synapseworks.pageharbor.document.PdfShareState
 import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfSaveState
+import org.synapseworks.pageharbor.document.importing.DocumentImportError
+import org.synapseworks.pageharbor.document.importing.DocumentImportOrigin
+import org.synapseworks.pageharbor.document.importing.DocumentImportPreparationResult
+import org.synapseworks.pageharbor.document.importing.DocumentImportUiState
 import org.synapseworks.pageharbor.document.session.AcquiredDocumentPage
 import org.synapseworks.pageharbor.document.session.AcquiredResource
 import org.synapseworks.pageharbor.document.session.DEFAULT_MAX_DOCUMENT_PAGES
@@ -43,6 +47,18 @@ internal enum class ScannerRequestMode {
     INITIAL_SCAN,
     ADD_PAGES,
 }
+
+private enum class DocumentAcquisitionKind {
+    SCANNER,
+    FILE_IMPORT,
+    INBOUND_SHARE,
+}
+
+private data class ActiveDocumentAcquisition(
+    val kind: DocumentAcquisitionKind,
+    val mode: DocumentAcquisitionMode,
+    val token: DocumentAcquisitionToken,
+)
 
 internal data class DocumentSessionLease(
     val id: Long,
@@ -81,13 +97,15 @@ class PageHarborSessionViewModel internal constructor(
     var searchablePdfSaveState: SearchablePdfSaveState by mutableStateOf(SearchablePdfSaveState.Idle)
     var lastAcquisitionError: DocumentAcquisitionError? by mutableStateOf(null)
         private set
-    private var activeScannerRequest: Pair<ScannerRequestMode, DocumentAcquisitionToken>? = null
+    var importUiState: DocumentImportUiState by mutableStateOf(DocumentImportUiState.Idle)
+        private set
+    private var activeAcquisition: ActiveDocumentAcquisition? = null
     private var nextDocumentSessionLeaseId = 0L
     private val activeDocumentSessionLeases = mutableMapOf<Long, DocumentSession>()
     private val deferredReleaseSessions = mutableListOf<DocumentSession>()
 
     internal fun beginScannerRequest(): ScannerRequestMode? {
-        if (activeScannerRequest != null) return null
+        if (activeAcquisition != null) return null
         if (scannerState is ScannerSpikeState.ResultSummary && remainingPageCapacity() == 0) {
             return null
         }
@@ -101,8 +119,13 @@ class PageHarborSessionViewModel internal constructor(
             ScannerRequestMode.ADD_PAGES -> DocumentAcquisitionMode.APPEND
         }
         val token = acquisitionCoordinator.begin(acquisitionMode) ?: return null
-        activeScannerRequest = requestMode to token
+        activeAcquisition = ActiveDocumentAcquisition(
+            kind = DocumentAcquisitionKind.SCANNER,
+            mode = acquisitionMode,
+            token = token,
+        )
         lastAcquisitionError = null
+        importUiState = DocumentImportUiState.Idle
         if (requestMode == ScannerRequestMode.INITIAL_SCAN) {
             scannerState = ScannerSpikeState.Preparing
         }
@@ -113,11 +136,12 @@ class PageHarborSessionViewModel internal constructor(
         (acquisitionCoordinator.limits.maxPages - activePageCount()).coerceAtLeast(0)
 
     fun cancelScannerRequest() {
-        val request = activeScannerRequest ?: return
-        acquisitionCoordinator.cancel(request.second, documentSession)
-        activeScannerRequest = null
+        val request = activeAcquisition?.takeIf { it.kind == DocumentAcquisitionKind.SCANNER }
+            ?: return
+        acquisitionCoordinator.cancel(request.token, documentSession)
+        activeAcquisition = null
         lastAcquisitionError = null
-        when (request.first) {
+        when (request.mode.toScannerRequestMode()) {
             ScannerRequestMode.INITIAL_SCAN -> scannerState = ScannerSpikeState.Cancelled
             ScannerRequestMode.ADD_PAGES -> screen = PageHarborScreen.ScanResult
         }
@@ -127,7 +151,7 @@ class PageHarborSessionViewModel internal constructor(
     internal fun registerPendingAcquisitionResources(
         resources: List<AcquiredResource>,
     ): PendingResourceRegistrationResult {
-        val token = activeScannerRequest?.second
+        val token = activeAcquisition?.token
             ?: return PendingResourceRegistrationResult.StaleToken
         return acquisitionCoordinator.registerPendingResources(token, documentSession, resources)
     }
@@ -158,7 +182,7 @@ class PageHarborSessionViewModel internal constructor(
     }
 
     fun returnToScanResult() {
-        if (scannerState is ScannerSpikeState.ResultSummary) {
+        if (documentPages.isNotEmpty()) {
             screen = PageHarborScreen.ScanResult
         }
     }
@@ -181,10 +205,139 @@ class PageHarborSessionViewModel internal constructor(
         scannedPdfReference: String? = null,
         scannedPageReferences: List<String>,
     ) {
-        if (activeScannerRequest != null) return
+        if (activeAcquisition != null) return
         val token = acquisitionCoordinator.begin(DocumentAcquisitionMode.REPLACE) ?: return
-        activeScannerRequest = ScannerRequestMode.INITIAL_SCAN to token
+        activeAcquisition = ActiveDocumentAcquisition(
+            DocumentAcquisitionKind.SCANNER,
+            DocumentAcquisitionMode.REPLACE,
+            token,
+        )
         completeScannerReferences(scannerState, scannedPdfReference, scannedPageReferences)
+    }
+
+    fun beginImportRequest(origin: DocumentImportOrigin): Boolean {
+        if (activeAcquisition != null) {
+            if (!activeAcquisition.isImport()) {
+                importUiState = DocumentImportUiState.Error(DocumentImportError.BUSY)
+            }
+            return false
+        }
+        if (remainingPageCapacity() == 0) {
+            importUiState = DocumentImportUiState.Error(DocumentImportError.PAGE_LIMIT_EXCEEDED)
+            return false
+        }
+        val mode = if (documentPages.isEmpty()) {
+            DocumentAcquisitionMode.REPLACE
+        } else {
+            DocumentAcquisitionMode.APPEND
+        }
+        val token = acquisitionCoordinator.begin(mode) ?: run {
+            importUiState = DocumentImportUiState.Error(DocumentImportError.BUSY)
+            return false
+        }
+        activeAcquisition = ActiveDocumentAcquisition(
+            kind = when (origin) {
+                DocumentImportOrigin.PICKER -> DocumentAcquisitionKind.FILE_IMPORT
+                DocumentImportOrigin.INBOUND_SHARE -> DocumentAcquisitionKind.INBOUND_SHARE
+            },
+            mode = mode,
+            token = token,
+        )
+        lastAcquisitionError = null
+        importUiState = when (origin) {
+            DocumentImportOrigin.PICKER -> DocumentImportUiState.Selecting
+            DocumentImportOrigin.INBOUND_SHARE -> DocumentImportUiState.Processing(0, 0, 0)
+        }
+        return true
+    }
+
+    fun beginImportProcessing(totalItems: Int) {
+        if (!activeAcquisition.isImport()) return
+        importUiState = DocumentImportUiState.Processing(
+            completedItems = 0,
+            totalItems = totalItems.coerceAtLeast(0),
+            preparedPages = 0,
+        )
+    }
+
+    fun updateImportProgress(completedItems: Int, totalItems: Int, preparedPages: Int) {
+        if (!activeAcquisition.isImport()) return
+        importUiState = DocumentImportUiState.Processing(
+            completedItems = completedItems.coerceAtLeast(0),
+            totalItems = totalItems.coerceAtLeast(0),
+            preparedPages = preparedPages.coerceAtLeast(0),
+        )
+    }
+
+    fun completeImportRequest(result: DocumentImportPreparationResult.Success) {
+        val request = activeAcquisition?.takeIf { it.kind != DocumentAcquisitionKind.SCANNER }
+            ?: run {
+                importUiState = DocumentImportUiState.Error(DocumentImportError.INTERRUPTED)
+                return
+            }
+        activeAcquisition = null
+        val previousSession = documentSession
+        val deferReplacedSessionCleanup =
+            request.mode == DocumentAcquisitionMode.REPLACE && activeDocumentSessionLeases.isNotEmpty()
+        when (
+            val completion = acquisitionCoordinator.complete(
+                token = request.token,
+                currentSession = previousSession,
+                input = result.input,
+                deferReplacedSessionCleanup = deferReplacedSessionCleanup,
+            )
+        ) {
+            is DocumentAcquisitionResult.Success -> {
+                if (deferReplacedSessionCleanup) deferredReleaseSessions += previousSession
+                replaceDocumentSession(completion.session)
+                scannerState = createScannerResultSummary(
+                    jpegPageCount = completion.session.pages.size,
+                    pdfPageCount = null,
+                )
+                lastAcquisitionError = null
+                ocrUiState = OcrUiState.Idle
+                ocrSelectedPageIndex = 0
+                resetTransientState()
+                importUiState = DocumentImportUiState.Completed(
+                    importedPages = result.input.pages.size,
+                    skippedItems = result.skippedItems,
+                    appended = request.mode == DocumentAcquisitionMode.APPEND,
+                )
+                screen = PageHarborScreen.ScanResult
+            }
+
+            DocumentAcquisitionResult.Cancelled -> {
+                importUiState = DocumentImportUiState.Cancelled
+            }
+
+            is DocumentAcquisitionResult.Failure -> {
+                lastAcquisitionError = completion.reason
+                importUiState = DocumentImportUiState.Error(completion.reason.toImportError())
+            }
+        }
+    }
+
+    fun cancelImportRequest() {
+        val request = activeAcquisition?.takeIf { it.kind != DocumentAcquisitionKind.SCANNER }
+            ?: return
+        acquisitionCoordinator.cancel(request.token, documentSession)
+        activeAcquisition = null
+        lastAcquisitionError = null
+        importUiState = DocumentImportUiState.Cancelled
+    }
+
+    fun failImportRequest(reason: DocumentImportError) {
+        val request = activeAcquisition?.takeIf { it.kind != DocumentAcquisitionKind.SCANNER }
+        if (request != null) {
+            acquisitionCoordinator.fail(
+                request.token,
+                documentSession,
+                reason = reason.toAcquisitionError(),
+            )
+            activeAcquisition = null
+        }
+        lastAcquisitionError = reason.toAcquisitionError()
+        importUiState = DocumentImportUiState.Error(reason)
     }
 
     internal fun completeScannerReferencesForTest(
@@ -212,10 +365,10 @@ class PageHarborSessionViewModel internal constructor(
     }
 
     fun clearScan() {
-        activeScannerRequest?.let { (_, token) ->
-            acquisitionCoordinator.interrupt(token, documentSession)
+        activeAcquisition?.let { request ->
+            acquisitionCoordinator.interrupt(request.token, documentSession)
         }
-        activeScannerRequest = null
+        activeAcquisition = null
         val detachedSession = documentSession
         documentSession = DocumentSession()
         advanceDocumentRevision()
@@ -230,6 +383,7 @@ class PageHarborSessionViewModel internal constructor(
         screen = PageHarborScreen.Home
         scannerState = ScannerSpikeState.Idle
         lastAcquisitionError = null
+        importUiState = DocumentImportUiState.Idle
         ocrUiState = OcrUiState.Idle
         ocrSelectedPageIndex = 0
         resetTransientState()
@@ -257,6 +411,11 @@ class PageHarborSessionViewModel internal constructor(
 
     /** Active work is Activity-owned and is cancelled by the Activity; completed data remains. */
     fun resetTransientStateForRecreation() {
+        activeAcquisition?.takeIf { it.kind != DocumentAcquisitionKind.SCANNER }?.let { request ->
+            acquisitionCoordinator.interrupt(request.token, documentSession)
+            activeAcquisition = null
+            importUiState = DocumentImportUiState.Idle
+        }
         if (ocrUiState == OcrUiState.Recognizing) {
             ocrUiState = OcrUiState.Idle
         }
@@ -290,11 +449,41 @@ class PageHarborSessionViewModel internal constructor(
         return true
     }
 
-    override fun onCleared() {
-        activeScannerRequest?.let { (_, token) ->
-            acquisitionCoordinator.interrupt(token, documentSession)
+    fun movePage(pageId: Long, offset: Int): Boolean {
+        val updated = documentSession.move(DocumentPageId(pageId), offset) ?: return false
+        if (!replaceDocumentSession(updated)) return false
+        invalidatePageOrderDependentState()
+        return true
+    }
+
+    fun removePage(pageId: Long): Boolean {
+        val previousSession = documentSession
+        val updated = previousSession.remove(DocumentPageId(pageId)) ?: return false
+        if (!replaceDocumentSession(updated)) return false
+        if (activeDocumentSessionLeases.isEmpty()) {
+            acquisitionCoordinator.releaseDetachedSessions(
+                sessions = listOf(previousSession),
+                preservingSession = updated,
+            )
+        } else {
+            deferredReleaseSessions += previousSession
         }
-        activeScannerRequest = null
+        invalidatePageOrderDependentState()
+        if (updated.pages.isEmpty()) {
+            scannerState = ScannerSpikeState.Idle
+            importUiState = DocumentImportUiState.Idle
+            screen = PageHarborScreen.Home
+        } else {
+            scannerState = createScannerResultSummary(updated.pages.size, null)
+        }
+        return true
+    }
+
+    override fun onCleared() {
+        activeAcquisition?.let { request ->
+            acquisitionCoordinator.interrupt(request.token, documentSession)
+        }
+        activeAcquisition = null
         deferredReleaseSessions += documentSession
         documentSession = DocumentSession()
         releaseDeferredSessionsWhenSafe()
@@ -319,13 +508,13 @@ class PageHarborSessionViewModel internal constructor(
             List(scannedPageReferences.size) { DocumentImageMetadata() },
     ) {
         require(scannedPageMetadata.size == scannedPageReferences.size)
-        val request = activeScannerRequest
+        val request = activeAcquisition?.takeIf { it.kind == DocumentAcquisitionKind.SCANNER }
         if (request == null) {
             lastAcquisitionError = DocumentAcquisitionError.INTERRUPTED
             return
         }
         val previousSummary = this.scannerState as? ScannerSpikeState.ResultSummary
-        activeScannerRequest = null
+        activeAcquisition = null
         val input = DocumentAcquisitionInput(
             pages = scannedPageReferences.mapIndexed { index, reference ->
                 AcquiredDocumentPage(
@@ -339,10 +528,10 @@ class PageHarborSessionViewModel internal constructor(
         )
         val previousSession = documentSession
         val deferReplacedSessionCleanup =
-            request.first == ScannerRequestMode.INITIAL_SCAN && activeDocumentSessionLeases.isNotEmpty()
+            request.mode == DocumentAcquisitionMode.REPLACE && activeDocumentSessionLeases.isNotEmpty()
         when (
             val result = acquisitionCoordinator.complete(
-                token = request.second,
+                token = request.token,
                 currentSession = previousSession,
                 input = input,
                 deferReplacedSessionCleanup = deferReplacedSessionCleanup,
@@ -352,7 +541,7 @@ class PageHarborSessionViewModel internal constructor(
                 if (deferReplacedSessionCleanup) deferredReleaseSessions += previousSession
                 replaceDocumentSession(result.session)
                 lastAcquisitionError = null
-                this.scannerState = when (request.first) {
+                this.scannerState = when (request.mode.toScannerRequestMode()) {
                     ScannerRequestMode.INITIAL_SCAN -> scannerState
                     ScannerRequestMode.ADD_PAGES -> createScannerResultSummary(
                         jpegPageCount = result.session.pages.size,
@@ -365,16 +554,23 @@ class PageHarborSessionViewModel internal constructor(
                 screen = PageHarborScreen.ScanResult
             }
 
-            DocumentAcquisitionResult.Cancelled -> applyScannerFailure(request.first, null)
-            is DocumentAcquisitionResult.Failure -> applyScannerFailure(request.first, result.reason)
+            DocumentAcquisitionResult.Cancelled -> applyScannerFailure(
+                request.mode.toScannerRequestMode(),
+                null,
+            )
+            is DocumentAcquisitionResult.Failure -> applyScannerFailure(
+                request.mode.toScannerRequestMode(),
+                result.reason,
+            )
         }
     }
 
     private fun failActiveScannerRequest(reason: DocumentAcquisitionError) {
-        val request = activeScannerRequest ?: return
-        acquisitionCoordinator.fail(request.second, documentSession, reason = reason)
-        activeScannerRequest = null
-        applyScannerFailure(request.first, reason)
+        val request = activeAcquisition?.takeIf { it.kind == DocumentAcquisitionKind.SCANNER }
+            ?: return
+        acquisitionCoordinator.fail(request.token, documentSession, reason = reason)
+        activeAcquisition = null
+        applyScannerFailure(request.mode.toScannerRequestMode(), reason)
     }
 
     private fun applyScannerFailure(mode: ScannerRequestMode, error: DocumentAcquisitionError?) {
@@ -413,4 +609,42 @@ class PageHarborSessionViewModel internal constructor(
         documentSession.pages.size,
         (scannerState as? ScannerSpikeState.ResultSummary)?.jpegPageCount ?: 0,
     )
+
+    private fun ActiveDocumentAcquisition?.isImport(): Boolean =
+        this != null && kind != DocumentAcquisitionKind.SCANNER
+
+    private fun DocumentAcquisitionMode.toScannerRequestMode(): ScannerRequestMode =
+        when (this) {
+            DocumentAcquisitionMode.REPLACE -> ScannerRequestMode.INITIAL_SCAN
+            DocumentAcquisitionMode.APPEND -> ScannerRequestMode.ADD_PAGES
+        }
+
+    private fun DocumentImportError.toAcquisitionError(): DocumentAcquisitionError = when (this) {
+        DocumentImportError.EMPTY_INPUT -> DocumentAcquisitionError.EMPTY_INPUT
+        DocumentImportError.UNSUPPORTED_TYPE -> DocumentAcquisitionError.UNSUPPORTED_CONTENT_TYPE
+        DocumentImportError.PAGE_LIMIT_EXCEEDED -> DocumentAcquisitionError.PAGE_LIMIT_EXCEEDED
+        DocumentImportError.SOURCE_TOO_LARGE -> DocumentAcquisitionError.SOURCE_TOO_LARGE
+        DocumentImportError.INTERRUPTED, DocumentImportError.BUSY ->
+            DocumentAcquisitionError.INTERRUPTED
+        DocumentImportError.UNREADABLE_SOURCE,
+        DocumentImportError.INVALID_IMAGE,
+        DocumentImportError.PDF_UNREADABLE,
+        DocumentImportError.TEMPORARY_FILE_FAILED,
+        -> DocumentAcquisitionError.SOURCE_UNAVAILABLE
+    }
+
+    private fun DocumentAcquisitionError.toImportError(): DocumentImportError = when (this) {
+        DocumentAcquisitionError.EMPTY_INPUT -> DocumentImportError.EMPTY_INPUT
+        DocumentAcquisitionError.UNSUPPORTED_CONTENT_TYPE -> DocumentImportError.UNSUPPORTED_TYPE
+        DocumentAcquisitionError.PAGE_LIMIT_EXCEEDED -> DocumentImportError.PAGE_LIMIT_EXCEEDED
+        DocumentAcquisitionError.SOURCE_TOO_LARGE,
+        DocumentAcquisitionError.IMAGE_DIMENSIONS_EXCEEDED,
+        -> DocumentImportError.SOURCE_TOO_LARGE
+        DocumentAcquisitionError.INTERRUPTED -> DocumentImportError.INTERRUPTED
+        DocumentAcquisitionError.INVALID_REFERENCE,
+        DocumentAcquisitionError.INVALID_OWNERSHIP,
+        DocumentAcquisitionError.SOURCE_UNAVAILABLE,
+        DocumentAcquisitionError.INVALID_IMAGE_METADATA,
+        -> DocumentImportError.UNREADABLE_SOURCE
+    }
 }

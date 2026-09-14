@@ -17,6 +17,8 @@ import android.net.Uri
 import org.synapseworks.pageharbor.BuildConfig
 import org.synapseworks.pageharbor.R
 import org.synapseworks.pageharbor.document.PageExportResult
+import org.synapseworks.pageharbor.document.importing.DocumentImportError
+import org.synapseworks.pageharbor.document.importing.DocumentImportUiState
 import org.synapseworks.pageharbor.document.PageExportState
 import org.synapseworks.pageharbor.document.PdfExportResult
 import org.synapseworks.pageharbor.document.PdfSaveState
@@ -46,10 +48,16 @@ fun PageHarborApp(
     ocrSelectedPageIndex: Int = 0,
     scannedPageUris: List<Uri> = emptyList(),
     documentPages: List<DocumentPage> = emptyList(),
+    importUiState: DocumentImportUiState = DocumentImportUiState.Idle,
     onPageFilterChange: (Long, DocumentFilter) -> Unit = { _, _ -> },
+    onPageRotate: (Long) -> Unit = {},
+    onPageMove: (Long, Int) -> Unit = { _, _ -> },
+    onPageRemove: (Long) -> Unit = {},
     onOcrSelectedPageChange: (Int) -> Unit = {},
     searchablePdfSaveState: SearchablePdfSaveState = SearchablePdfSaveState.Idle,
     onScanDocument: () -> Unit = {},
+    onImportFiles: () -> Unit = {},
+    onCancelImport: () -> Unit = {},
     onSavePdf: () -> Unit = {},
     onSaveSearchablePdf: () -> Unit = {},
     onSharePdf: () -> Unit = {},
@@ -96,6 +104,16 @@ fun PageHarborApp(
         val ocrNoPagesMessage = stringResource(R.string.ocr_error_no_pages)
         val ocrAllPagesFailedMessage = stringResource(R.string.ocr_error_all_pages_failed)
         val ocrUnexpectedErrorMessage = stringResource(R.string.ocr_error_unexpected)
+        val importCancelledMessage = stringResource(R.string.import_cancelled)
+        val importUnsupportedMessage = stringResource(R.string.import_error_unsupported)
+        val importUnreadableMessage = stringResource(R.string.import_error_unreadable)
+        val importInvalidImageMessage = stringResource(R.string.import_error_invalid_image)
+        val importPdfUnreadableMessage = stringResource(R.string.import_error_pdf_unreadable)
+        val importLimitMessage = stringResource(R.string.import_error_page_limit)
+        val importTooLargeMessage = stringResource(R.string.import_error_too_large)
+        val importTemporaryFileMessage = stringResource(R.string.import_error_temporary_file)
+        val importBusyMessage = stringResource(R.string.import_error_busy)
+        val importInterruptedMessage = stringResource(R.string.import_error_interrupted)
 
         suspend fun showTransientFeedback(message: String) {
             snackbarHostState.currentSnackbarData?.dismiss()
@@ -163,7 +181,11 @@ fun PageHarborApp(
             ocrUiState = ocrUiState,
             searchablePdfSaveState = searchablePdfSaveState,
             documentPages = documentPages,
+            importUiState = importUiState,
             onPageFilterChange = onPageFilterChange,
+            onPageRotate = onPageRotate,
+            onPageMove = onPageMove,
+            onPageRemove = onPageRemove,
             onBack = { navigateTo(PageHarborScreen.Home) },
             onSavePdf = onSavePdf,
             onSaveSearchablePdf = onSaveSearchablePdf,
@@ -172,11 +194,15 @@ fun PageHarborApp(
             onRecognizeText = onRecognizeText,
             onViewRecognizedText = { navigateTo(PageHarborScreen.OcrResult) },
             onScanAgain = onScanDocument,
+            onImportFiles = onImportFiles,
+            onCancelImport = onCancelImport,
             onDiscard = { navigateTo(PageHarborScreen.Home); onClearScanResult() },
         )
         else -> HomeScreen(
             snackbarHostState = snackbarHostState,
             scannerSpikeState = scannerSpikeState,
+            hasActiveSession = documentPages.isNotEmpty(),
+            importUiState = importUiState,
             showBuildDetails = BuildConfig.SHOW_BUILD_DETAILS,
             buildTypeLabel = BuildConfig.BUILD_TYPE_LABEL,
             versionName = BuildConfig.VERSION_NAME,
@@ -187,6 +213,8 @@ fun PageHarborApp(
             onScanDocument = {
                 onScanDocument()
             },
+            onImportFiles = onImportFiles,
+            onCancelImport = onCancelImport,
             onViewScanResult = { navigateTo(PageHarborScreen.ScanResult) },
             onPrivacyInfo = {
                 showPrivacyInfo = true
@@ -221,6 +249,47 @@ fun PageHarborApp(
                 ScannerSpikeState.Preparing,
                 -> Unit
             }
+        }
+
+        LaunchedEffect(importUiState) {
+            val message = when (importUiState) {
+                is DocumentImportUiState.Completed -> {
+                    navigateTo(PageHarborScreen.ScanResult)
+                    when {
+                        importUiState.skippedItems > 0 -> context.getString(
+                            R.string.import_completed_partial,
+                            importUiState.importedPages,
+                            importUiState.skippedItems,
+                        )
+                        importUiState.importedPages == 1 ->
+                            context.getString(R.string.import_completed_one)
+                        else -> context.getString(
+                            R.string.import_completed_many,
+                            importUiState.importedPages,
+                        )
+                    }
+                }
+
+                DocumentImportUiState.Cancelled -> importCancelledMessage
+                is DocumentImportUiState.Error -> when (importUiState.reason) {
+                    DocumentImportError.BUSY -> importBusyMessage
+                    DocumentImportError.EMPTY_INPUT -> importUnreadableMessage
+                    DocumentImportError.UNSUPPORTED_TYPE -> importUnsupportedMessage
+                    DocumentImportError.UNREADABLE_SOURCE -> importUnreadableMessage
+                    DocumentImportError.INVALID_IMAGE -> importInvalidImageMessage
+                    DocumentImportError.PDF_UNREADABLE -> importPdfUnreadableMessage
+                    DocumentImportError.PAGE_LIMIT_EXCEEDED -> importLimitMessage
+                    DocumentImportError.SOURCE_TOO_LARGE -> importTooLargeMessage
+                    DocumentImportError.TEMPORARY_FILE_FAILED -> importTemporaryFileMessage
+                    DocumentImportError.INTERRUPTED -> importInterruptedMessage
+                }
+
+                DocumentImportUiState.Idle,
+                DocumentImportUiState.Selecting,
+                is DocumentImportUiState.Processing,
+                -> null
+            }
+            if (message != null) showTransientFeedback(message)
         }
 
         LaunchedEffect(pdfSaveState) {

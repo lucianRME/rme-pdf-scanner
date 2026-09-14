@@ -1,73 +1,44 @@
 # Product Flow
 
-RME PDF Scanner is in early development. This document describes the intended MVP flow; it does not describe implemented scanning behavior.
+RME PDF Scanner uses one active, local document workflow.
 
-## Intended MVP Journey
+## Start
 
-1. User opens RME PDF Scanner.
-2. User selects Scan document.
-3. The system scanner captures one or more pages.
-4. User reviews the captured pages.
-5. User can reorder or remove pages if supported by the scanner result.
-6. RME PDF Scanner prepares a PDF locally.
-7. User selects where to save the PDF through the Android system file picker.
-8. User may optionally share the resulting PDF through the Android share sheet.
-9. Temporary files are removed when they are no longer needed.
+Home answers “What do you want to do?” with two immediate actions:
 
-## MVP
+1. **Scan document** opens the ML Kit system scanner.
+2. **Import files** opens the Android system document picker for one or more supported images or PDFs.
 
-- Launch document scanning from a user action.
-- Receive one or more scanned pages.
-- Show a simple review summary before export.
-- Export a PDF locally.
-- Save through the Android Storage Access Framework.
-- Share through the Android share sheet.
-- Handle cancellation and errors without retaining unnecessary temporary files.
+Android sharing is a third standards-based entry point. Sharing supported JPEG, PNG, WebP, or PDF content to RME enters the same workflow. If useful pages already exist, new scan, picker, or share pages append in deterministic order. Resume appears on Home only for a non-empty active session.
 
-## Not In The Initial MVP
+## Review and continue
 
-- Accounts.
-- Proprietary cloud storage.
-- Sync between devices.
-- OCR.
-- Searchable PDFs.
-- Document library.
-- Tags or folders managed by RME PDF Scanner.
-- Biometric vault.
-- Editing individual page filters after scanner completion.
-- Subscriptions.
-- Analytics.
-- Background uploads.
-- Automatic backup.
+Scanner pages, selected images, shared images, and rendered PDF pages appear in the same Document review screen. The user can:
 
-## Success Flow
+- move between pages;
+- apply a local page filter or rotate a page;
+- move a page earlier or later;
+- remove a page;
+- add more scanned pages or files, up to 20 pages;
+- run local OCR and copy recognized text;
+- save a normal or searchable PDF through SAF;
+- share a PDF through Android's share sheet; or
+- export individual JPEG pages through SAF.
 
-1. The user starts a scan from the Home screen.
-2. The scanner returns one or more pages.
-3. RME PDF Scanner shows a review summary and available page actions.
-4. The user confirms export.
-5. RME PDF Scanner prepares a PDF on the device.
-6. The user chooses a save destination through the system file picker.
-7. RME PDF Scanner writes the PDF to the selected destination.
-8. RME PDF Scanner offers completion feedback and an optional share action.
-9. Temporary scan and export files are deleted when no longer needed.
+RME keeps the active document only for the current in-memory session. Discard removes the session and app-owned page files. Files explicitly saved or shared by the user belong to the chosen destination or recipient.
 
-## Failure And Cancellation Flows
+## Import behavior
 
-- If the user cancels the scanner, RME PDF Scanner returns to a neutral state without creating an export.
-- If the scanner component is unavailable, RME PDF Scanner explains that scanning cannot start and avoids requesting unrelated permissions.
-- If PDF generation fails, RME PDF Scanner reports the failure and removes temporary files where possible.
-- If the user cancels file destination selection, RME PDF Scanner keeps the prepared document only as long as needed for retry or cancellation handling.
-- If file write fails, RME PDF Scanner reports the error without exposing file paths or document details in logs.
-- If the share sheet is dismissed, RME PDF Scanner treats sharing as cancelled and keeps the saved export unchanged.
+- The picker and share receiver accept JPEG, PNG, WebP, and PDF only.
+- Actual signatures and image/PDF readability are validated locally.
+- A PDF is copied temporarily, rendered sequentially with `PdfRenderer`, and never modified.
+- Meaningful work shows progress and can be cancelled.
+- Invalid items in a multi-file selection are skipped when at least one item succeeds; the completion message reports the skipped count.
+- Unsupported, inaccessible, oversized, encrypted/damaged PDF, page-limit, temporary-file, cancellation, and stale-operation outcomes are concise and retryable.
+- Cancelling an append keeps the existing document unchanged.
 
-## Expected Cancellation Points
+## Lifecycle and privacy
 
-- User cancels scanner.
-- Scanner component is unavailable.
-- PDF generation fails.
-- User cancels file destination selection.
-- File write fails.
-- Share sheet is dismissed.
+A stable completed session survives ordinary Activity recreation. Active import, OCR, generation, or write work is cancelled and may be retried; stale callbacks cannot mutate a newer document. Process-death recovery is intentionally unsupported, and orphaned private cache files are cleaned later.
 
-These flows must be validated during implementation because platform scanner, file picker, and share sheet behavior can vary by device and Android version.
+All processing is local. RME uses system pickers and URI grants, requests no broad storage access, and does not operate accounts, analytics, advertising, telemetry, cloud storage, or a document backend.

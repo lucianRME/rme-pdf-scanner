@@ -139,6 +139,27 @@ data class DocumentSession(
         return copy(pages = reordered)
     }
 
+    fun move(pageId: DocumentPageId, offset: Int): DocumentSession? {
+        if (offset == 0) return null
+        val currentIndex = pages.indexOfFirst { page -> page.id == pageId }
+        if (currentIndex < 0) return null
+        val destinationIndex = currentIndex + offset
+        if (destinationIndex !in pages.indices) return null
+        val reordered = pages.toMutableList()
+        val page = reordered.removeAt(currentIndex)
+        reordered.add(destinationIndex, page)
+        return copy(pages = reordered)
+    }
+
+    fun remove(pageId: DocumentPageId): DocumentSession? {
+        if (pages.none { page -> page.id == pageId }) return null
+        return copy(
+            pages = pages.filterNot { page -> page.id == pageId },
+            directPdfSource = null,
+            directPdfPageIds = emptyList(),
+        )
+    }
+
     internal fun ownedResources(): List<DocumentResource> = buildList {
         pages.mapTo(this, DocumentPage::source)
         directPdfSource?.let(::add)

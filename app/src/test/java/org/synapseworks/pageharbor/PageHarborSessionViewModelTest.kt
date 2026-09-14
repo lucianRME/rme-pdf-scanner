@@ -4,6 +4,11 @@ import androidx.lifecycle.ViewModelStore
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfSaveState
+import org.synapseworks.pageharbor.document.importing.DocumentImportError
+import org.synapseworks.pageharbor.document.importing.DocumentImportOrigin
+import org.synapseworks.pageharbor.document.importing.DocumentImportPreparationResult
+import org.synapseworks.pageharbor.document.importing.DocumentImportUiState
+import org.synapseworks.pageharbor.document.session.AcquiredDocumentPage
 import org.synapseworks.pageharbor.document.session.AcquiredResource
 import org.synapseworks.pageharbor.document.session.DocumentAcquisitionCoordinator
 import org.synapseworks.pageharbor.document.session.DocumentAcquisitionError
@@ -26,6 +31,161 @@ import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.ui.PageHarborScreen
 
 class PageHarborSessionViewModelTest {
+    @Test
+    fun imageImportCreatesTheSameSharedSessionUsedByScannerPages() {
+        val session = PageHarborSessionViewModel()
+
+        assertEquals(true, session.beginImportRequest(DocumentImportOrigin.PICKER))
+        session.completeImportRequest(importSuccess("selected-1", "selected-2"))
+
+        assertEquals(listOf("selected-1", "selected-2"), session.pageReferences())
+        assertEquals(
+            listOf(DocumentSourceCategory.SELECTED_IMAGE, DocumentSourceCategory.SELECTED_IMAGE),
+            session.documentPages.map(DocumentPage::sourceCategory),
+        )
+        assertEquals(PageHarborScreen.ScanResult, session.screen)
+        assertEquals(
+            DocumentImportUiState.Completed(2, skippedItems = 0, appended = false),
+            session.importUiState,
+        )
+    }
+
+    @Test
+    fun inboundShareAppendsWithoutDestroyingTheActiveSession() {
+        val session = completedSession("scan-1")
+
+        assertEquals(true, session.beginImportRequest(DocumentImportOrigin.INBOUND_SHARE))
+        session.completeImportRequest(
+            importSuccess("shared-1", sourceCategory = DocumentSourceCategory.INBOUND_SHARE),
+        )
+
+        assertEquals(listOf("scan-1", "shared-1"), session.pageReferences())
+        assertEquals(DocumentSourceCategory.SCAN, session.documentPages.first().sourceCategory)
+        assertEquals(DocumentSourceCategory.INBOUND_SHARE, session.documentPages.last().sourceCategory)
+        assertEquals(
+            DocumentImportUiState.Completed(1, skippedItems = 0, appended = true),
+            session.importUiState,
+        )
+    }
+
+    @Test
+    fun renderedPdfPagesUseTheSharedPageModel() {
+        val session = PageHarborSessionViewModel()
+
+        session.beginImportRequest(DocumentImportOrigin.PICKER)
+        session.completeImportRequest(
+            importSuccess("pdf-page-1", sourceCategory = DocumentSourceCategory.RENDERED_PDF_PAGE),
+        )
+
+        assertEquals(DocumentSourceCategory.RENDERED_PDF_PAGE, session.documentPages.single().sourceCategory)
+        assertEquals("image/jpeg", session.documentPages.single().contentType)
+    }
+
+    @Test
+    fun cancelledImportKeepsAnActiveDocumentUnchanged() {
+        val session = completedSession("scan-1", "scan-2")
+
+        session.beginImportRequest(DocumentImportOrigin.PICKER)
+        session.cancelImportRequest()
+
+        assertEquals(listOf("scan-1", "scan-2"), session.pageReferences())
+        assertEquals(DocumentImportUiState.Cancelled, session.importUiState)
+        assertEquals(PageHarborScreen.ScanResult, session.screen)
+    }
+
+    @Test
+    fun partialImportReportsSkippedItemsAndPreservesDeterministicOrder() {
+        val session = PageHarborSessionViewModel()
+
+        session.beginImportRequest(DocumentImportOrigin.PICKER)
+        session.completeImportRequest(importSuccess("first", "third", skippedItems = 1))
+
+        assertEquals(listOf("first", "third"), session.pageReferences())
+        assertEquals(
+            DocumentImportUiState.Completed(2, skippedItems = 1, appended = false),
+            session.importUiState,
+        )
+    }
+
+    @Test
+    fun staleImportCompletionIsRejectedAfterCancellation() {
+        val session = completedSession("existing")
+
+        session.beginImportRequest(DocumentImportOrigin.PICKER)
+        session.cancelImportRequest()
+        session.completeImportRequest(importSuccess("stale"))
+
+        assertEquals(listOf("existing"), session.pageReferences())
+        assertEquals(
+            DocumentImportUiState.Error(DocumentImportError.INTERRUPTED),
+            session.importUiState,
+        )
+    }
+
+    @Test
+    fun activeImportBlocksOtherAcquisitionUntilItEnds() {
+        val session = PageHarborSessionViewModel()
+
+        assertEquals(true, session.beginImportRequest(DocumentImportOrigin.PICKER))
+        assertEquals(false, session.beginImportRequest(DocumentImportOrigin.INBOUND_SHARE))
+        assertEquals(null, session.beginScannerRequest())
+        session.cancelImportRequest()
+        assertEquals(ScannerRequestMode.INITIAL_SCAN, session.beginScannerRequest())
+    }
+
+    @Test
+    fun recreationInterruptsImportAndCleansRegisteredOwnedResources() {
+        val cleaner = RecordingCleaner()
+        val session = PageHarborSessionViewModel(
+            DocumentAcquisitionCoordinator(resourceCleaner = cleaner),
+        )
+        session.beginImportRequest(DocumentImportOrigin.PICKER)
+        session.registerPendingAcquisitionResources(listOf(ownedAcquiredResource("pending-import")))
+
+        session.resetTransientStateForRecreation()
+
+        assertEquals(listOf("pending-import"), cleaner.deletedReferences)
+        assertEquals(DocumentImportUiState.Idle, session.importUiState)
+        assertEquals(PageHarborScreen.Home, session.screen)
+    }
+
+    @Test
+    fun removingOwnedPageCleansOnlyTheDetachedResource() {
+        val cleaner = RecordingCleaner()
+        val session = PageHarborSessionViewModel(
+            DocumentAcquisitionCoordinator(resourceCleaner = cleaner),
+        )
+        session.installDocumentSessionForTest(
+            DocumentSession(
+                pages = listOf(
+                    ownedPage(1L, "remove-me"),
+                    ownedPage(2L, "keep-me"),
+                ),
+            ),
+        )
+
+        assertEquals(true, session.removePage(1L))
+
+        assertEquals(listOf("keep-me"), session.pageReferences())
+        assertEquals(listOf("remove-me"), cleaner.deletedReferences)
+    }
+
+    @Test
+    fun movingPagesKeepsStableIdentityAndInvalidatesDerivedState() {
+        val session = completedSession("first", "second", "third")
+        session.ocrUiState = OcrUiState.Success(
+            OcrResult(listOf(OcrPageResult(pageIndex = 0, text = "old order"))),
+        )
+        val secondId = session.documentPages[1].id.value
+
+        assertEquals(true, session.movePage(secondId, -1))
+
+        assertEquals(listOf("second", "first", "third"), session.pageReferences())
+        assertEquals(secondId, session.documentPages.first().id.value)
+        assertEquals(OcrUiState.Idle, session.ocrUiState)
+        assertEquals(false, session.movePage(secondId, -1))
+    }
+
     @Test
     fun effectiveDocumentMutationsAdvanceRevisionAndNoOpsDoNot() {
         val session = completedSession("first", "second")
@@ -591,6 +751,45 @@ class PageHarborSessionViewModelTest {
                 ),
                 sourceCategory = DocumentSourceCategory.RENDERED_PDF_PAGE,
             ),
+        ),
+    )
+
+    private fun importSuccess(
+        vararg references: String,
+        sourceCategory: DocumentSourceCategory = DocumentSourceCategory.SELECTED_IMAGE,
+        skippedItems: Int = 0,
+    ) = DocumentImportPreparationResult.Success(
+        input = org.synapseworks.pageharbor.document.session.DocumentAcquisitionInput(
+            pages = references.map { reference ->
+                AcquiredDocumentPage(
+                    resource = AcquiredResource(reference),
+                    sourceCategory = sourceCategory,
+                    contentType = "image/jpeg",
+                )
+            },
+        ),
+        skippedItems = skippedItems,
+    )
+
+    private fun ownedPage(id: Long, reference: String) = DocumentPage(
+        id = DocumentPageId(id),
+        source = DocumentResource(
+            reference = reference,
+            ownership = DocumentResourceOwnership.RME_OWNED_TEMPORARY,
+            ownedTemporaryFile = OwnedTemporaryFile(
+                path = "/private/rme/$reference",
+                rootPath = "/private/rme",
+            ),
+        ),
+        sourceCategory = DocumentSourceCategory.RENDERED_PDF_PAGE,
+    )
+
+    private fun ownedAcquiredResource(reference: String) = AcquiredResource(
+        reference = reference,
+        ownership = DocumentResourceOwnership.RME_OWNED_TEMPORARY,
+        ownedTemporaryFile = OwnedTemporaryFile(
+            path = "/private/rme/$reference",
+            rootPath = "/private/rme",
         ),
     )
 

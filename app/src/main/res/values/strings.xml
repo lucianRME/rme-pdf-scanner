@@ -6,13 +6,17 @@
     <string name="home_headline">Scan documents without giving them away.</string>
     <string name="home_supporting_text">RME PDF Scanner is designed to process documents on your device, without accounts, ads, or tracking.</string>
     <string name="home_scan_document">Scan document</string>
-    <string name="home_view_scan_result">View current scan</string>
+    <string name="home_import_files">Import files</string>
+    <string name="home_import_supporting_text">Bring existing JPEG, PNG, WebP, or PDF scans into the same on-device workflow.</string>
+    <string name="home_view_scan_result">Resume document</string>
     <string name="scan_result_title">Scanned document</string>
+    <string name="document_result_title">Document</string>
+    <string name="document_ready">Document ready</string>
     <string name="scan_complete">Scan complete</string>
     <string name="scan_page_ready">%1$d page ready</string>
     <string name="scan_pages_ready">%1$d pages ready</string>
     <string name="scan_preview_section">Preview</string>
-    <string name="scan_preview_description">Scanned document preview, page %1$d of %2$d</string>
+    <string name="scan_preview_description">Document preview, page %1$d of %2$d</string>
     <string name="scan_preview_loading">Loading document preview…</string>
     <string name="scan_preview_unavailable">Document preview is unavailable.</string>
     <string name="filter_selector_heading">Filter</string>
@@ -25,10 +29,33 @@
     <string name="scan_result_export_section">Save and share</string>
     <string name="scan_result_tools_section">More actions</string>
     <string name="scan_again_action">Add pages</string>
-    <string name="scan_page_limit_reached">Maximum 20 pages per scan</string>
+    <string name="import_add_files_action">Add files</string>
+    <string name="import_cancel_action">Cancel import</string>
+    <string name="page_actions_heading">Page actions</string>
+    <string name="page_rotate_action">Rotate clockwise</string>
+    <string name="page_move_earlier_action">Move earlier</string>
+    <string name="page_move_later_action">Move later</string>
+    <string name="page_remove_action">Remove page</string>
+    <string name="scan_page_limit_reached">Maximum 20 pages per document</string>
     <string name="home_scan_preparing">Preparing scanner…</string>
     <string name="home_scan_cancelled">Scan cancelled.</string>
     <string name="home_scanner_error">Document scanner could not be opened.</string>
+    <string name="import_progress">Importing file %1$d of %2$d…</string>
+    <string name="import_progress_with_pages">Importing file %1$d of %2$d · %3$d pages ready…</string>
+    <string name="import_progress_preparing">Preparing shared files…</string>
+    <string name="import_completed_one">1 page imported.</string>
+    <string name="import_completed_many">%1$d pages imported.</string>
+    <string name="import_completed_partial">%1$d pages imported; %2$d files were skipped.</string>
+    <string name="import_cancelled">Import cancelled.</string>
+    <string name="import_error_busy">Finish the current document action before importing.</string>
+    <string name="import_error_unsupported">That file type is not supported.</string>
+    <string name="import_error_unreadable">The selected file could not be read. Try another file.</string>
+    <string name="import_error_invalid_image">The selected image could not be opened.</string>
+    <string name="import_error_pdf_unreadable">The PDF is encrypted, damaged, or unsupported.</string>
+    <string name="import_error_page_limit">A document can contain up to 20 pages.</string>
+    <string name="import_error_too_large">A selected file is too large to import safely.</string>
+    <string name="import_error_temporary_file">RME could not prepare temporary import files.</string>
+    <string name="import_error_interrupted">Import stopped before completion. Try again.</string>
     <string name="home_scan_result_title">Scanner result received</string>
     <string name="home_scan_result_jpeg_pages">Scanned pages: %1$d</string>
     <string name="home_scan_result_pdf_returned">PDF result: returned</string>
@@ -55,7 +82,7 @@
     <string name="ocr_next_page_action">Next page</string>
     <string name="ocr_document_section_heading">Document</string>
     <string name="ocr_text_section_heading">Text</string>
-    <string name="ocr_document_preview_description">Scanned document preview, page %1$d of %2$d</string>
+    <string name="ocr_document_preview_description">Document preview, page %1$d of %2$d</string>
     <string name="ocr_preview_loading">Loading document preview…</string>
     <string name="ocr_preview_unavailable">Document preview is unavailable.</string>
     <string name="ocr_no_text">No text was recognized in this scan.</string>
@@ -120,5 +147,5 @@
     <string name="about_license">Open source under Apache License 2.0</string>
     <string name="about_view_source">View source code</string>
     <string name="about_close">Close</string>
-    <string name="source_code_url" translatable="false">https://github.com/lucianRME/pageharbor-android</string>
+    <string name="source_code_url" translatable="false">https://github.com/lucianRME/rme-pdf-scanner</string>
 </resources>

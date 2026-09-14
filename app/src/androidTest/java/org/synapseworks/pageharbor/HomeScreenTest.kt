@@ -29,6 +29,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.synapseworks.pageharbor.document.PageExportState
+import org.synapseworks.pageharbor.document.importing.DocumentImportUiState
 import org.synapseworks.pageharbor.document.PdfSaveState
 import org.synapseworks.pageharbor.document.PdfShareState
 import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfSaveError
@@ -110,6 +111,21 @@ class HomeScreenTest {
     }
 
     @Test
+    fun importFilesIsAnImmediatelyAvailableOneTapAction() {
+        var importClickCount = 0
+        composeTestRule.setContent {
+            PageHarborApp(onImportFiles = { importClickCount += 1 })
+        }
+
+        composeTestRule.onNodeWithText("Import files")
+            .assertIsDisplayed()
+            .assertIsEnabled()
+            .performClick()
+
+        assertEquals(1, importClickCount)
+    }
+
+    @Test
     fun preparingStateDisablesScanActionAndShowsProgress() {
         composeTestRule.setContent {
             PageHarborApp(scannerSpikeState = ScannerSpikeState.Preparing)
@@ -124,7 +140,7 @@ class HomeScreenTest {
     }
 
     @Test
-    fun homeScanActionRemainsReachableInANarrowShortWindowAtTwoHundredPercentFont() {
+    fun homePrimaryActionsRemainReachableInANarrowShortWindowAtTwoHundredPercentFont() {
         composeTestRule.setContent {
             CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 2f)) {
                 Box(modifier = androidx.compose.ui.Modifier.size(width = 320.dp, height = 320.dp)) {
@@ -134,6 +150,7 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("Scan document").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithText("Import files").performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -146,13 +163,30 @@ class HomeScreenTest {
                     hasPdf = true,
                     pdfPageCount = 1,
                 ),
+                documentPages = listOf(documentPage(1L)),
             )
         }
 
         composeTestRule.onNodeWithText("Scan document")
             .assertIsDisplayed()
             .assertIsEnabled()
-        composeTestRule.onNodeWithText("View current scan").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Resume document").assertIsDisplayed()
+    }
+
+    @Test
+    fun resumeIsHiddenWhenNoUsefulActiveSessionExists() {
+        composeTestRule.setContent {
+            PageHarborApp(
+                autoNavigateToScanResult = false,
+                scannerSpikeState = ScannerSpikeState.ResultSummary(
+                    jpegPageCount = 1,
+                    hasPdf = true,
+                    pdfPageCount = 1,
+                ),
+            )
+        }
+
+        composeTestRule.onAllNodesWithText("Resume document").assertCountEquals(0)
     }
 
     @Test
@@ -168,7 +202,7 @@ class HomeScreenTest {
             )
         }
 
-        composeTestRule.onNodeWithText("Scan complete").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Document ready").assertIsDisplayed()
         composeTestRule.onNodeWithText("3 pages ready").assertIsDisplayed()
         listOf("Save PDF", "Share PDF", "Export Pages", "Recognize Text").forEach { action ->
             composeTestRule.onNodeWithText(action)
@@ -176,6 +210,43 @@ class HomeScreenTest {
                 .performScrollTo()
                 .assertIsDisplayed()
         }
+    }
+
+    @Test
+    fun importProgressCanBeCancelledWithoutLeavingTheWorkflow() {
+        var cancelCount = 0
+        composeTestRule.setContent {
+            PageHarborApp(
+                importUiState = DocumentImportUiState.Processing(1, 3, 1),
+                onCancelImport = { cancelCount += 1 },
+            )
+        }
+
+        composeTestRule.onNodeWithText("Importing file 1 of 3 · 1 pages ready…").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Cancel import").performClick()
+        assertEquals(1, cancelCount)
+    }
+
+    @Test
+    fun pageReviewExposesReorderRotateRemoveAndAddActions() {
+        val calls = mutableListOf<String>()
+        composeTestRule.setContent {
+            PageHarborApp(
+                scannerSpikeState = scanSummary(jpegPageCount = 2),
+                documentPages = listOf(documentPage(1L), documentPage(2L)),
+                onPageRotate = { calls += "rotate:$it" },
+                onPageMove = { pageId, offset -> calls += "move:$pageId:$offset" },
+                onPageRemove = { calls += "remove:$it" },
+                onImportFiles = { calls += "import" },
+            )
+        }
+
+        composeTestRule.onNodeWithText("Rotate clockwise").performScrollTo().performClick()
+        composeTestRule.onNodeWithText("Move later").performScrollTo().performClick()
+        composeTestRule.onNodeWithText("Remove page").performScrollTo().performClick()
+        composeTestRule.onNodeWithText("Add files").performScrollTo().performClick()
+
+        assertEquals(listOf("rotate:1", "move:1:1", "remove:1", "import"), calls)
     }
 
     @Test
@@ -904,7 +975,7 @@ class HomeScreenTest {
         composeTestRule.onNodeWithText("Page 20 of 20").assertIsDisplayed()
         composeTestRule.onNodeWithText("Next page").assertIsNotEnabled()
         composeTestRule.onNodeWithText("Add pages").assertIsNotEnabled()
-        composeTestRule.onNodeWithText("Maximum 20 pages per scan").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Maximum 20 pages per document").assertIsDisplayed()
         assertEquals(0, addPagesCalls)
     }
 
@@ -1024,7 +1095,7 @@ class HomeScreenTest {
             SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite)
                 .and(hasText("Page 1 of 2")),
         ).assertIsDisplayed()
-        composeTestRule.onNodeWithContentDescription("Scanned document preview, page 1 of 2")
+        composeTestRule.onNodeWithContentDescription("Document preview, page 1 of 2")
             .assertIsDisplayed()
         composeTestRule.onNodeWithText("Previous page").assertIsNotEnabled()
         composeTestRule.onNodeWithText("Next page").performClick()
@@ -1165,12 +1236,12 @@ class HomeScreenTest {
 
         composeTestRule.onNode(
             SemanticsMatcher.expectValue(SemanticsProperties.Heading, Unit)
-                .and(hasText("Scanned document")),
+                .and(hasText("Document")),
         ).assertIsDisplayed()
-        composeTestRule.onAllNodesWithText("Scanned document").assertCountEquals(1)
+        composeTestRule.onAllNodesWithText("Document").assertCountEquals(1)
         composeTestRule.onNode(
             SemanticsMatcher.expectValue(SemanticsProperties.Heading, Unit)
-                .and(hasText("Scan complete")),
+                .and(hasText("Document ready")),
         ).assertIsDisplayed()
     }
 

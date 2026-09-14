@@ -28,8 +28,9 @@ RME takes a different approach:
 - **Privacy-first**: document processing stays on the device
 - Offline OCR
 - Searchable PDFs
-- Multi-page scanning, currently up to 20 pages
-- Gallery import
+- Multi-page scanning and document sessions, currently up to 20 pages
+- Multi-file JPEG, PNG, WebP, and PDF import through Android's system picker
+- Android share-target import for supported images and PDFs
 - User-controlled PDF/JPEG export
 - No ads
 - No tracking or analytics
@@ -50,9 +51,10 @@ RME takes a different approach:
 
 ### Scanning
 
-- Multi-page scanning with review and reordering
-- Scanner acquisition currently supports up to 20 pages per scan
-- Gallery import
+- Multi-page scanning with a shared review workflow for scanned and imported pages
+- Import one or more JPEG, PNG, WebP, or PDF files through Android's system picker
+- Receive supported images and PDFs through Android sharing
+- Review, reorder, rotate, remove, filter, or add pages, up to 20 pages per active document
 - Document filters: Original, Enhance, Grayscale, Black and white, and High Contrast
 
 ### OCR
@@ -103,7 +105,7 @@ The app declares no `INTERNET` permission. Google Play services may need network
 - Google ML Kit Document Scanner
 - Android Storage Access Framework
 
-The searchable-PDF engine has deterministic 20-page regression coverage. The focused Home, Scan Result, and OCR Result surfaces do not create a persistent document library. Active scan and OCR data is session-local. The completed active scan and selected OCR page survive configuration changes; process-death recovery is intentionally unsupported.
+The searchable-PDF engine has deterministic 20-page regression coverage. The focused Home, Document review, and OCR Result surfaces do not create a persistent document library. Scanned pages, selected images, Android shares, and locally rendered PDF pages use one active session. The completed active document and selected OCR page survive configuration changes; process-death recovery is intentionally unsupported.
 
 Searchable-PDF filename suggestions use broad local categories: invoice, receipt, letter, form, or unknown. They never use OCR-derived names, dates, amounts, identifiers, addresses, or other sensitive document values. The user may edit a suggestion, and the selected SAF provider controls the final name and destination.
 
