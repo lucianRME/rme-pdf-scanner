@@ -10,18 +10,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- Added one-tap multi-file JPEG, PNG, WebP, and PDF import through Android's system picker.
-- Added narrowly scoped Android `ACTION_SEND` and `ACTION_SEND_MULTIPLE` targets for supported images and PDFs.
-- Added bounded, sequential, cancellable local PDF rendering through Android `PdfRenderer`.
+- Multi-file JPEG, PNG, WebP, and PDF import through Android's system picker.
+- Android share-to-RME support for compatible images and PDFs.
+- Local PDF import using Android `PdfRenderer`.
+- A unified page and active-session workflow for scanned and imported documents.
 
 ### Changed
 
-- Unified scanner, selected-image, inbound-share, and rendered-PDF pages in the same active document review, OCR, and export workflow.
-- Added page rotation, move earlier/later, removal, and scan/import append actions to Document review.
-- Modernized Home with dominant Scan, visible Import, and conditional Resume actions.
-- Set the release version to `1.3.0` (version code 14) without changing `org.synapseworks.pageharbor`.
+- Redesigned Home so Scan is the primary action and Import is a visible sibling action.
+- Improved document review with page reordering, rotation, and removal.
+- Improved import progress, cancellation, and error handling.
+- Retained the privacy-first architecture and shared OCR and export pipelines.
 
-Google Play and GitHub release publication are handled separately.
+### Security / Privacy
+
+- No `INTERNET` permission.
+- No broad storage permissions.
+- No account, proprietary backend, cloud OCR, analytics, tracking, or ads.
+
+### Known limitations
+
+- HEIC and HEIF import are not advertised.
+- Process-death recovery is not supported.
+- RME does not maintain a persistent document library.
+- `ACTION_VIEW` import is not supported.
+- Office document conversion is not supported.
+- Encrypted and damaged PDFs share the same safe unreadable-PDF classification.
 
 ## [1.2.0]
 

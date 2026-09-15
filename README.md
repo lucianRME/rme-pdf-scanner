@@ -2,10 +2,10 @@
 
 **Private, open-source document scanning for Android.**
 
-Scan documents, run OCR offline, create searchable PDFs, and export your files without ads, tracking, accounts, or a proprietary cloud backend.
+Scan documents, import images and PDFs, run OCR offline, create searchable PDFs, and export your files without ads, tracking, accounts, or a proprietary cloud backend.
 
 [![Google Play](https://img.shields.io/badge/Google%20Play-Download-414141?logo=googleplay&logoColor=white)](https://play.google.com/store/apps/details?id=org.synapseworks.pageharbor)
-[![Latest GitHub release](https://img.shields.io/github/v/release/lucianRME/rme-pdf-scanner?display_name=tag&sort=semver)](https://github.com/lucianRME/rme-pdf-scanner/releases/latest)
+[![Latest GitHub release](https://img.shields.io/github/v/release/lucianRME/rme-pdf-scanner?display_name=tag&sort=semver)](https://github.com/lucianRME/rme-pdf-scanner/releases/tag/v1.3.0)
 [![GitHub stars](https://img.shields.io/github/stars/lucianRME/rme-pdf-scanner)](https://github.com/lucianRME/rme-pdf-scanner)
 [![Apache 2.0 license](https://img.shields.io/github/license/lucianRME/rme-pdf-scanner)](LICENSE)
 <a href="https://alternativeto.net/software/rme-pdf-scanner/about/?utm_source=badge&amp;utm_medium=referral">
@@ -45,17 +45,19 @@ RME takes a different approach:
 
 ### Latest GitHub release
 
-[RME PDF Scanner v1.2.0](https://github.com/lucianRME/rme-pdf-scanner/releases/tag/v1.2.0)
+[RME PDF Scanner v1.3.0](https://github.com/lucianRME/rme-pdf-scanner/releases/tag/v1.3.0)
 
 ## Features
 
 ### Scanning
 
-- Multi-page scanning with a shared review workflow for scanned and imported pages
-- Import one or more JPEG, PNG, WebP, or PDF files through Android's system picker
-- Receive supported images and PDFs through Android sharing
-- Review, reorder, rotate, remove, filter, or add pages, up to 20 pages per active document
+- Multi-page document scanning
+- Multi-file JPEG, PNG, WebP, and PDF import through Android's system picker
+- Android share-target import for supported images and PDFs
+- One unified review workflow for scanned and imported pages
+- Reorder, rotate, remove, filter, or add pages
 - Document filters: Original, Enhance, Grayscale, Black and white, and High Contrast
+- Up to 20 pages per active document
 
 ### OCR
 
@@ -74,9 +76,9 @@ RME takes a different approach:
 ### Export
 
 - Android Storage Access Framework (SAF)
-- PDF save
+- Standard and searchable PDF export
 - PDF sharing through the Android share sheet
-- Individual JPEG page export
+- JPEG page export
 - User-selected storage provider and destination
 
 ## Privacy by design
@@ -131,7 +133,7 @@ Historical beta-testing materials are available in [docs/BETA_SMOKE_TEST.md](doc
 
 The application was originally released as **PageHarbor**.
 
-The app was renamed in v1.2.0, and development continues as **RME: PDF & Document Scanner**. The Android application ID intentionally remains `org.synapseworks.pageharbor` for upgrade compatibility. Active development continues based on user feedback and privacy-first product goals.
+The app was renamed in v1.2.0, and development continues as **RME: PDF & Document Scanner**. v1.3.0 introduced a unified scan/import workflow, multi-file and PDF import, Android share-target support, and improved document review and import handling. The Android application ID intentionally remains `org.synapseworks.pageharbor` for upgrade compatibility. Active development continues based on user feedback and privacy-first product goals.
 
 ## License
 
