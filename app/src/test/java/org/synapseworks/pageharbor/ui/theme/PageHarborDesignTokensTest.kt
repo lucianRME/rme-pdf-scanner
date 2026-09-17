@@ -21,7 +21,9 @@ class PageHarborDesignTokensTest {
 
     @Test
     fun layoutTokensProtectPhoneMarginsAndMaterialTouchTargets() {
-        assertEquals(24.dp, PageHarborLayout.compactScreenHorizontalPadding)
+        assertEquals(16.dp, PageHarborLayout.compactScreenHorizontalPadding)
+        assertEquals(24.dp, PageHarborLayout.mediumScreenHorizontalPadding)
+        assertEquals(32.dp, PageHarborLayout.expandedScreenHorizontalPadding)
         assertEquals(48.dp, PageHarborLayout.minimumTouchTarget)
         assertEquals(20.dp, PageHarborLayout.inlineProgressIndicatorSize)
         assertTrue(
@@ -29,5 +31,6 @@ class PageHarborDesignTokensTest {
         )
         assertTrue(PageHarborLayout.homeCenteredContentMinHeight > 0.dp)
         assertTrue(PageHarborLayout.expandedContentMaxWidth > PageHarborLayout.homeContentMaxWidth)
+        assertTrue(PageHarborLayout.libraryContentMaxWidth > PageHarborLayout.expandedContentMaxWidth)
     }
 }

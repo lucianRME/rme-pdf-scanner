@@ -60,12 +60,41 @@ class HomeScreenTest {
     }
 
     @Test
+    fun bottomNavigationAndScanFabKeepPrimaryDestinationsOneTapAway() {
+        composeTestRule.setContent {
+            PageHarborApp()
+        }
+
+        composeTestRule.onNodeWithText("Home").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Documents").assertIsDisplayed().performClick()
+        composeTestRule.onNodeWithContentDescription("Create folder").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Scan document").assertIsDisplayed()
+
+        composeTestRule.onNodeWithText("Tools").assertIsDisplayed().performClick()
+        composeTestRule.onNodeWithText("Merge documents").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Recognize text").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Scan document").assertIsDisplayed()
+    }
+
+    @Test
+    fun secondaryAppInformationDoesNotClutterHome() {
+        composeTestRule.setContent {
+            PageHarborApp()
+        }
+
+        composeTestRule.onAllNodesWithText("No account · No ads · Local document handling")
+            .assertCountEquals(0)
+        composeTestRule.onAllNodesWithText("How privacy works").assertCountEquals(0)
+        composeTestRule.onAllNodesWithText("About RME PDF Scanner").assertCountEquals(0)
+    }
+
+    @Test
     fun scanDocumentButtonIsDisplayedAndEnabled() {
         composeTestRule.setContent {
             PageHarborApp()
         }
 
-        composeTestRule.onNodeWithText("Scan document")
+        composeTestRule.onNodeWithContentDescription("Scan document")
             .assertIsDisplayed()
             .assertIsEnabled()
     }
@@ -76,6 +105,7 @@ class HomeScreenTest {
             PageHarborApp()
         }
 
+        composeTestRule.onNodeWithContentDescription("More options").performClick()
         composeTestRule.onNodeWithText("How privacy works").assertIsDisplayed()
         composeTestRule.onNodeWithText("About RME PDF Scanner").assertIsDisplayed()
     }
@@ -86,10 +116,14 @@ class HomeScreenTest {
             PageHarborApp()
         }
 
-        composeTestRule.onNodeWithText(
+        composeTestRule.onAllNodesWithText(
             "v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) · " +
                 "${BuildConfig.BUILD_TYPE_LABEL} · ${BuildConfig.GIT_REVISION}",
-        ).assertIsDisplayed()
+        ).assertCountEquals(0)
+        composeTestRule.onNodeWithContentDescription("More options").performClick()
+        composeTestRule.onNodeWithText("About RME PDF Scanner").performClick()
+        composeTestRule.onNodeWithText("Git revision: ${BuildConfig.GIT_REVISION}")
+            .assertIsDisplayed()
         assertTrue(BuildConfig.GIT_REVISION.isNotBlank())
     }
 
@@ -105,7 +139,7 @@ class HomeScreenTest {
             )
         }
 
-        composeTestRule.onNodeWithText("Scan document").performClick()
+        composeTestRule.onNodeWithContentDescription("Scan document").performClick()
 
         assertEquals(1, scanClickCount)
     }
@@ -131,7 +165,7 @@ class HomeScreenTest {
             PageHarborApp(scannerSpikeState = ScannerSpikeState.Preparing)
         }
 
-        composeTestRule.onNodeWithText("Scan document")
+        composeTestRule.onNodeWithContentDescription("Scan document")
             .assertIsDisplayed()
             .assertIsNotEnabled()
         composeTestRule.onNodeWithText("Preparing scanner…")
@@ -140,7 +174,7 @@ class HomeScreenTest {
     }
 
     @Test
-    fun homePrimaryActionsRemainReachableInANarrowShortWindowAtTwoHundredPercentFont() {
+    fun homePrimaryScanActionRemainsReachableInANarrowShortWindowAtTwoHundredPercentFont() {
         composeTestRule.setContent {
             CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 2f)) {
                 Box(modifier = androidx.compose.ui.Modifier.size(width = 320.dp, height = 320.dp)) {
@@ -149,8 +183,8 @@ class HomeScreenTest {
             }
         }
 
-        composeTestRule.onNodeWithText("Scan document").performScrollTo().assertIsDisplayed()
-        composeTestRule.onNodeWithText("Import files").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Scan document").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Home").assertIsDisplayed()
     }
 
     @Test
@@ -167,7 +201,7 @@ class HomeScreenTest {
             )
         }
 
-        composeTestRule.onNodeWithText("Scan document")
+        composeTestRule.onNodeWithContentDescription("Scan document")
             .assertIsDisplayed()
             .assertIsEnabled()
         composeTestRule.onNodeWithText("Resume document").assertIsDisplayed()
@@ -262,7 +296,10 @@ class HomeScreenTest {
             )
         }
 
-        composeTestRule.onNodeWithText("Save PDF").assertIsDisplayed().assertIsEnabled()
+        composeTestRule.onNodeWithText("Save PDF")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertIsEnabled()
     }
 
     @Test
@@ -382,7 +419,7 @@ class HomeScreenTest {
             )
         }
 
-        composeTestRule.onNodeWithText("Save PDF").performClick()
+        composeTestRule.onNodeWithText("Save PDF").performScrollTo().performClick()
 
         assertEquals(1, saveClickCount)
     }
@@ -481,6 +518,7 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("Save PDF")
+            .performScrollTo()
             .assertIsDisplayed()
             .assertIsNotEnabled()
     }
@@ -641,6 +679,7 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("Save PDF")
+            .performScrollTo()
             .assertIsDisplayed()
             .assertIsEnabled()
         composeTestRule.onAllNodesWithText("Saving PDF…").assertCountEquals(0)
@@ -694,6 +733,7 @@ class HomeScreenTest {
             PageHarborApp()
         }
 
+        composeTestRule.onNodeWithContentDescription("More options").performClick()
         composeTestRule.onNodeWithText("How privacy works").performClick()
 
         composeTestRule.onNodeWithText("Documents are intended to be processed locally.")
@@ -718,6 +758,7 @@ class HomeScreenTest {
             PageHarborApp()
         }
 
+        composeTestRule.onNodeWithContentDescription("More options").performClick()
         composeTestRule.onNodeWithText("How privacy works").performClick()
         composeTestRule.onNodeWithText("OK").performClick()
 
@@ -731,6 +772,7 @@ class HomeScreenTest {
             PageHarborApp()
         }
 
+        composeTestRule.onNodeWithContentDescription("More options").performClick()
         composeTestRule.onNodeWithText("About RME PDF Scanner").performClick()
 
         composeTestRule.onNodeWithText("Private document scanner for Android")
@@ -755,6 +797,7 @@ class HomeScreenTest {
             PageHarborApp()
         }
 
+        composeTestRule.onNodeWithContentDescription("More options").performClick()
         composeTestRule.onNodeWithText("About RME PDF Scanner").performClick()
         composeTestRule.onNodeWithText("Close").performClick()
 
@@ -774,6 +817,7 @@ class HomeScreenTest {
             )
         }
 
+        composeTestRule.onNodeWithContentDescription("More options").performClick()
         composeTestRule.onNodeWithText("About RME PDF Scanner").performClick()
         composeTestRule.onNodeWithText("View source code").performClick()
 
@@ -1062,7 +1106,7 @@ class HomeScreenTest {
         composeTestRule.onNodeWithText("Text found on 2 of 2 pages").assertIsDisplayed()
         composeTestRule.onNodeWithText("Page 1 of 2").assertIsDisplayed()
         composeTestRule.onNodeWithText("First page text").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Back").performClick()
+        composeTestRule.onNodeWithContentDescription("Back").performClick()
         composeTestRule.onNodeWithText("View recognized text").performScrollTo().assertIsDisplayed()
     }
 

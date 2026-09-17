@@ -47,6 +47,7 @@ sealed interface LibraryActionState {
 
 data class LibraryUiState(
     val documents: List<LibraryDocumentSummary> = emptyList(),
+    val recentDocuments: List<LibraryDocumentSummary> = emptyList(),
     val folders: List<LibraryFolder> = emptyList(),
     val query: String = "",
     val selectedFolderId: String? = null,
@@ -62,6 +63,7 @@ private data class LibraryControls(
 
 private data class LibraryContent(
     val documents: List<LibraryDocumentSummary>,
+    val recentDocuments: List<LibraryDocumentSummary>,
     val folders: List<LibraryFolder>,
 )
 
@@ -84,12 +86,22 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private val content = combine(documents, repository.observeFolders(), ::LibraryContent)
+    private val recentDocuments = repository.observeDocuments(
+        folderId = null,
+        sortOrder = LibrarySortOrder.MODIFIED_DESC,
+    )
+    private val content = combine(
+        documents,
+        recentDocuments,
+        repository.observeFolders(),
+        ::LibraryContent,
+    )
     private val controls = combine(query, selectedFolderId, sortOrder, ::LibraryControls)
 
     val uiState = combine(content, controls, actionState) { content, controls, action ->
         LibraryUiState(
             documents = content.documents,
+            recentDocuments = content.recentDocuments,
             folders = content.folders,
             query = controls.query,
             selectedFolderId = controls.folderId,

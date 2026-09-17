@@ -3,6 +3,7 @@ package org.synapseworks.pageharbor.ui.home
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,9 +15,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -26,7 +32,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -36,6 +41,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
@@ -43,6 +49,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 import org.synapseworks.pageharbor.MAX_DOCUMENT_PAGES
 import org.synapseworks.pageharbor.R
 import org.synapseworks.pageharbor.document.PageExportState
@@ -137,7 +144,7 @@ fun ScanResultScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
+            CenterAlignedTopAppBar(
                 title = {
                     Text(
                         modifier = Modifier.semantics { heading() },
@@ -145,8 +152,11 @@ fun ScanResultScreen(
                     )
                 },
                 navigationIcon = {
-                    TextButton(onClick = onBack) {
-                        Text(stringResource(R.string.ocr_back_action))
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.ocr_back_action),
+                        )
                     }
                 },
             )
@@ -360,28 +370,23 @@ private fun PageActions(
             modifier = Modifier.fillMaxWidth(),
             enabled = actionsEnabled,
             onClick = { onPageRotate(page.id.value) },
-        ) {
-            Text(stringResource(R.string.page_rotate_action))
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
-        ) {
-            OutlinedButton(
-                modifier = Modifier.weight(1f),
-                enabled = actionsEnabled && selectedPageIndex > 0,
-                onClick = { onPageMove(page.id.value, -1) },
-            ) {
-                Text(stringResource(R.string.page_move_earlier_action))
-            }
-            OutlinedButton(
-                modifier = Modifier.weight(1f),
-                enabled = actionsEnabled && selectedPageIndex < pageCount - 1,
-                onClick = { onPageMove(page.id.value, 1) },
-            ) {
-                Text(stringResource(R.string.page_move_later_action))
-            }
-        }
+        ) { Text(stringResource(R.string.page_rotate_action)) }
+        AdaptiveActionPair(
+            first = { modifier ->
+                TextButton(
+                    modifier = modifier,
+                    enabled = actionsEnabled && selectedPageIndex > 0,
+                    onClick = { onPageMove(page.id.value, -1) },
+                ) { Text(stringResource(R.string.page_move_earlier_action)) }
+            },
+            second = { modifier ->
+                TextButton(
+                    modifier = modifier,
+                    enabled = actionsEnabled && selectedPageIndex < pageCount - 1,
+                    onClick = { onPageMove(page.id.value, 1) },
+                ) { Text(stringResource(R.string.page_move_later_action)) }
+            },
+        )
         TextButton(
             modifier = Modifier.fillMaxWidth(),
             enabled = actionsEnabled && pageCount > 1,
@@ -423,103 +428,110 @@ private fun DocumentActionLayer(
     onSaveToLibrary: () -> Unit,
     onOpenPageTools: () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
-        if (canExportPdf) {
-            Button(
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !saving && !importing && !libraryWorking,
-                onClick = onSavePdf,
-            ) {
-                Text(stringResource(R.string.pdf_save_action))
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(
+            modifier = Modifier.padding(PageHarborSpacing.medium),
+            verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
+        ) {
+            if (canExportPdf) {
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !saving && !importing && !libraryWorking,
+                    onClick = onSavePdf,
+                ) {
+                    Text(stringResource(R.string.pdf_save_action))
+                }
             }
-        }
-        if (hasPages) {
-            Button(
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !libraryWorking && !saving && !savingSearchablePdf && !sharing &&
-                    !exporting && !importing && ocrUiState != OcrUiState.Recognizing,
-                onClick = onSaveToLibrary,
-            ) {
-                Text(
-                    stringResource(
-                        if (libraryDocument == null) {
-                            R.string.library_save_action
-                        } else {
-                            R.string.library_save_changes_action
-                        },
-                    ),
-                )
-            }
-        }
-        if (libraryDocument != null) {
-            OutlinedButton(
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !libraryWorking && !importing,
-                onClick = onOpenPageTools,
-            ) {
-                Text(stringResource(R.string.library_page_tools_action))
-            }
-        }
-        if (hasPages) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
-            ) {
+            if (hasPages) {
                 FilledTonalButton(
-                    modifier = Modifier.weight(1f),
-                    enabled = ocrUiState != OcrUiState.Recognizing && !importing && !libraryWorking,
-                    onClick = onRecognizeText,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !libraryWorking && !saving && !savingSearchablePdf && !sharing &&
+                        !exporting && !importing && ocrUiState != OcrUiState.Recognizing,
+                    onClick = onSaveToLibrary,
                 ) {
                     Text(
                         stringResource(
-                            if (ocrUiState is OcrUiState.Success) {
-                                R.string.ocr_recognize_again_action
+                            if (libraryDocument == null) {
+                                R.string.library_save_action
                             } else {
-                                R.string.ocr_recognize_action
+                                R.string.library_save_changes_action
                             },
                         ),
                     )
                 }
-                TextButton(
-                    modifier = Modifier.weight(1f),
-                    enabled = !savingSearchablePdf && !importing && !libraryWorking,
-                    onClick = onSaveSearchablePdf,
+            }
+            if (libraryDocument != null) {
+                OutlinedButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !libraryWorking && !importing,
+                    onClick = onOpenPageTools,
                 ) {
-                    Text(stringResource(R.string.searchable_pdf_save_action))
+                    Text(stringResource(R.string.library_page_tools_action))
                 }
             }
-        }
-        if (hasPages && ocrUiState is OcrUiState.Success) {
-            TextButton(
-                modifier = Modifier.fillMaxWidth(),
-                onClick = onViewRecognizedText,
-            ) {
-                Text(stringResource(R.string.ocr_view_action))
+            if (hasPages) {
+                AdaptiveActionPair(
+                    first = { modifier ->
+                        FilledTonalButton(
+                            modifier = modifier,
+                            enabled = ocrUiState != OcrUiState.Recognizing && !importing && !libraryWorking,
+                            onClick = onRecognizeText,
+                        ) {
+                            Text(
+                                stringResource(
+                                    if (ocrUiState is OcrUiState.Success) {
+                                        R.string.ocr_recognize_again_action
+                                    } else {
+                                        R.string.ocr_recognize_action
+                                    },
+                                ),
+                            )
+                        }
+                    },
+                    second = { modifier ->
+                        TextButton(
+                            modifier = modifier,
+                            enabled = !savingSearchablePdf && !importing && !libraryWorking,
+                            onClick = onSaveSearchablePdf,
+                        ) {
+                            Text(stringResource(R.string.searchable_pdf_save_action))
+                        }
+                    },
+                )
             }
-        }
-        if (canExportPdf || hasPages) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
-            ) {
-                if (canExportPdf) {
-                    TextButton(
-                        modifier = Modifier.weight(1f),
-                        enabled = !sharing && !importing && !libraryWorking,
-                        onClick = onSharePdf,
-                    ) {
-                        Text(stringResource(R.string.pdf_share_action))
-                    }
+            if (hasPages && ocrUiState is OcrUiState.Success) {
+                TextButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onViewRecognizedText,
+                ) {
+                    Text(stringResource(R.string.ocr_view_action))
                 }
-                if (hasPages) {
-                    TextButton(
-                        modifier = Modifier.weight(1f),
-                        enabled = !exporting && !importing && !libraryWorking,
-                        onClick = onExportPages,
-                    ) {
-                        Text(stringResource(R.string.page_export_action))
-                    }
-                }
+            }
+            if (canExportPdf || hasPages) {
+                AdaptiveActionPair(
+                    first = { modifier ->
+                        TextButton(
+                            modifier = modifier,
+                            enabled = !sharing && !importing && !libraryWorking,
+                            onClick = onSharePdf,
+                        ) {
+                            Text(stringResource(R.string.pdf_share_action))
+                        }
+                    },
+                    second = { modifier ->
+                        TextButton(
+                            modifier = modifier,
+                            enabled = !exporting && !importing && !libraryWorking,
+                            onClick = onExportPages,
+                        ) {
+                            Text(stringResource(R.string.page_export_action))
+                        }
+                    },
+                )
             }
         }
     }
@@ -578,31 +590,52 @@ private fun PageToolbar(
                     }
                 }
             }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
-            ) {
-                TextButton(
-                    modifier = Modifier.weight(1f),
+            AdaptiveActionPair(
+                first = { modifier -> TextButton(
+                    modifier = modifier,
                     enabled = canAddPages && actionsEnabled,
                     onClick = onAddPages,
                 ) {
                     Text(stringResource(R.string.scan_again_action))
-                }
-                TextButton(
-                    modifier = Modifier.weight(1f),
+                } },
+                second = { modifier -> TextButton(
+                    modifier = modifier,
                     enabled = canAddPages && actionsEnabled,
                     onClick = onImportFiles,
                 ) {
                     Text(stringResource(R.string.import_add_files_action))
-                }
-            }
+                } },
+            )
             if (!canAddPages) {
                 Text(
                     text = stringResource(R.string.scan_page_limit_reached),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdaptiveActionPair(
+    first: @Composable (Modifier) -> Unit,
+    second: @Composable (Modifier) -> Unit,
+) {
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val stack = maxWidth < 320.dp || LocalDensity.current.fontScale >= 1.5f
+        if (stack) {
+            Column(verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
+                first(Modifier.fillMaxWidth())
+                second(Modifier.fillMaxWidth())
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
+            ) {
+                first(Modifier.weight(1f))
+                second(Modifier.weight(1f))
             }
         }
     }

@@ -16,8 +16,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -25,7 +30,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -83,7 +87,7 @@ fun OcrResultScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
+            CenterAlignedTopAppBar(
                 title = {
                     Text(
                         modifier = Modifier.semantics { heading() },
@@ -91,8 +95,11 @@ fun OcrResultScreen(
                     )
                 },
                 navigationIcon = {
-                    TextButton(onClick = onBack) {
-                        Text(stringResource(R.string.ocr_back_action))
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.ocr_back_action),
+                        )
                     }
                 },
             )
@@ -106,7 +113,7 @@ fun OcrResultScreen(
             Column(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .widthIn(max = PageHarborLayout.expandedContentMaxWidth)
+                    .widthIn(max = PageHarborLayout.readingContentMaxWidth)
                     .fillMaxSize()
                     .padding(
                         horizontal = PageHarborLayout.compactScreenHorizontalPadding,

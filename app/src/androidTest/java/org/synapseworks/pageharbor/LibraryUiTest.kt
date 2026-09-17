@@ -4,9 +4,11 @@ import android.net.Uri
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
@@ -43,8 +45,31 @@ class LibraryUiTest {
 
         composeTestRule.onNodeWithText("Site notes").assertIsDisplayed()
         composeTestRule.onNodeWithText("3 pages", substring = true).assertIsDisplayed()
-        composeTestRule.onNodeWithText("Open").performClick()
+        composeTestRule.onNodeWithText("Site notes").performClick()
         assertEquals("document-1", openedId)
+    }
+
+    @Test
+    fun documentSecondaryActionsUseOneAccessibleMenuAndNameDeleteTarget() {
+        var deletedId: String? = null
+        composeTestRule.setContent {
+            PageHarborApp(
+                libraryUiState = LibraryUiState(
+                    documents = listOf(summary("document-1", "Electricity bill", pageCount = 2)),
+                ),
+                onDeleteLibraryDocument = { deletedId = it },
+            )
+        }
+
+        composeTestRule.onAllNodesWithText("Rename").assertCountEquals(0)
+        composeTestRule.onNodeWithContentDescription("More actions for Electricity bill")
+            .performClick()
+        composeTestRule.onNodeWithText("Delete").performClick()
+        composeTestRule.onNodeWithText("Delete “Electricity bill” from RME?")
+            .assertIsDisplayed()
+        composeTestRule.onNodeWithText("Delete").performClick()
+
+        assertEquals("document-1", deletedId)
     }
 
     @Test
@@ -58,7 +83,10 @@ class LibraryUiTest {
             )
         }
 
-        composeTestRule.onNodeWithText("Save PDF").assertIsDisplayed().assertIsEnabled()
+        composeTestRule.onNodeWithText("Save PDF")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertIsEnabled()
         composeTestRule.onNodeWithText("Save to RME").performScrollTo().performClick()
         composeTestRule.onNodeWithText("Save editable local document").assertIsDisplayed()
         composeTestRule.onAllNodesWithText("Save to RME")[1].performClick()

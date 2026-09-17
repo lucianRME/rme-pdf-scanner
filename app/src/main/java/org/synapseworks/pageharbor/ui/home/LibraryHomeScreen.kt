@@ -2,31 +2,59 @@ package org.synapseworks.pageharbor.ui.home
 
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.content.res.Configuration
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.CallMerge
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -38,24 +66,33 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.tooling.preview.Preview
 import java.text.DateFormat
 import java.util.Date
+import kotlinx.coroutines.launch
 import org.synapseworks.pageharbor.R
 import org.synapseworks.pageharbor.document.importing.DocumentImportUiState
 import org.synapseworks.pageharbor.library.LibraryActionState
@@ -70,6 +107,7 @@ import org.synapseworks.pageharbor.library.LibraryUiState
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.ui.theme.PageHarborLayout
 import org.synapseworks.pageharbor.ui.theme.PageHarborSpacing
+import org.synapseworks.pageharbor.ui.theme.PageHarborTheme
 
 /** Adaptive, local-first entry point for saved and in-progress documents. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -111,10 +149,14 @@ fun LibraryHomeScreen(
     onViewSourceCode: () -> Unit,
 ) {
     var namingDialog by remember { mutableStateOf<NamingDialog?>(null) }
-    var movingDocumentId by remember { mutableStateOf<String?>(null) }
-    var deletingDocumentId by remember { mutableStateOf<String?>(null) }
+    var movingDocument by remember { mutableStateOf<LibraryDocumentSummary?>(null) }
+    var deletingDocument by remember { mutableStateOf<LibraryDocumentSummary?>(null) }
     var mergeSelection by remember { mutableStateOf<List<String>>(emptyList()) }
     var confirmFolderDelete by remember { mutableStateOf(false) }
+    var destinationIndex by rememberSaveable { mutableIntStateOf(LibraryDestination.Home.ordinal) }
+    var appMenuExpanded by remember { mutableStateOf(false) }
+    val destination = LibraryDestination.entries[destinationIndex]
+    val coroutineScope = rememberCoroutineScope()
     val selectedFolder = libraryUiState.folders.firstOrNull {
         it.id == libraryUiState.selectedFolderId
     }
@@ -122,6 +164,7 @@ fun LibraryHomeScreen(
     val acquiring = scannerSpikeState == ScannerSpikeState.Preparing ||
         importUiState == DocumentImportUiState.Selecting ||
         importUiState is DocumentImportUiState.Processing
+    val canStartScan = !working && !acquiring
     val actionMessage = libraryActionMessage(libraryUiState.actionState)
     val actionEventId = when (val state = libraryUiState.actionState) {
         is LibraryActionState.Succeeded -> state.eventId
@@ -142,171 +185,114 @@ fun LibraryHomeScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        modifier = Modifier.semantics { heading() },
-                        text = stringResource(R.string.app_name_short),
-                    )
+            LibraryTopAppBar(
+                destination = destination,
+                menuExpanded = appMenuExpanded,
+                onMenuExpandedChange = { appMenuExpanded = it },
+                onCreateFolder = { namingDialog = NamingDialog.CreateFolder },
+                onPrivacyInfo = onPrivacyInfo,
+                onAbout = onAbout,
+            )
+        },
+        bottomBar = {
+            LibraryNavigationBar(
+                selectedDestination = destination,
+                onDestinationSelected = { selected ->
+                    destinationIndex = selected.ordinal
                 },
             )
         },
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = PageHarborLayout.compactScreenHorizontalPadding),
-            verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium),
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
+        floatingActionButton = {
+            FloatingActionButton(
+                modifier = Modifier.semantics {
+                    if (!canStartScan) disabled()
+                },
+                containerColor = if (canStartScan) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant
+                },
+                contentColor = if (canStartScan) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                onClick = { if (canStartScan) onScanDocument() },
             ) {
-                Button(enabled = !working && !acquiring, onClick = onScanDocument) {
-                    Text(stringResource(R.string.home_scan_document))
-                }
-                OutlinedButton(enabled = !working && !acquiring, onClick = onImportFiles) {
-                    Text(stringResource(R.string.home_import_files))
-                }
+                Icon(
+                    imageVector = Icons.Default.CameraAlt,
+                    contentDescription = stringResource(R.string.home_scan_document),
+                )
             }
-            ActiveWorkStatus(
+        },
+    ) { padding ->
+        when (destination) {
+            LibraryDestination.Home -> HomeDestination(
+                modifier = Modifier.padding(padding),
+                uiState = libraryUiState,
+                working = working,
                 scannerSpikeState = scannerSpikeState,
                 hasActiveSession = hasActiveSession,
                 importUiState = importUiState,
-                onViewScanResult = onViewScanResult,
+                thumbnailUri = thumbnailUri,
+                onQueryChange = onQueryChange,
+                onImportFiles = onImportFiles,
                 onCancelImport = onCancelImport,
+                onViewScanResult = onViewScanResult,
+                onViewAllDocuments = { destinationIndex = LibraryDestination.Documents.ordinal },
+                onOpenDocument = onOpenDocument,
+                onRenameDocument = { namingDialog = NamingDialog.RenameDocument(it) },
+                onMoveDocument = { movingDocument = it },
+                onDeleteDocument = { deletingDocument = it },
+                mergeSelection = mergeSelection,
+                onToggleMerge = { document ->
+                    mergeSelection = mergeSelection.toggle(document.id)
+                    destinationIndex = LibraryDestination.Documents.ordinal
+                },
             )
 
-            OutlinedTextField(
-                modifier = Modifier.fillMaxWidth(),
-                value = libraryUiState.query,
-                onValueChange = onQueryChange,
-                singleLine = true,
-                label = { Text(stringResource(R.string.library_search_label)) },
-                supportingText = { Text(stringResource(R.string.library_search_supporting)) },
-            )
-
-            FolderControls(
-                folders = libraryUiState.folders,
-                selectedFolderId = libraryUiState.selectedFolderId,
-                enabled = !working,
+            LibraryDestination.Documents -> DocumentsDestination(
+                modifier = Modifier.padding(padding),
+                uiState = libraryUiState,
+                selectedFolder = selectedFolder,
+                working = working,
+                thumbnailUri = thumbnailUri,
+                mergeSelection = mergeSelection,
+                onQueryChange = onQueryChange,
                 onFolderSelected = onFolderSelected,
-                onCreateFolder = { namingDialog = NamingDialog.CreateFolder },
+                onSortOrderChange = onSortOrderChange,
+                onRenameFolder = {
+                    selectedFolder?.let { namingDialog = NamingDialog.RenameFolder(it) }
+                },
+                onDeleteFolder = { confirmFolderDelete = true },
+                onClearMerge = { mergeSelection = emptyList() },
+                onMerge = { namingDialog = NamingDialog.MergeDocuments },
+                onOpenDocument = onOpenDocument,
+                onToggleMerge = { document ->
+                    mergeSelection = mergeSelection.toggle(document.id)
+                },
+                onRenameDocument = { namingDialog = NamingDialog.RenameDocument(it) },
+                onMoveDocument = { movingDocument = it },
+                onDeleteDocument = { deletingDocument = it },
             )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall),
-                ) {
-                    SortChip(
-                        label = stringResource(R.string.library_sort_updated),
-                        selected = libraryUiState.sortOrder == LibrarySortOrder.MODIFIED_DESC,
-                        enabled = !working,
-                    ) { onSortOrderChange(LibrarySortOrder.MODIFIED_DESC) }
-                    SortChip(
-                        label = stringResource(R.string.library_sort_created),
-                        selected = libraryUiState.sortOrder == LibrarySortOrder.CREATED_DESC,
-                        enabled = !working,
-                    ) { onSortOrderChange(LibrarySortOrder.CREATED_DESC) }
-                    SortChip(
-                        label = stringResource(R.string.library_sort_title),
-                        selected = libraryUiState.sortOrder == LibrarySortOrder.TITLE_ASC,
-                        enabled = !working,
-                    ) { onSortOrderChange(LibrarySortOrder.TITLE_ASC) }
-                }
-                if (working) {
-                    CircularProgressIndicator(modifier = Modifier.height(24.dp))
-                }
-            }
-
-            selectedFolder?.let { folder ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
-                ) {
-                    TextButton(
-                        enabled = !working,
-                        onClick = { namingDialog = NamingDialog.RenameFolder(folder) },
-                    ) { Text(stringResource(R.string.library_folder_rename)) }
-                    TextButton(
-                        enabled = !working,
-                        onClick = { confirmFolderDelete = true },
-                    ) { Text(stringResource(R.string.library_folder_delete)) }
-                }
-            }
-
-            if (mergeSelection.isNotEmpty()) {
-                MergeBar(
-                    selectedCount = mergeSelection.size,
-                    enabled = !working,
-                    onClear = { mergeSelection = emptyList() },
-                    onMerge = { namingDialog = NamingDialog.MergeDocuments },
-                )
-            }
-
-            if (libraryUiState.documents.isEmpty()) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    LibraryEmptyState(
-                        query = libraryUiState.query,
-                        modifier = Modifier.weight(1f),
-                    )
-                    LibraryFooter(
-                        showBuildDetails = showBuildDetails,
-                        versionName = versionName,
-                        versionCode = versionCode,
-                        buildTypeLabel = buildTypeLabel,
-                        gitRevision = gitRevision,
-                        onPrivacyInfo = onPrivacyInfo,
-                        onAbout = onAbout,
-                    )
-                }
-            } else {
-                LazyVerticalGrid(
-                    modifier = Modifier.fillMaxSize(),
-                    columns = GridCells.Adaptive(minSize = 260.dp),
-                    horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium),
-                    verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium),
-                ) {
-                    items(libraryUiState.documents, key = LibraryDocumentSummary::id) { document ->
-                        LibraryDocumentCard(
-                            document = document,
-                            thumbnailUri = thumbnailUri(document.thumbnailRelativePath),
-                            mergePosition = mergeSelection.indexOf(document.id).takeIf { it >= 0 },
-                            enabled = !working,
-                            onOpen = { onOpenDocument(document.id) },
-                            onToggleMerge = {
-                                mergeSelection = if (document.id in mergeSelection) {
-                                    mergeSelection - document.id
-                                } else {
-                                    mergeSelection + document.id
-                                }
-                            },
-                            onRename = { namingDialog = NamingDialog.RenameDocument(document) },
-                            onMove = { movingDocumentId = document.id },
-                            onDelete = { deletingDocumentId = document.id },
-                        )
+            LibraryDestination.Tools -> ToolsDestination(
+                modifier = Modifier.padding(padding),
+                enabled = !working && !acquiring,
+                scannerSpikeState = scannerSpikeState,
+                hasActiveSession = hasActiveSession,
+                importUiState = importUiState,
+                onImportFiles = onImportFiles,
+                onCancelImport = onCancelImport,
+                onViewScanResult = onViewScanResult,
+                onOpenDocuments = { message ->
+                    destinationIndex = LibraryDestination.Documents.ordinal
+                    coroutineScope.launch {
+                        snackbarHostState.currentSnackbarData?.dismiss()
+                        snackbarHostState.showSnackbar(message)
                     }
-                    item(key = "library-footer") {
-                        LibraryFooter(
-                            showBuildDetails = showBuildDetails,
-                            versionName = versionName,
-                            versionCode = versionCode,
-                            buildTypeLabel = buildTypeLabel,
-                            gitRevision = gitRevision,
-                            onPrivacyInfo = onPrivacyInfo,
-                            onAbout = onAbout,
-                        )
-                    }
-                }
-            }
+                },
+            )
         }
     }
 
@@ -336,27 +322,27 @@ fun LibraryHomeScreen(
         )
     }
 
-    movingDocumentId?.let { documentId ->
+    movingDocument?.let { document ->
         MoveDocumentDialog(
             folders = libraryUiState.folders,
-            onDismiss = { movingDocumentId = null },
+            onDismiss = { movingDocument = null },
             onMove = { folderId ->
-                onMoveDocument(documentId, folderId)
-                movingDocumentId = null
+                onMoveDocument(document.id, folderId)
+                movingDocument = null
             },
         )
     }
 
-    deletingDocumentId?.let { documentId ->
+    deletingDocument?.let { document ->
         ConfirmDialog(
-            title = stringResource(R.string.library_delete_document_title),
+            title = stringResource(R.string.library_delete_named_document_title, document.title),
             message = stringResource(R.string.library_delete_document_message),
             confirmLabel = stringResource(R.string.library_delete_action),
-            onDismiss = { deletingDocumentId = null },
+            onDismiss = { deletingDocument = null },
             onConfirm = {
-                onDeleteDocument(documentId)
-                mergeSelection = mergeSelection - documentId
-                deletingDocumentId = null
+                onDeleteDocument(document.id)
+                mergeSelection = mergeSelection - document.id
+                deletingDocument = null
             },
         )
     }
@@ -389,6 +375,600 @@ fun LibraryHomeScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LibraryTopAppBar(
+    destination: LibraryDestination,
+    menuExpanded: Boolean,
+    onMenuExpandedChange: (Boolean) -> Unit,
+    onCreateFolder: () -> Unit,
+    onPrivacyInfo: () -> Unit,
+    onAbout: () -> Unit,
+) {
+    TopAppBar(
+        title = {
+            Text(
+                modifier = Modifier.semantics { heading() },
+                text = stringResource(destination.titleResource),
+            )
+        },
+        actions = {
+            if (destination == LibraryDestination.Documents) {
+                IconButton(onClick = onCreateFolder) {
+                    Icon(
+                        imageVector = Icons.Default.CreateNewFolder,
+                        contentDescription = stringResource(R.string.library_create_folder_action),
+                    )
+                }
+            }
+            Box {
+                IconButton(onClick = { onMenuExpandedChange(true) }) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = stringResource(R.string.app_more_options),
+                    )
+                }
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { onMenuExpandedChange(false) },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.home_privacy_action)) },
+                        onClick = {
+                            onMenuExpandedChange(false)
+                            onPrivacyInfo()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.home_about_action)) },
+                        onClick = {
+                            onMenuExpandedChange(false)
+                            onAbout()
+                        },
+                    )
+                }
+            }
+        },
+    )
+}
+
+@Composable
+private fun LibraryNavigationBar(
+    selectedDestination: LibraryDestination,
+    onDestinationSelected: (LibraryDestination) -> Unit,
+) {
+    val largeText = LocalDensity.current.fontScale >= 1.8f
+    val navigationLabelStyle = if (largeText) {
+        MaterialTheme.typography.labelMedium.copy(fontSize = 10.sp)
+    } else {
+        MaterialTheme.typography.labelMedium
+    }
+    NavigationBar {
+        LibraryDestination.entries.forEach { destination ->
+            NavigationBarItem(
+                selected = destination == selectedDestination,
+                onClick = { onDestinationSelected(destination) },
+                icon = {
+                    Icon(
+                        imageVector = when (destination) {
+                            LibraryDestination.Home -> Icons.Default.Home
+                            LibraryDestination.Documents -> Icons.Default.Description
+                            LibraryDestination.Tools -> Icons.Default.Build
+                        },
+                        contentDescription = null,
+                    )
+                },
+                label = {
+                    Text(
+                        text = stringResource(destination.labelResource),
+                        maxLines = 1,
+                        style = navigationLabelStyle,
+                    )
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeDestination(
+    modifier: Modifier,
+    uiState: LibraryUiState,
+    working: Boolean,
+    scannerSpikeState: ScannerSpikeState,
+    hasActiveSession: Boolean,
+    importUiState: DocumentImportUiState,
+    thumbnailUri: (String?) -> Uri?,
+    onQueryChange: (String) -> Unit,
+    onImportFiles: () -> Unit,
+    onCancelImport: () -> Unit,
+    onViewScanResult: () -> Unit,
+    onViewAllDocuments: () -> Unit,
+    onOpenDocument: (String) -> Unit,
+    onRenameDocument: (LibraryDocumentSummary) -> Unit,
+    onMoveDocument: (LibraryDocumentSummary) -> Unit,
+    onDeleteDocument: (LibraryDocumentSummary) -> Unit,
+    mergeSelection: List<String>,
+    onToggleMerge: (LibraryDocumentSummary) -> Unit,
+) {
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val fontScale = LocalDensity.current.fontScale
+        val useGrid = maxWidth >= 600.dp && !(fontScale >= 1.8f && maxWidth < 840.dp)
+        val horizontalPadding = when {
+            maxWidth >= 840.dp -> PageHarborLayout.expandedScreenHorizontalPadding
+            maxWidth >= 600.dp -> PageHarborLayout.mediumScreenHorizontalPadding
+            else -> PageHarborLayout.compactScreenHorizontalPadding
+        }
+        val recentDocuments = if (uiState.recentDocuments.isEmpty() && uiState.query.isBlank()) {
+            uiState.documents
+        } else {
+            uiState.recentDocuments
+        }
+        val displayedDocuments = if (uiState.query.isBlank()) {
+            recentDocuments.take(HOME_RECENT_DOCUMENT_LIMIT)
+        } else {
+            uiState.documents
+        }
+        val showActiveStatus = scannerSpikeState == ScannerSpikeState.Preparing ||
+            hasActiveSession || importUiState is DocumentImportUiState.Processing
+
+        LazyVerticalGrid(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .widthIn(max = PageHarborLayout.expandedContentMaxWidth)
+                .fillMaxSize()
+                .padding(horizontal = horizontalPadding),
+            columns = if (useGrid) {
+                GridCells.Adaptive(PageHarborLayout.libraryGridMinimumCellWidth)
+            } else {
+                GridCells.Fixed(1)
+            },
+            contentPadding = PaddingValues(
+                top = PageHarborSpacing.small,
+                bottom = PageHarborLayout.navigationContentBottomPadding,
+            ),
+            horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.large),
+            verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.large),
+        ) {
+            item(key = "home-search", span = { GridItemSpan(maxLineSpan) }) {
+                LibrarySearchField(
+                    modifier = Modifier.fillMaxWidth(),
+                    query = uiState.query,
+                    onQueryChange = onQueryChange,
+                )
+            }
+            if (showActiveStatus) {
+                item(key = "home-active-work", span = { GridItemSpan(maxLineSpan) }) {
+                    ActiveWorkStatus(
+                        scannerSpikeState = scannerSpikeState,
+                        hasActiveSession = hasActiveSession,
+                        importUiState = importUiState,
+                        onViewScanResult = onViewScanResult,
+                        onCancelImport = onCancelImport,
+                    )
+                }
+            }
+            if (displayedDocuments.isEmpty()) {
+                item(key = "home-empty", span = { GridItemSpan(maxLineSpan) }) {
+                    HomeEmptyState(
+                        query = uiState.query,
+                        enabled = !working && importUiState !is DocumentImportUiState.Processing,
+                        onImportFiles = onImportFiles,
+                    )
+                }
+            } else {
+                item(key = "home-section-heading", span = { GridItemSpan(maxLineSpan) }) {
+                    Text(
+                        modifier = Modifier.semantics { heading() },
+                        text = stringResource(
+                            if (uiState.query.isBlank()) {
+                                R.string.home_recent_documents
+                            } else {
+                                R.string.home_search_results
+                            },
+                        ),
+                        style = MaterialTheme.typography.titleLarge,
+                    )
+                }
+                items(displayedDocuments, key = { "home-${it.id}" }) { document ->
+                    LibraryDocumentItem(
+                        document = document,
+                        thumbnailUri = thumbnailUri(document.thumbnailRelativePath),
+                        expanded = useGrid,
+                        mergePosition = mergeSelection.indexOf(document.id).takeIf { it >= 0 },
+                        enabled = !working,
+                        onOpen = { onOpenDocument(document.id) },
+                        onToggleMerge = { onToggleMerge(document) },
+                        onRename = { onRenameDocument(document) },
+                        onMove = { onMoveDocument(document) },
+                        onDelete = { onDeleteDocument(document) },
+                    )
+                }
+                item(key = "home-view-all", span = { GridItemSpan(maxLineSpan) }) {
+                    TextButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = onViewAllDocuments,
+                    ) {
+                        Text(stringResource(R.string.home_view_all_documents))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeEmptyState(
+    query: String,
+    enabled: Boolean,
+    onImportFiles: () -> Unit,
+) {
+    if (query.isNotBlank()) {
+        LibraryEmptyState(query = query, selectedFolderName = null)
+        return
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 240.dp)
+            .padding(vertical = PageHarborSpacing.extraLarge),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            modifier = Modifier.semantics { heading() },
+            text = stringResource(R.string.home_library_empty_title),
+            style = MaterialTheme.typography.headlineSmall,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            modifier = Modifier
+                .padding(top = PageHarborSpacing.small)
+                .widthIn(max = PageHarborLayout.homeContentMaxWidth),
+            text = stringResource(R.string.home_library_empty_message),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        FilledTonalButton(
+            modifier = Modifier.padding(top = PageHarborSpacing.large),
+            enabled = enabled,
+            onClick = onImportFiles,
+        ) {
+            Icon(
+                modifier = Modifier.size(18.dp),
+                imageVector = Icons.Default.UploadFile,
+                contentDescription = null,
+            )
+            Text(
+                modifier = Modifier.padding(start = PageHarborSpacing.small),
+                text = stringResource(R.string.home_import_files),
+            )
+        }
+    }
+}
+
+@Composable
+private fun DocumentsDestination(
+    modifier: Modifier,
+    uiState: LibraryUiState,
+    selectedFolder: LibraryFolder?,
+    working: Boolean,
+    thumbnailUri: (String?) -> Uri?,
+    mergeSelection: List<String>,
+    onQueryChange: (String) -> Unit,
+    onFolderSelected: (String?) -> Unit,
+    onSortOrderChange: (LibrarySortOrder) -> Unit,
+    onRenameFolder: () -> Unit,
+    onDeleteFolder: () -> Unit,
+    onClearMerge: () -> Unit,
+    onMerge: () -> Unit,
+    onOpenDocument: (String) -> Unit,
+    onToggleMerge: (LibraryDocumentSummary) -> Unit,
+    onRenameDocument: (LibraryDocumentSummary) -> Unit,
+    onMoveDocument: (LibraryDocumentSummary) -> Unit,
+    onDeleteDocument: (LibraryDocumentSummary) -> Unit,
+) {
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val fontScale = LocalDensity.current.fontScale
+        val compact = maxWidth < 600.dp
+        val stackControls = maxWidth < 380.dp || fontScale >= 1.5f
+        val useGrid = !compact && !(fontScale >= 1.8f && maxWidth < 840.dp)
+        val horizontalPadding = when {
+            maxWidth >= 840.dp -> PageHarborLayout.expandedScreenHorizontalPadding
+            maxWidth >= 600.dp -> PageHarborLayout.mediumScreenHorizontalPadding
+            else -> PageHarborLayout.compactScreenHorizontalPadding
+        }
+
+        LazyVerticalGrid(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .widthIn(max = PageHarborLayout.libraryContentMaxWidth)
+                .fillMaxSize()
+                .padding(horizontal = horizontalPadding),
+            columns = if (useGrid) {
+                GridCells.Adaptive(PageHarborLayout.libraryGridMinimumCellWidth)
+            } else {
+                GridCells.Fixed(1)
+            },
+            contentPadding = PaddingValues(
+                top = PageHarborSpacing.small,
+                bottom = PageHarborLayout.navigationContentBottomPadding,
+            ),
+            horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.large),
+            verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.large),
+        ) {
+            item(key = "documents-search", span = { GridItemSpan(maxLineSpan) }) {
+                LibrarySearchField(
+                    modifier = Modifier.fillMaxWidth(),
+                    query = uiState.query,
+                    onQueryChange = onQueryChange,
+                )
+            }
+            item(key = "documents-folders", span = { GridItemSpan(maxLineSpan) }) {
+                FolderControls(
+                    folders = uiState.folders,
+                    selectedFolderId = uiState.selectedFolderId,
+                    enabled = !working,
+                    onFolderSelected = onFolderSelected,
+                )
+            }
+            item(key = "documents-heading", span = { GridItemSpan(maxLineSpan) }) {
+                DocumentSectionHeader(
+                    documentCount = uiState.documents.size,
+                    sortOrder = uiState.sortOrder,
+                    selectedFolder = selectedFolder,
+                    working = working,
+                    stackControls = stackControls,
+                    onSortOrderChange = onSortOrderChange,
+                    onRenameFolder = onRenameFolder,
+                    onDeleteFolder = onDeleteFolder,
+                )
+            }
+            if (mergeSelection.isNotEmpty()) {
+                item(key = "documents-merge", span = { GridItemSpan(maxLineSpan) }) {
+                    MergeBar(
+                        selectedCount = mergeSelection.size,
+                        enabled = !working,
+                        stackActions = stackControls,
+                        onClear = onClearMerge,
+                        onMerge = onMerge,
+                    )
+                }
+            }
+            if (uiState.documents.isEmpty()) {
+                item(key = "documents-empty", span = { GridItemSpan(maxLineSpan) }) {
+                    LibraryEmptyState(
+                        query = uiState.query,
+                        selectedFolderName = selectedFolder?.name,
+                    )
+                }
+            } else {
+                items(uiState.documents, key = { "documents-${it.id}" }) { document ->
+                    LibraryDocumentItem(
+                        document = document,
+                        thumbnailUri = thumbnailUri(document.thumbnailRelativePath),
+                        expanded = useGrid,
+                        mergePosition = mergeSelection.indexOf(document.id).takeIf { it >= 0 },
+                        enabled = !working,
+                        onOpen = { onOpenDocument(document.id) },
+                        onToggleMerge = { onToggleMerge(document) },
+                        onRename = { onRenameDocument(document) },
+                        onMove = { onMoveDocument(document) },
+                        onDelete = { onDeleteDocument(document) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToolsDestination(
+    modifier: Modifier,
+    enabled: Boolean,
+    scannerSpikeState: ScannerSpikeState,
+    hasActiveSession: Boolean,
+    importUiState: DocumentImportUiState,
+    onImportFiles: () -> Unit,
+    onCancelImport: () -> Unit,
+    onViewScanResult: () -> Unit,
+    onOpenDocuments: (String) -> Unit,
+) {
+    val mergeGuidance = stringResource(R.string.tools_merge_guidance)
+    val pagesGuidance = stringResource(R.string.tools_pages_guidance)
+    val ocrGuidance = stringResource(R.string.tools_ocr_guidance)
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val fontScale = LocalDensity.current.fontScale
+        val useGrid = maxWidth >= 600.dp && !(fontScale >= 1.8f && maxWidth < 840.dp)
+        val horizontalPadding = when {
+            maxWidth >= 840.dp -> PageHarborLayout.expandedScreenHorizontalPadding
+            maxWidth >= 600.dp -> PageHarborLayout.mediumScreenHorizontalPadding
+            else -> PageHarborLayout.compactScreenHorizontalPadding
+        }
+        val showActiveStatus = scannerSpikeState == ScannerSpikeState.Preparing ||
+            hasActiveSession || importUiState is DocumentImportUiState.Processing
+
+        LazyVerticalGrid(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .widthIn(max = PageHarborLayout.expandedContentMaxWidth)
+                .fillMaxSize()
+                .padding(horizontal = horizontalPadding),
+            columns = if (useGrid) {
+                GridCells.Adaptive(PageHarborLayout.libraryGridMinimumCellWidth)
+            } else {
+                GridCells.Fixed(1)
+            },
+            contentPadding = PaddingValues(
+                top = PageHarborSpacing.small,
+                bottom = PageHarborLayout.navigationContentBottomPadding,
+            ),
+            horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium),
+            verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium),
+        ) {
+            if (showActiveStatus) {
+                item(key = "tools-active-work", span = { GridItemSpan(maxLineSpan) }) {
+                    ActiveWorkStatus(
+                        scannerSpikeState = scannerSpikeState,
+                        hasActiveSession = hasActiveSession,
+                        importUiState = importUiState,
+                        onViewScanResult = onViewScanResult,
+                        onCancelImport = onCancelImport,
+                    )
+                }
+            }
+            item(key = "tools-import-heading", span = { GridItemSpan(maxLineSpan) }) {
+                ToolSectionHeading(R.string.tools_import_heading)
+            }
+            item(key = "tools-import") {
+                ToolTile(
+                    icon = Icons.Default.UploadFile,
+                    title = stringResource(R.string.tools_import_title),
+                    supportingText = stringResource(R.string.tools_import_description),
+                    enabled = enabled,
+                    onClick = onImportFiles,
+                )
+            }
+            item(key = "tools-document-heading", span = { GridItemSpan(maxLineSpan) }) {
+                ToolSectionHeading(R.string.tools_document_heading)
+            }
+            item(key = "tools-merge") {
+                ToolTile(
+                    icon = Icons.AutoMirrored.Filled.CallMerge,
+                    title = stringResource(R.string.tools_merge_title),
+                    supportingText = stringResource(R.string.tools_merge_description),
+                    enabled = enabled,
+                    onClick = { onOpenDocuments(mergeGuidance) },
+                )
+            }
+            item(key = "tools-pages") {
+                ToolTile(
+                    icon = Icons.Default.ContentCut,
+                    title = stringResource(R.string.tools_pages_title),
+                    supportingText = stringResource(R.string.tools_pages_description),
+                    enabled = enabled,
+                    onClick = { onOpenDocuments(pagesGuidance) },
+                )
+            }
+            item(key = "tools-text-heading", span = { GridItemSpan(maxLineSpan) }) {
+                ToolSectionHeading(R.string.tools_text_heading)
+            }
+            item(key = "tools-ocr") {
+                ToolTile(
+                    icon = Icons.Default.TextFields,
+                    title = stringResource(R.string.tools_ocr_title),
+                    supportingText = stringResource(R.string.tools_ocr_description),
+                    enabled = enabled,
+                    onClick = { onOpenDocuments(ocrGuidance) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToolSectionHeading(titleResource: Int) {
+    Text(
+        modifier = Modifier.semantics { heading() },
+        text = stringResource(titleResource),
+        style = MaterialTheme.typography.titleLarge,
+    )
+}
+
+@Composable
+private fun ToolTile(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    supportingText: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 104.dp),
+        enabled = enabled,
+        onClick = onClick,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(PageHarborSpacing.medium),
+            horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                modifier = Modifier.size(24.dp),
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall),
+            ) {
+                Text(text = title, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = supportingText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+private enum class LibraryDestination(
+    val titleResource: Int,
+    val labelResource: Int,
+) {
+    Home(R.string.app_name_short, R.string.navigation_home),
+    Documents(R.string.navigation_documents, R.string.navigation_documents),
+    Tools(R.string.navigation_tools, R.string.navigation_tools),
+}
+
+private fun List<String>.toggle(value: String): List<String> =
+    if (value in this) this - value else this + value
+
+private const val HOME_RECENT_DOCUMENT_LIMIT = 4
+
+@Composable
+private fun LibrarySearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedTextField(
+        modifier = modifier,
+        value = query,
+        onValueChange = onQueryChange,
+        singleLine = true,
+        shape = MaterialTheme.shapes.extraLarge,
+        label = { Text(stringResource(R.string.library_search_label)) },
+        leadingIcon = {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+            )
+        },
+        trailingIcon = if (query.isNotEmpty()) {
+            {
+                IconButton(onClick = { onQueryChange("") }) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = stringResource(R.string.library_search_clear),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+        } else {
+            null
+        },
+    )
+}
+
 @Composable
 private fun ActiveWorkStatus(
     scannerSpikeState: ScannerSpikeState,
@@ -407,11 +987,13 @@ private fun ActiveWorkStatus(
                 modifier = Modifier
                     .padding(PageHarborSpacing.medium)
                     .semantics { liveRegion = LiveRegionMode.Polite },
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                CircularProgressIndicator(modifier = Modifier.size(PageHarborLayout.inlineProgressIndicatorSize))
                 Text(
-                    if (importUiState.preparedPages > 0) {
+                    modifier = Modifier.weight(1f),
+                    text = if (importUiState.preparedPages > 0) {
                         stringResource(
                             R.string.import_progress_with_pages,
                             importUiState.completedItems,
@@ -425,19 +1007,28 @@ private fun ActiveWorkStatus(
                             importUiState.totalItems,
                         )
                     },
+                    style = MaterialTheme.typography.bodyMedium,
                 )
-                TextButton(onClick = onCancelImport) { Text(stringResource(R.string.import_cancel_action)) }
+                TextButton(onClick = onCancelImport) {
+                    Text(stringResource(R.string.import_cancel_action))
+                }
             }
         }
-        scannerSpikeState == ScannerSpikeState.Preparing -> Text(
-            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-            text = stringResource(R.string.home_scan_preparing),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        hasActiveSession -> OutlinedButton(
-            modifier = Modifier.fillMaxWidth(),
-            onClick = onViewScanResult,
-        ) { Text(stringResource(R.string.home_view_scan_result)) }
+        scannerSpikeState == ScannerSpikeState.Preparing -> Row(
+            horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CircularProgressIndicator(modifier = Modifier.size(PageHarborLayout.inlineProgressIndicatorSize))
+            Text(
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                text = stringResource(R.string.home_scan_preparing),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        hasActiveSession -> FilledTonalButton(onClick = onViewScanResult) {
+            Text(stringResource(R.string.home_view_scan_result))
+        }
     }
 }
 
@@ -447,7 +1038,6 @@ private fun FolderControls(
     selectedFolderId: String?,
     enabled: Boolean,
     onFolderSelected: (String?) -> Unit,
-    onCreateFolder: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -466,43 +1056,209 @@ private fun FolderControls(
                 selected = selectedFolderId == folder.id,
                 enabled = enabled,
                 onClick = { onFolderSelected(folder.id) },
-                label = { Text(stringResource(R.string.library_folder_with_count, folder.name, folder.documentCount)) },
+                label = {
+                    Text(stringResource(R.string.library_folder_with_count, folder.name, folder.documentCount))
+                },
             )
         }
-        FilterChip(
-            selected = false,
-            enabled = enabled,
-            onClick = onCreateFolder,
-            label = { Text(stringResource(R.string.library_new_folder)) },
-        )
     }
 }
 
 @Composable
-private fun SortChip(label: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
-    FilterChip(selected = selected, enabled = enabled, onClick = onClick, label = { Text(label) })
+private fun DocumentSectionHeader(
+    documentCount: Int,
+    sortOrder: LibrarySortOrder,
+    selectedFolder: LibraryFolder?,
+    working: Boolean,
+    stackControls: Boolean,
+    onSortOrderChange: (LibrarySortOrder) -> Unit,
+    onRenameFolder: () -> Unit,
+    onDeleteFolder: () -> Unit,
+) {
+    var showSortMenu by remember { mutableStateOf(false) }
+    var showFolderMenu by remember { mutableStateOf(false) }
+    val sortLabel = stringResource(sortOrder.labelResource)
+    val headingContent: @Composable (Modifier) -> Unit = { modifier ->
+        Column(modifier = modifier) {
+            Text(
+                modifier = Modifier.semantics { heading() },
+                text = selectedFolder?.name ?: stringResource(R.string.library_documents_heading),
+                style = MaterialTheme.typography.titleLarge,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = if (documentCount == 1) {
+                    stringResource(R.string.library_document_count_single)
+                } else {
+                    stringResource(R.string.library_documents_count, documentCount)
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+    val controls: @Composable () -> Unit = {
+        if (working) {
+            CircularProgressIndicator(
+                modifier = Modifier
+                    .padding(horizontal = PageHarborSpacing.small)
+                    .size(PageHarborLayout.inlineProgressIndicatorSize),
+            )
+        }
+        SortMenuButton(
+            sortLabel = sortLabel,
+            enabled = !working,
+            expanded = showSortMenu,
+            onExpandedChange = { showSortMenu = it },
+            onSortOrderChange = onSortOrderChange,
+        )
+        if (selectedFolder != null) {
+            FolderMenuButton(
+                folder = selectedFolder,
+                enabled = !working,
+                expanded = showFolderMenu,
+                onExpandedChange = { showFolderMenu = it },
+                onRename = onRenameFolder,
+                onDelete = onDeleteFolder,
+            )
+        }
+    }
+    if (stackControls) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall),
+        ) {
+            headingContent(Modifier.fillMaxWidth())
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) { controls() }
+        }
+    } else {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            headingContent(Modifier.weight(1f))
+            controls()
+        }
+    }
+}
+
+@Composable
+private fun SortMenuButton(
+    sortLabel: String,
+    enabled: Boolean,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onSortOrderChange: (LibrarySortOrder) -> Unit,
+) {
+    Box {
+        TextButton(enabled = enabled, onClick = { onExpandedChange(true) }) {
+            Text(stringResource(R.string.library_sort_action, sortLabel))
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }) {
+            LibrarySortOrder.entries.forEach { order ->
+                DropdownMenuItem(
+                    text = { Text(stringResource(order.labelResource)) },
+                    onClick = {
+                        onSortOrderChange(order)
+                        onExpandedChange(false)
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FolderMenuButton(
+    folder: LibraryFolder,
+    enabled: Boolean,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Box {
+        IconButton(enabled = enabled, onClick = { onExpandedChange(true) }) {
+            Icon(
+                imageVector = Icons.Default.MoreVert,
+                contentDescription = stringResource(R.string.library_folder_actions, folder.name),
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.library_folder_rename)) },
+                onClick = {
+                    onExpandedChange(false)
+                    onRename()
+                },
+            )
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text = stringResource(R.string.library_folder_delete),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                },
+                onClick = {
+                    onExpandedChange(false)
+                    onDelete()
+                },
+            )
+        }
+    }
 }
 
 @Composable
 private fun MergeBar(
     selectedCount: Int,
     enabled: Boolean,
+    stackActions: Boolean,
     onClear: () -> Unit,
     onMerge: () -> Unit,
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.primaryContainer,
-        shape = MaterialTheme.shapes.medium,
+        shape = MaterialTheme.shapes.large,
     ) {
-        Row(
-            modifier = Modifier.padding(PageHarborSpacing.small),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(stringResource(R.string.library_merge_selected_count, selectedCount))
-            Row {
-                TextButton(onClick = onClear) { Text(stringResource(R.string.library_clear_selection)) }
+        if (stackActions) {
+            Column(
+                modifier = Modifier.padding(PageHarborSpacing.medium),
+                verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
+            ) {
+                Text(
+                    text = stringResource(R.string.library_merge_selected_count, selectedCount),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
+                    TextButton(onClick = onClear) {
+                        Text(stringResource(R.string.library_clear_selection))
+                    }
+                    Button(enabled = enabled && selectedCount >= 2, onClick = onMerge) {
+                        Text(stringResource(R.string.library_merge_action))
+                    }
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier.padding(PageHarborSpacing.medium),
+                horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    modifier = Modifier.weight(1f),
+                    text = stringResource(R.string.library_merge_selected_count, selectedCount),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                TextButton(onClick = onClear) {
+                    Text(stringResource(R.string.library_clear_selection))
+                }
                 Button(enabled = enabled && selectedCount >= 2, onClick = onMerge) {
                     Text(stringResource(R.string.library_merge_action))
                 }
@@ -512,9 +1268,10 @@ private fun MergeBar(
 }
 
 @Composable
-private fun LibraryDocumentCard(
+private fun LibraryDocumentItem(
     document: LibraryDocumentSummary,
     thumbnailUri: Uri?,
+    expanded: Boolean,
     mergePosition: Int?,
     enabled: Boolean,
     onOpen: () -> Unit,
@@ -528,86 +1285,217 @@ private fun LibraryDocumentCard(
     }
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        enabled = enabled,
+        onClick = onOpen,
+        colors = CardDefaults.cardColors(
+            containerColor = if (mergePosition == null) {
+                MaterialTheme.colorScheme.surfaceContainerLow
+            } else {
+                MaterialTheme.colorScheme.secondaryContainer
+            },
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Column(
-            modifier = Modifier.padding(PageHarborSpacing.medium),
-            verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
-        ) {
-            LibraryThumbnail(uri = thumbnailUri, title = document.title)
-            Text(
-                text = document.title,
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = stringResource(R.string.library_document_metadata, document.pageCount, formattedDate),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            document.folderName?.let { folder ->
-                Text(
-                    text = stringResource(R.string.library_document_folder, folder),
-                    style = MaterialTheme.typography.labelMedium,
+        if (expanded) {
+            Column {
+                LibraryThumbnail(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(PageHarborLayout.expandedThumbnailHeight),
+                    uri = thumbnailUri,
+                    title = document.title,
+                )
+                DocumentDetails(
+                    modifier = Modifier.padding(PageHarborSpacing.medium),
+                    document = document,
+                    formattedDate = formattedDate,
+                    mergePosition = mergePosition,
+                    enabled = enabled,
+                    onToggleMerge = onToggleMerge,
+                    onRename = onRename,
+                    onMove = onMove,
+                    onDelete = onDelete,
                 )
             }
-            Text(
-                text = stringResource(document.ocrStatus.labelResource),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            document.searchMatch?.let { match ->
-                Text(
-                    text = stringResource(
-                        if (match == LibrarySearchMatch.TITLE) {
-                            R.string.library_search_match_title
-                        } else {
-                            R.string.library_search_match_ocr
-                        },
-                    ),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-            document.searchSnippet?.let { snippet ->
-                Text(
-                    text = snippet,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Button(modifier = Modifier.fillMaxWidth(), enabled = enabled, onClick = onOpen) {
-                Text(stringResource(R.string.library_open_action))
-            }
-            OutlinedButton(
-                modifier = Modifier.fillMaxWidth(),
-                enabled = enabled,
-                onClick = onToggleMerge,
-            ) {
-                Text(
-                    if (mergePosition == null) {
-                        stringResource(R.string.library_add_to_merge)
-                    } else {
-                        stringResource(R.string.library_remove_from_merge, mergePosition + 1)
-                    },
-                )
-            }
+        } else {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
+                modifier = Modifier.padding(PageHarborSpacing.medium),
+                horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium),
+                verticalAlignment = Alignment.Top,
             ) {
-                TextButton(enabled = enabled, onClick = onRename) { Text(stringResource(R.string.library_rename_action)) }
-                TextButton(enabled = enabled, onClick = onMove) { Text(stringResource(R.string.library_move_action)) }
-                TextButton(enabled = enabled, onClick = onDelete) { Text(stringResource(R.string.library_delete_action)) }
+                LibraryThumbnail(
+                    modifier = Modifier
+                        .width(PageHarborLayout.compactThumbnailWidth)
+                        .height(PageHarborLayout.compactThumbnailHeight),
+                    uri = thumbnailUri,
+                    title = document.title,
+                )
+                DocumentDetails(
+                    modifier = Modifier.weight(1f),
+                    document = document,
+                    formattedDate = formattedDate,
+                    mergePosition = mergePosition,
+                    enabled = enabled,
+                    onToggleMerge = onToggleMerge,
+                    onRename = onRename,
+                    onMove = onMove,
+                    onDelete = onDelete,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun LibraryThumbnail(uri: Uri?, title: String) {
+private fun DocumentDetails(
+    document: LibraryDocumentSummary,
+    formattedDate: String,
+    mergePosition: Int?,
+    enabled: Boolean,
+    onToggleMerge: () -> Unit,
+    onRename: () -> Unit,
+    onMove: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall),
+    ) {
+        Text(
+            text = document.title,
+            style = MaterialTheme.typography.titleMedium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = stringResource(R.string.library_document_metadata, document.pageCount, formattedDate),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        document.folderName?.let { folder ->
+            Text(
+                text = folder,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        document.searchMatch?.let { match ->
+            Text(
+                text = stringResource(
+                    if (match == LibrarySearchMatch.TITLE) {
+                        R.string.library_search_match_title
+                    } else {
+                        R.string.library_search_match_ocr
+                    },
+                ),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        document.searchSnippet?.let { snippet ->
+            Text(
+                text = snippet,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (mergePosition != null) {
+                Text(
+                    text = stringResource(R.string.library_remove_from_merge, mergePosition + 1),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            DocumentOverflowMenu(
+                documentTitle = document.title,
+                mergePosition = mergePosition,
+                enabled = enabled,
+                onToggleMerge = onToggleMerge,
+                onRename = onRename,
+                onMove = onMove,
+                onDelete = onDelete,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DocumentOverflowMenu(
+    documentTitle: String,
+    mergePosition: Int?,
+    enabled: Boolean,
+    onToggleMerge: () -> Unit,
+    onRename: () -> Unit,
+    onMove: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(enabled = enabled, onClick = { expanded = true }) {
+            Icon(
+                imageVector = Icons.Default.MoreVert,
+                contentDescription = stringResource(R.string.library_more_actions, documentTitle),
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        if (mergePosition == null) {
+                            stringResource(R.string.library_add_to_merge)
+                        } else {
+                            stringResource(R.string.library_remove_from_merge, mergePosition + 1)
+                        },
+                    )
+                },
+                onClick = {
+                    expanded = false
+                    onToggleMerge()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.library_rename_action)) },
+                onClick = {
+                    expanded = false
+                    onRename()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.library_move_action)) },
+                onClick = {
+                    expanded = false
+                    onMove()
+                },
+            )
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text = stringResource(R.string.library_delete_action),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                },
+                onClick = {
+                    expanded = false
+                    onDelete()
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun LibraryThumbnail(modifier: Modifier, uri: Uri?, title: String) {
     val resolver = LocalContext.current.contentResolver
     val currentUri by rememberUpdatedState(uri)
     val state by rememberManagedDocumentPreview(
@@ -622,9 +1510,7 @@ private fun LibraryThumbnail(uri: Uri?, title: String) {
         },
     )
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(156.dp),
+        modifier = modifier,
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceVariant,
     ) {
@@ -636,68 +1522,57 @@ private fun LibraryThumbnail(uri: Uri?, title: String) {
                     contentDescription = stringResource(R.string.library_thumbnail_description, title),
                     contentScale = ContentScale.Fit,
                 )
-                ManagedDocumentPreviewState.Loading -> CircularProgressIndicator()
-                ManagedDocumentPreviewState.Unavailable -> Text(stringResource(R.string.scan_preview_unavailable))
+                ManagedDocumentPreviewState.Loading -> CircularProgressIndicator(
+                    modifier = Modifier.size(PageHarborLayout.inlineProgressIndicatorSize),
+                )
+                ManagedDocumentPreviewState.Unavailable -> Text(
+                    text = title.trim().firstOrNull()?.uppercase() ?: "R",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun LibraryEmptyState(query: String, modifier: Modifier = Modifier) {
-    Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        Column(
-            modifier = Modifier.widthIn(max = 520.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium),
-        ) {
-            Text(
-                modifier = Modifier.semantics { heading() },
-                text = stringResource(
-                    if (query.isBlank()) R.string.library_empty_title else R.string.library_no_results_title,
-                ),
-                style = MaterialTheme.typography.headlineSmall,
-            )
-            Text(
-                text = stringResource(
-                    if (query.isBlank()) R.string.library_empty_message else R.string.library_no_results_message,
-                ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-@Composable
-private fun LibraryFooter(
-    showBuildDetails: Boolean,
-    versionName: String,
-    versionCode: Int,
-    buildTypeLabel: String,
-    gitRevision: String,
-    onPrivacyInfo: () -> Unit,
-    onAbout: () -> Unit,
+private fun LibraryEmptyState(
+    query: String,
+    selectedFolderName: String?,
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        TextButton(onClick = onPrivacyInfo) { Text(stringResource(R.string.home_privacy_action)) }
-        TextButton(onClick = onAbout) { Text(stringResource(R.string.home_about_action)) }
+    val title = when {
+        query.isNotBlank() -> stringResource(R.string.library_no_results_title)
+        selectedFolderName != null -> stringResource(R.string.library_empty_folder_title)
+        else -> stringResource(R.string.library_empty_title)
+    }
+    val message = when {
+        query.isNotBlank() -> stringResource(R.string.library_no_results_message)
+        selectedFolderName != null -> stringResource(R.string.library_empty_folder_message)
+        else -> stringResource(R.string.library_empty_message)
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 160.dp)
+            .padding(vertical = PageHarborSpacing.extraLarge),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
         Text(
-            text = stringResource(R.string.home_footer),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.semantics { heading() },
+            text = title,
+            style = MaterialTheme.typography.headlineSmall,
+            textAlign = TextAlign.Center,
         )
-        if (showBuildDetails) {
-            Text(
-                text = stringResource(
-                    R.string.home_debug_build_label,
-                    versionName,
-                    versionCode,
-                    buildTypeLabel,
-                    gitRevision,
-                ),
-                style = MaterialTheme.typography.labelSmall,
-            )
-        }
+        Text(
+            modifier = Modifier
+                .padding(top = PageHarborSpacing.small)
+                .widthIn(max = PageHarborLayout.homeContentMaxWidth),
+            text = message,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
@@ -715,6 +1590,7 @@ private fun NameDialog(
         title = { Text(title) },
         text = {
             OutlinedTextField(
+                modifier = Modifier.fillMaxWidth(),
                 value = value,
                 onValueChange = { value = it.take(120) },
                 singleLine = true,
@@ -726,7 +1602,11 @@ private fun NameDialog(
                 Text(confirmLabel)
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.library_cancel)) } },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.library_cancel))
+            }
+        },
     )
 }
 
@@ -745,14 +1625,20 @@ private fun MoveDocumentDialog(
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState()),
             ) {
-                TextButton(onClick = { onMove(null) }) { Text(stringResource(R.string.library_root_folder)) }
+                TextButton(onClick = { onMove(null) }) {
+                    Text(stringResource(R.string.library_root_folder))
+                }
                 folders.forEach { folder ->
                     TextButton(onClick = { onMove(folder.id) }) { Text(folder.name) }
                 }
             }
         },
         confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.library_cancel)) } },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.library_cancel))
+            }
+        },
     )
 }
 
@@ -768,10 +1654,25 @@ private fun ConfirmDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = { Text(message) },
-        confirmButton = { TextButton(onClick = onConfirm) { Text(confirmLabel) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.library_cancel)) } },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(confirmLabel, color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.library_cancel))
+            }
+        },
     )
 }
+
+private val LibrarySortOrder.labelResource: Int
+    get() = when (this) {
+        LibrarySortOrder.MODIFIED_DESC -> R.string.library_sort_updated
+        LibrarySortOrder.CREATED_DESC -> R.string.library_sort_created
+        LibrarySortOrder.TITLE_ASC -> R.string.library_sort_title
+    }
 
 private sealed interface NamingDialog {
     val titleResource: Int
@@ -797,14 +1698,6 @@ private sealed interface NamingDialog {
         override val confirmResource = R.string.library_rename_action
     }
 }
-
-private val LibraryOcrStatus.labelResource: Int
-    get() = when (this) {
-        LibraryOcrStatus.NOT_INDEXED -> R.string.library_ocr_not_indexed
-        LibraryOcrStatus.PARTIAL -> R.string.library_ocr_partial
-        LibraryOcrStatus.INDEXED -> R.string.library_ocr_indexed
-        LibraryOcrStatus.FAILED -> R.string.library_ocr_failed
-    }
 
 @Composable
 internal fun libraryActionMessage(state: LibraryActionState): String? = when (state) {
@@ -844,4 +1737,81 @@ internal fun libraryActionMessage(state: LibraryActionState): String? = when (st
             LibraryError.OPERATION_INTERRUPTED -> R.string.library_error_interrupted
         },
     )
+}
+
+@Preview(name = "Library phone", widthDp = 360, heightDp = 800, showBackground = true)
+@Preview(
+    name = "Library tablet dark",
+    widthDp = 900,
+    heightDp = 720,
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    showBackground = true,
+)
+@Composable
+private fun LibraryScreenPreview() {
+    val previewState = LibraryUiState(
+        documents = listOf(
+            LibraryDocumentSummary(
+                id = "one",
+                title = "Electricity bill",
+                createdAtMillis = 1_700_000_000_000,
+                modifiedAtMillis = 1_700_000_000_000,
+                pageCount = 2,
+                folderId = "receipts",
+                folderName = "Receipts",
+                thumbnailRelativePath = null,
+                ocrStatus = LibraryOcrStatus.INDEXED,
+            ),
+            LibraryDocumentSummary(
+                id = "two",
+                title = "Project notes and planning",
+                createdAtMillis = 1_690_000_000_000,
+                modifiedAtMillis = 1_695_000_000_000,
+                pageCount = 5,
+                folderId = null,
+                folderName = null,
+                thumbnailRelativePath = null,
+                ocrStatus = LibraryOcrStatus.NOT_INDEXED,
+            ),
+        ),
+        folders = listOf(LibraryFolder("receipts", "Receipts", 1)),
+    )
+    PageHarborTheme {
+        LibraryHomeScreen(
+            snackbarHostState = remember { SnackbarHostState() },
+            libraryUiState = previewState,
+            scannerSpikeState = ScannerSpikeState.Idle,
+            hasActiveSession = false,
+            importUiState = DocumentImportUiState.Idle,
+            showBuildDetails = false,
+            buildTypeLabel = "release",
+            versionName = "1.4.0",
+            versionCode = 15,
+            gitRevision = "preview",
+            showPrivacyInfo = false,
+            showAbout = false,
+            thumbnailUri = { null },
+            onQueryChange = {},
+            onFolderSelected = {},
+            onSortOrderChange = {},
+            onOpenDocument = {},
+            onRenameDocument = { _, _ -> },
+            onMoveDocument = { _, _ -> },
+            onDeleteDocument = {},
+            onMergeDocuments = { _, _ -> },
+            onCreateFolder = {},
+            onRenameFolder = { _, _ -> },
+            onDeleteFolder = {},
+            onConsumeLibraryAction = {},
+            onScanDocument = {},
+            onImportFiles = {},
+            onCancelImport = {},
+            onViewScanResult = {},
+            onPrivacyInfo = {},
+            onDismissPrivacyInfo = {},
+            onAbout = {},
+            onDismissAbout = {},
+            onViewSourceCode = {},
+        )
+    }
 }

@@ -19,11 +19,20 @@ object PageHarborSpacing {
 }
 
 object PageHarborLayout {
-    val compactScreenHorizontalPadding = 24.dp
+    val compactScreenHorizontalPadding = 16.dp
+    val mediumScreenHorizontalPadding = 24.dp
+    val expandedScreenHorizontalPadding = 32.dp
     val compactScreenVerticalPadding = 16.dp
     val homeContentMaxWidth = 520.dp
     val homeCenteredContentMinHeight = 640.dp
-    val expandedContentMaxWidth = 720.dp
+    val expandedContentMaxWidth = 840.dp
+    val readingContentMaxWidth = 720.dp
+    val libraryContentMaxWidth = 1184.dp
+    val libraryGridMinimumCellWidth = 260.dp
+    val compactThumbnailWidth = 88.dp
+    val compactThumbnailHeight = 112.dp
+    val expandedThumbnailHeight = 168.dp
+    val navigationContentBottomPadding = 96.dp
     val documentPreviewMinHeight = 180.dp
     val documentPreviewMaxHeight = 220.dp
     val editorDocumentPreviewMinHeight = 280.dp
