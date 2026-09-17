@@ -1,6 +1,6 @@
 # RME: PDF & Document Scanner Privacy Policy
 
-Effective date: 26 July 2026
+Effective date: 17 September 2026
 
 RME: PDF & Document Scanner is an Android document scanner published by SynapseWorks. This policy describes the
 `org.synapseworks.pageharbor` application, version `1.0.0` and later versions that retain the
@@ -14,11 +14,18 @@ own analytics or tracking service. RME PDF Scanner does not send document images
 PDF content to an RME PDF Scanner server because it has no such server.
 
 Scanned pages, user-selected images, Android-shared images, locally rendered PDF pages, and OCR
-results are active-session data. External content URIs remain user/provider owned and RME never
-deletes them. PDF import uses a bounded app-private source copy and temporary rendered page files;
+results begin as active-session data. External content URIs remain user/provider owned and RME never
+deletes them. An unsaved active session is not recovered after process death. PDF import uses a
+bounded app-private source copy and temporary rendered page files;
 the source copy is removed after preparation and rendered pages are removed on cancellation,
 replacement, removal, discard, or session cleanup. Orphaned cache files from process death are
-removed when stale. OCR text is held in memory unless the user explicitly copies it.
+removed when stale.
+
+When the user explicitly chooses **Save to RME**, RME creates a private persistent library copy of
+each page and stores its title, timestamps, page order, rotation/filter state, folder assignment,
+thumbnail, and OCR indexing status in a local Room database. If the user has explicitly run OCR,
+the recognized page text and safe error category are also stored locally so title and OCR search
+work after restart. This private library data is not uploaded, shared, or backed up by RME.
 
 A temporary searchable PDF or share copy may be held in the app cache only while it is needed for
 the requested save, share, retry, or cleanup operation. RME PDF Scanner removes prepared searchable
@@ -56,17 +63,21 @@ send document content to a server.
 RME PDF Scanner declares no `INTERNET`, broad-storage, account, location, contacts, microphone, phone,
 or advertising permissions. The Google-provided scanner flow owns its camera interaction; RME PDF Scanner
 does not request camera permission directly. Files shared from RME PDF Scanner use a non-exported
-FileProvider with temporary read access limited to the private cache subdirectories used for share
-copies and rendered import pages. The exported launcher Activity accepts only supported image/PDF send
+FileProvider with temporary read access limited to the exact URI granted by the app. Its configured
+roots cover private cache areas required by imports/exports and the private library used to reopen
+saved pages; no directory is independently browsable through the provider. The exported launcher Activity accepts only supported image/PDF send
 intents and validates every incoming URI before it enters the active document.
 
 ## Retention and deletion
 
-RME PDF Scanner does not maintain user accounts or an internal document library, so it has no
-RME PDF Scanner-hosted user-data record to delete. Users control files they save or send through Android;
-they can delete those files from the chosen destination. Android or third-party destination providers
-may apply their own retention policies. For ML Kit diagnostic data, consult Google's applicable
-privacy documentation and request mechanisms.
+Saved library documents remain in app-private storage until the user deletes the document, clears
+the app's data, or uninstalls the app. Deleting a saved document permanently removes RME's page copies,
+thumbnail, metadata, and indexed OCR text; it never deletes the external files originally imported.
+Deleting a folder keeps its documents and moves them out of that folder. This version has no trash or
+restore layer. Users separately control files they save or send through Android and can delete those
+files from the chosen destination. Android or third-party destination providers may apply their own
+retention policies. For ML Kit diagnostic data, consult Google's applicable privacy documentation and
+request mechanisms.
 
 ## Contact and publication requirement
 

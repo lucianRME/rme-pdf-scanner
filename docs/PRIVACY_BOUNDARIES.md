@@ -6,7 +6,13 @@ RME PDF Scanner is intended to keep document handling local and user-controlled.
 
 - Captured pages originate from the system scanner.
 - Scan results are handled locally by RME PDF Scanner.
-- Temporary files exist only as long as required for review, PDF preparation, save, share, retry, or cleanup.
+- Unsaved temporary files exist only as long as required for review, PDF preparation, save, share,
+  retry, or cleanup.
+- **Save to RME** creates a separate app-private persistent page revision, thumbnail, Room metadata,
+  and optional OCR index. It remains local until explicit document deletion, app-data clearing, or
+  uninstall.
+- Deleting a saved document removes only RME-owned library data. It never deletes external sources.
+- Deleting a folder retains its documents and moves them out of that folder.
 - A prepared searchable PDF is created only in RME PDF Scanner's private cache. It is deleted after a successful SAF write, a write failure or cancellation, generator failure or cancellation, or an explicit discard when destination selection is cancelled.
 - PDF sharing uses the scanner URI directly when Android can grant it safely. Otherwise, RME PDF Scanner creates a byte-for-byte copy in its private `shared-pdfs` cache and exposes only that file through a temporary-read FileProvider URI.
 - Failed share preparation deletes partial cache copies immediately. Completed share copies remain cache data, may be evicted by Android, and are removed by RME PDF Scanner when they are at least 24 hours old on a later app start.
@@ -17,7 +23,8 @@ RME PDF Scanner is intended to keep document handling local and user-controlled.
 - RME PDF Scanner does not retain its own cloud copy.
 - Document contents must not be logged.
 
-Temporary file ownership and cleanup must be explicit in implementation, including error and cancellation paths.
+Temporary and persistent ownership are distinct. Cleanup authority, revision handoff, error paths,
+and cancellation paths must remain explicit in implementation.
 
 ## External Components
 

@@ -402,6 +402,9 @@ class DocumentAcquisitionCoordinator(
                     null
                 }
             }
+
+            DocumentResourceOwnership.RME_OWNED_LIBRARY ->
+                DocumentAcquisitionError.INVALID_OWNERSHIP
         }
     }
 
@@ -419,6 +422,9 @@ class DocumentAcquisitionCoordinator(
                     null
                 }
             }
+
+            DocumentResourceOwnership.RME_OWNED_LIBRARY ->
+                DocumentAcquisitionError.INVALID_OWNERSHIP
         }
 
     private fun AcquiredResource.toDocumentResource(): DocumentResource = DocumentResource(

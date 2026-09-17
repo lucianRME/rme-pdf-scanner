@@ -13,11 +13,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -29,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -49,8 +52,10 @@ import org.synapseworks.pageharbor.document.PdfShareState
 import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfSaveState
 import org.synapseworks.pageharbor.document.searchablepdf.isInProgress
 import org.synapseworks.pageharbor.document.session.DocumentPage
+import org.synapseworks.pageharbor.document.session.LibraryDocumentReference
 import org.synapseworks.pageharbor.document.session.toAndroidUri
 import org.synapseworks.pageharbor.image.DocumentFilter
+import org.synapseworks.pageharbor.library.LibraryActionState
 import org.synapseworks.pageharbor.ocr.OcrUiState
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.ui.theme.PageHarborLayout
@@ -67,11 +72,16 @@ fun ScanResultScreen(
     ocrUiState: OcrUiState,
     searchablePdfSaveState: SearchablePdfSaveState,
     documentPages: List<DocumentPage>,
+    libraryDocument: LibraryDocumentReference?,
+    libraryActionState: LibraryActionState,
     importUiState: DocumentImportUiState,
     onPageFilterChange: (Long, DocumentFilter) -> Unit,
     onPageRotate: (Long) -> Unit,
     onPageMove: (Long, Int) -> Unit,
     onPageRemove: (Long) -> Unit,
+    onSaveToLibrary: (String) -> Unit,
+    onExtractLibraryPages: (Set<String>, String, Boolean) -> Unit,
+    onConsumeLibraryAction: () -> Unit,
     onBack: () -> Unit,
     onSavePdf: () -> Unit,
     onSaveSearchablePdf: () -> Unit,
@@ -85,6 +95,8 @@ fun ScanResultScreen(
     onDiscard: () -> Unit,
 ) {
     var selectedPageId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var showLibrarySaveDialog by rememberSaveable { mutableStateOf(false) }
+    var showPageToolsDialog by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(documentPages) {
         if (documentPages.none { it.id.value == selectedPageId }) {
             selectedPageId = documentPages.firstOrNull()?.id?.value
@@ -104,6 +116,23 @@ fun ScanResultScreen(
     val savingSearchablePdf = searchablePdfSaveState.isInProgress()
     val importing = importUiState == DocumentImportUiState.Selecting ||
         importUiState is DocumentImportUiState.Processing
+    val libraryWorking = libraryActionState == LibraryActionState.Working
+    val libraryMessage = libraryActionMessage(libraryActionState)
+    val libraryEventId = when (libraryActionState) {
+        is LibraryActionState.Succeeded -> libraryActionState.eventId
+        is LibraryActionState.Failed -> libraryActionState.eventId
+        LibraryActionState.Idle,
+        LibraryActionState.Working,
+        -> null
+    }
+
+    LaunchedEffect(libraryEventId) {
+        if (libraryEventId != null && libraryMessage != null) {
+            snackbarHostState.currentSnackbarData?.dismiss()
+            snackbarHostState.showSnackbar(libraryMessage)
+            onConsumeLibraryAction()
+        }
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -152,7 +181,7 @@ fun ScanResultScreen(
                         onPageFilterChange = onPageFilterChange,
                         onAddPages = onScanAgain,
                         onImportFiles = onImportFiles,
-                        actionsEnabled = !importing,
+                        actionsEnabled = !importing && !libraryWorking,
                     )
                 } ?: PageToolbar(
                     selectedPageIndex = null,
@@ -161,7 +190,7 @@ fun ScanResultScreen(
                     onSelectedPageChange = {},
                     onAddPages = onScanAgain,
                     onImportFiles = onImportFiles,
-                    actionsEnabled = !importing,
+                    actionsEnabled = !importing && !libraryWorking,
                 )
 
                 DocumentActionLayer(
@@ -172,6 +201,8 @@ fun ScanResultScreen(
                     sharing = sharing,
                     exporting = exporting,
                     importing = importing,
+                    libraryDocument = libraryDocument,
+                    libraryWorking = libraryWorking,
                     ocrUiState = ocrUiState,
                     onSavePdf = onSavePdf,
                     onSaveSearchablePdf = onSaveSearchablePdf,
@@ -179,6 +210,8 @@ fun ScanResultScreen(
                     onExportPages = onExportPages,
                     onRecognizeText = onRecognizeText,
                     onViewRecognizedText = onViewRecognizedText,
+                    onSaveToLibrary = { showLibrarySaveDialog = true },
+                    onOpenPageTools = { showPageToolsDialog = true },
                 )
 
                 selectedPage?.let { page ->
@@ -186,7 +219,7 @@ fun ScanResultScreen(
                         page = page,
                         selectedPageIndex = selectedPageIndex,
                         pageCount = documentPages.size,
-                        actionsEnabled = !importing,
+                        actionsEnabled = !importing && !libraryWorking,
                         onPageRotate = onPageRotate,
                         onPageMove = onPageMove,
                         onPageRemove = onPageRemove,
@@ -200,17 +233,42 @@ fun ScanResultScreen(
                     pageExportState = pageExportState,
                     ocrUiState = ocrUiState,
                     importUiState = importUiState,
+                    libraryWorking = libraryWorking,
                     onCancelImport = onCancelImport,
                 )
 
                 TextButton(
                     modifier = Modifier.fillMaxWidth(),
+                    enabled = !libraryWorking,
                     onClick = onDiscard,
                 ) {
                     Text(stringResource(R.string.home_clear_scan_result))
                 }
             }
         }
+    }
+
+    if (showLibrarySaveDialog) {
+        SaveToLibraryDialog(
+            initialTitle = libraryDocument?.title.orEmpty(),
+            isUpdate = libraryDocument != null,
+            onDismiss = { showLibrarySaveDialog = false },
+            onSave = { title ->
+                onSaveToLibrary(title)
+                showLibrarySaveDialog = false
+            },
+        )
+    }
+
+    if (showPageToolsDialog && libraryDocument != null) {
+        LibraryPageToolsDialog(
+            pages = documentPages,
+            onDismiss = { showPageToolsDialog = false },
+            onApply = { pageIds, title, removeFromOriginal ->
+                onExtractLibraryPages(pageIds, title, removeFromOriginal)
+                showPageToolsDialog = false
+            },
+        )
     }
 }
 
@@ -275,6 +333,7 @@ private fun PageEditingSection(
         )
         FilterSelector(
             selectedFilter = page.filter,
+            enabled = actionsEnabled,
             onFilterSelected = { onPageFilterChange(page.id.value, it) },
         )
     }
@@ -325,13 +384,20 @@ private fun PageActions(
         }
         TextButton(
             modifier = Modifier.fillMaxWidth(),
-            enabled = actionsEnabled,
+            enabled = actionsEnabled && pageCount > 1,
             colors = ButtonDefaults.textButtonColors(
                 contentColor = MaterialTheme.colorScheme.error,
             ),
             onClick = { onPageRemove(page.id.value) },
         ) {
             Text(stringResource(R.string.page_remove_action))
+        }
+        if (pageCount <= 1) {
+            Text(
+                text = stringResource(R.string.page_remove_final_disabled),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -345,6 +411,8 @@ private fun DocumentActionLayer(
     sharing: Boolean,
     exporting: Boolean,
     importing: Boolean,
+    libraryDocument: LibraryDocumentReference?,
+    libraryWorking: Boolean,
     onSavePdf: () -> Unit,
     onSaveSearchablePdf: () -> Unit,
     onSharePdf: () -> Unit,
@@ -352,15 +420,44 @@ private fun DocumentActionLayer(
     ocrUiState: OcrUiState,
     onRecognizeText: () -> Unit,
     onViewRecognizedText: () -> Unit,
+    onSaveToLibrary: () -> Unit,
+    onOpenPageTools: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
         if (canExportPdf) {
             Button(
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !saving && !importing,
+                enabled = !saving && !importing && !libraryWorking,
                 onClick = onSavePdf,
             ) {
                 Text(stringResource(R.string.pdf_save_action))
+            }
+        }
+        if (hasPages) {
+            Button(
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !libraryWorking && !saving && !savingSearchablePdf && !sharing &&
+                    !exporting && !importing && ocrUiState != OcrUiState.Recognizing,
+                onClick = onSaveToLibrary,
+            ) {
+                Text(
+                    stringResource(
+                        if (libraryDocument == null) {
+                            R.string.library_save_action
+                        } else {
+                            R.string.library_save_changes_action
+                        },
+                    ),
+                )
+            }
+        }
+        if (libraryDocument != null) {
+            OutlinedButton(
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !libraryWorking && !importing,
+                onClick = onOpenPageTools,
+            ) {
+                Text(stringResource(R.string.library_page_tools_action))
             }
         }
         if (hasPages) {
@@ -370,7 +467,7 @@ private fun DocumentActionLayer(
             ) {
                 FilledTonalButton(
                     modifier = Modifier.weight(1f),
-                    enabled = ocrUiState != OcrUiState.Recognizing && !importing,
+                    enabled = ocrUiState != OcrUiState.Recognizing && !importing && !libraryWorking,
                     onClick = onRecognizeText,
                 ) {
                     Text(
@@ -385,7 +482,7 @@ private fun DocumentActionLayer(
                 }
                 TextButton(
                     modifier = Modifier.weight(1f),
-                    enabled = !savingSearchablePdf && !importing,
+                    enabled = !savingSearchablePdf && !importing && !libraryWorking,
                     onClick = onSaveSearchablePdf,
                 ) {
                     Text(stringResource(R.string.searchable_pdf_save_action))
@@ -408,7 +505,7 @@ private fun DocumentActionLayer(
                 if (canExportPdf) {
                     TextButton(
                         modifier = Modifier.weight(1f),
-                        enabled = !sharing && !importing,
+                        enabled = !sharing && !importing && !libraryWorking,
                         onClick = onSharePdf,
                     ) {
                         Text(stringResource(R.string.pdf_share_action))
@@ -417,7 +514,7 @@ private fun DocumentActionLayer(
                 if (hasPages) {
                     TextButton(
                         modifier = Modifier.weight(1f),
-                        enabled = !exporting && !importing,
+                        enabled = !exporting && !importing && !libraryWorking,
                         onClick = onExportPages,
                     ) {
                         Text(stringResource(R.string.page_export_action))
@@ -518,9 +615,13 @@ private fun OperationStatus(
     pageExportState: PageExportState,
     ocrUiState: OcrUiState,
     importUiState: DocumentImportUiState,
+    libraryWorking: Boolean,
     onCancelImport: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
+        if (libraryWorking) {
+            InlineOperationStatus(R.string.library_working)
+        }
         if (pdfSaveState == PdfSaveState.Saving) {
             InlineOperationStatus(R.string.pdf_save_progress)
         }
@@ -605,6 +706,7 @@ private fun OperationStatus(
 @Composable
 private fun FilterSelector(
     selectedFilter: DocumentFilter,
+    enabled: Boolean,
     onFilterSelected: (DocumentFilter) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall)) {
@@ -623,6 +725,7 @@ private fun FilterSelector(
                 val accessibleLabel = stringResource(option.contentDescriptionRes)
                 FilterChip(
                     selected = option.filter == selectedFilter,
+                    enabled = enabled,
                     onClick = { onFilterSelected(option.filter) },
                     label = { Text(stringResource(option.labelRes)) },
                     modifier = Modifier.semantics {
@@ -632,4 +735,134 @@ private fun FilterSelector(
             }
         }
     }
+}
+
+@Composable
+private fun SaveToLibraryDialog(
+    initialTitle: String,
+    isUpdate: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+) {
+    var title by rememberSaveable(initialTitle) {
+        mutableStateOf(initialTitle.ifBlank { "Document" })
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                stringResource(
+                    if (isUpdate) R.string.library_save_changes_title else R.string.library_save_title,
+                ),
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = title,
+                    onValueChange = { title = it.take(120) },
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.library_document_title_label)) },
+                )
+                Text(
+                    text = stringResource(R.string.library_save_supporting),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = title.isNotBlank(), onClick = { onSave(title) }) {
+                Text(
+                    stringResource(
+                        if (isUpdate) {
+                            R.string.library_save_changes_action
+                        } else {
+                            R.string.library_save_action
+                        },
+                    ),
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.library_cancel)) }
+        },
+    )
+}
+
+@Composable
+private fun LibraryPageToolsDialog(
+    pages: List<DocumentPage>,
+    onDismiss: () -> Unit,
+    onApply: (Set<String>, String, Boolean) -> Unit,
+) {
+    var selectedIds by remember(pages) { mutableStateOf<Set<String>>(emptySet()) }
+    var title by rememberSaveable { mutableStateOf("Extracted pages") }
+    val allPagesPersisted = pages.all { it.persistentId != null }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.library_page_tools_title)) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
+            ) {
+                Text(stringResource(R.string.library_page_tools_supporting))
+                if (!allPagesPersisted) {
+                    Text(
+                        text = stringResource(R.string.library_page_tools_save_first),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                pages.forEachIndexed { index, page ->
+                    val persistentId = page.persistentId
+                    FilterChip(
+                        selected = persistentId != null && persistentId in selectedIds,
+                        enabled = persistentId != null,
+                        onClick = {
+                            if (persistentId != null) {
+                                selectedIds = if (persistentId in selectedIds) {
+                                    selectedIds - persistentId
+                                } else {
+                                    selectedIds + persistentId
+                                }
+                            }
+                        },
+                        label = { Text(stringResource(R.string.library_page_number, index + 1)) },
+                    )
+                }
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = title,
+                    onValueChange = { title = it.take(120) },
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.library_document_title_label)) },
+                )
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = selectedIds.isNotEmpty() && title.isNotBlank() && allPagesPersisted,
+                    onClick = { onApply(selectedIds, title, false) },
+                ) {
+                    Text(stringResource(R.string.library_extract_copy_action))
+                }
+                OutlinedButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = selectedIds.isNotEmpty() && selectedIds.size < pages.size &&
+                        title.isNotBlank() && allPagesPersisted,
+                    onClick = { onApply(selectedIds, title, true) },
+                ) {
+                    Text(stringResource(R.string.library_split_move_action))
+                }
+                Text(
+                    text = stringResource(R.string.library_split_safety),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.about_close)) }
+        },
+    )
 }

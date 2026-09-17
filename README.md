@@ -29,6 +29,7 @@ RME takes a different approach:
 - Offline OCR
 - Searchable PDFs
 - Multi-page scanning and document sessions, currently up to 20 pages
+- Private on-device library with editable saved documents, thumbnails, folders, sorting, and search
 - Multi-file JPEG, PNG, WebP, and PDF import through Android's system picker
 - Android share-target import for supported images and PDFs
 - User-controlled PDF/JPEG export
@@ -58,6 +59,15 @@ RME takes a different approach:
 - Reorder, rotate, remove, filter, or add pages
 - Document filters: Original, Enhance, Grayscale, Black and white, and High Contrast
 - Up to 20 pages per active document
+
+### Local library
+
+- Explicit **Save to RME** / **Save changes** lifecycle; unsaved sessions are not silently retained
+- Reopen saved documents in the same review and export workflow
+- Local thumbnails, titles, timestamps, page counts, OCR status, and one-level folders
+- Search document titles and user-initiated recognized text on-device
+- Merge documents in a chosen order; extract or move selected pages into a new document
+- Delete only RME's private saved copy; imported source files remain untouched
 
 ### OCR
 
@@ -92,7 +102,7 @@ RME processes scan images, OCR text, and searchable-PDF text layers on the devic
 - Cloud OCR
 - An AI backend
 
-RME does not send document images, OCR text, or generated PDF content to an RME server because it has no such server. The app does not maintain a persistent document library. Services such as Google Drive or OneDrive may appear only as destinations exposed through the Android system file picker; RME does not directly access those services or their account credentials.
+RME does not send document images, OCR text, or generated PDF content to an RME server because it has no such server. When the user explicitly chooses **Save to RME**, the app stores page copies, thumbnails, document metadata, and any indexed OCR text in app-private on-device storage until the saved document is deleted or the app's data is removed. Android backup and device transfer are disabled for this data. Services such as Google Drive or OneDrive may appear only as destinations exposed through the Android system file picker; RME does not directly access those services or their account credentials.
 
 Google ML Kit is separately licensed. It may send documented encrypted technical diagnostics to Google, while document images and recognized OCR text are processed on-device and are not sent by ML Kit. See [PRIVACY.md](PRIVACY.md) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the full qualifications and applicable third-party terms.
 
@@ -103,11 +113,12 @@ The app declares no `INTERNET` permission. Google Play services may need network
 - Kotlin
 - Jetpack Compose
 - Material 3
+- Room with FTS for local metadata and title/OCR search
 - Gradle Kotlin DSL
 - Google ML Kit Document Scanner
 - Android Storage Access Framework
 
-The searchable-PDF engine has deterministic 20-page regression coverage. The focused Home, Document review, and OCR Result surfaces do not create a persistent document library. Scanned pages, selected images, Android shares, and locally rendered PDF pages use one active session. The completed active document and selected OCR page survive configuration changes; process-death recovery is intentionally unsupported.
+The searchable-PDF engine and persistent library have deterministic 20-page regression coverage. Scanned pages, selected images, Android shares, locally rendered PDF pages, and reopened library pages use one `DocumentSession` review pipeline. Saved library documents survive process death; an unsaved active session does not. The completed active document and selected OCR page survive configuration changes only.
 
 Searchable-PDF filename suggestions use broad local categories: invoice, receipt, letter, form, or unknown. They never use OCR-derived names, dates, amounts, identifiers, addresses, or other sensitive document values. The user may edit a suggestion, and the selected SAF provider controls the final name and destination.
 
@@ -133,7 +144,7 @@ Historical beta-testing materials are available in [docs/BETA_SMOKE_TEST.md](doc
 
 The application was originally released as **PageHarbor**.
 
-The app was renamed in v1.2.0, and development continues as **RME: PDF & Document Scanner**. v1.3.0 introduced a unified scan/import workflow, multi-file and PDF import, Android share-target support, and improved document review and import handling. The Android application ID intentionally remains `org.synapseworks.pageharbor` for upgrade compatibility. Active development continues based on user feedback and privacy-first product goals.
+The app was renamed in v1.2.0, and development continues as **RME: PDF & Document Scanner**. v1.3.0 introduced the unified scan/import workflow. The v1.4.0 source adds the explicit local document library and PDF page tools described above. The Android application ID intentionally remains `org.synapseworks.pageharbor` for upgrade compatibility.
 
 ## License
 

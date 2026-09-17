@@ -14,16 +14,24 @@ enum class DocumentSourceCategory {
     SELECTED_IMAGE,
     INBOUND_SHARE,
     RENDERED_PDF_PAGE,
+    LIBRARY,
 }
 
-/** Only RME-created temporary files are eligible for automatic deletion. */
+/** App-owned library files have a separate explicit lifetime from cache cleanup. */
 enum class DocumentResourceOwnership {
     USER_OR_EXTERNAL,
     RME_OWNED_TEMPORARY,
+    RME_OWNED_LIBRARY,
 }
 
 /** File metadata used only to constrain cleanup to the private root that created the file. */
 data class OwnedTemporaryFile(
+    val path: String,
+    val rootPath: String,
+)
+
+/** File metadata used to prove that a persistent page belongs to RME's private library root. */
+data class OwnedLibraryFile(
     val path: String,
     val rootPath: String,
 )
@@ -41,6 +49,16 @@ internal data class CanonicalOwnedTemporaryFile(
  * Canonicalization resolves dot segments and symlinks; uncertainty always preserves the file.
  */
 internal fun OwnedTemporaryFile.canonicalIdentityOrNull(): CanonicalOwnedTemporaryFile? {
+    val identity = canonicalAppFileOrNull(path, rootPath) ?: return null
+    return CanonicalOwnedTemporaryFile(file = identity.first, root = identity.second)
+}
+
+internal fun OwnedLibraryFile.canonicalIdentityOrNull(): CanonicalOwnedTemporaryFile? {
+    val identity = canonicalAppFileOrNull(path, rootPath) ?: return null
+    return CanonicalOwnedTemporaryFile(file = identity.first, root = identity.second)
+}
+
+private fun canonicalAppFileOrNull(path: String, rootPath: String): Pair<File, File>? {
     if (path.isBlank() || rootPath.isBlank()) return null
     return try {
         val canonicalRoot = File(rootPath).canonicalFile
@@ -51,7 +69,7 @@ internal fun OwnedTemporaryFile.canonicalIdentityOrNull(): CanonicalOwnedTempora
         ) {
             null
         } else {
-            CanonicalOwnedTemporaryFile(file = canonicalFile, root = canonicalRoot)
+            canonicalFile to canonicalRoot
         }
     } catch (_: IOException) {
         null
@@ -76,7 +94,23 @@ data class DocumentResource internal constructor(
     val reference: String,
     val ownership: DocumentResourceOwnership,
     internal val ownedTemporaryFile: OwnedTemporaryFile? = null,
+    internal val ownedLibraryFile: OwnedLibraryFile? = null,
 )
+
+/** Safe construction boundary for one FileProvider URI below RME's private library root. */
+fun createLibraryDocumentResource(
+    reference: String,
+    path: String,
+    rootPath: String,
+): DocumentResource? {
+    val owned = OwnedLibraryFile(path = path, rootPath = rootPath)
+    if (owned.canonicalIdentityOrNull() == null) return null
+    return DocumentResource(
+        reference = reference,
+        ownership = DocumentResourceOwnership.RME_OWNED_LIBRARY,
+        ownedLibraryFile = owned,
+    )
+}
 
 /** Non-destructive clockwise page rotation retained with stable page identity. */
 enum class DocumentPageRotation(val degrees: Int) {
@@ -98,6 +132,15 @@ data class DocumentPage(
     val imageMetadata: DocumentImageMetadata = DocumentImageMetadata(),
     val rotation: DocumentPageRotation = DocumentPageRotation.DEGREES_0,
     val filter: DocumentFilter = DocumentFilter.ORIGINAL,
+    /** Stable only for pages already stored in RME's persistent local library. */
+    val persistentId: String? = null,
+)
+
+/** Persistent identity attached only while a saved library document is open for editing. */
+data class LibraryDocumentReference(
+    val documentId: String,
+    val title: String,
+    val folderId: String? = null,
 )
 
 /**
@@ -108,6 +151,7 @@ data class DocumentSession(
     val pages: List<DocumentPage> = emptyList(),
     val directPdfSource: DocumentResource? = null,
     internal val directPdfPageIds: List<DocumentPageId> = emptyList(),
+    val libraryDocument: LibraryDocumentReference? = null,
 ) {
     init {
         require(pages.map(DocumentPage::id).distinct().size == pages.size) {

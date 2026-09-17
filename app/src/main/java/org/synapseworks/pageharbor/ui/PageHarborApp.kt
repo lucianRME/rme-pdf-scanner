@@ -27,10 +27,13 @@ import org.synapseworks.pageharbor.document.PdfShareState
 import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfSaveError
 import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfSaveState
 import org.synapseworks.pageharbor.document.session.DocumentPage
+import org.synapseworks.pageharbor.document.session.LibraryDocumentReference
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.image.DocumentFilter
 import org.synapseworks.pageharbor.ocr.OcrUiState
-import org.synapseworks.pageharbor.ui.home.HomeScreen
+import org.synapseworks.pageharbor.library.LibrarySortOrder
+import org.synapseworks.pageharbor.library.LibraryUiState
+import org.synapseworks.pageharbor.ui.home.LibraryHomeScreen
 import org.synapseworks.pageharbor.ui.home.OcrResultScreen
 import org.synapseworks.pageharbor.ui.home.ScanResultScreen
 import org.synapseworks.pageharbor.ui.theme.PageHarborTheme
@@ -48,11 +51,28 @@ fun PageHarborApp(
     ocrSelectedPageIndex: Int = 0,
     scannedPageUris: List<Uri> = emptyList(),
     documentPages: List<DocumentPage> = emptyList(),
+    libraryDocument: LibraryDocumentReference? = null,
     importUiState: DocumentImportUiState = DocumentImportUiState.Idle,
+    libraryUiState: LibraryUiState = LibraryUiState(),
+    libraryThumbnailUri: (String?) -> Uri? = { null },
+    onLibraryQueryChange: (String) -> Unit = {},
+    onLibraryFolderSelected: (String?) -> Unit = {},
+    onLibrarySortOrderChange: (LibrarySortOrder) -> Unit = {},
+    onOpenLibraryDocument: (String) -> Unit = {},
+    onRenameLibraryDocument: (String, String) -> Unit = { _, _ -> },
+    onMoveLibraryDocument: (String, String?) -> Unit = { _, _ -> },
+    onDeleteLibraryDocument: (String) -> Unit = {},
+    onMergeLibraryDocuments: (List<String>, String) -> Unit = { _, _ -> },
+    onCreateLibraryFolder: (String) -> Unit = {},
+    onRenameLibraryFolder: (String, String) -> Unit = { _, _ -> },
+    onDeleteLibraryFolder: (String) -> Unit = {},
+    onConsumeLibraryAction: () -> Unit = {},
     onPageFilterChange: (Long, DocumentFilter) -> Unit = { _, _ -> },
     onPageRotate: (Long) -> Unit = {},
     onPageMove: (Long, Int) -> Unit = { _, _ -> },
     onPageRemove: (Long) -> Unit = {},
+    onSaveToLibrary: (String) -> Unit = {},
+    onExtractLibraryPages: (Set<String>, String, Boolean) -> Unit = { _, _, _ -> },
     onOcrSelectedPageChange: (Int) -> Unit = {},
     searchablePdfSaveState: SearchablePdfSaveState = SearchablePdfSaveState.Idle,
     onScanDocument: () -> Unit = {},
@@ -181,11 +201,16 @@ fun PageHarborApp(
             ocrUiState = ocrUiState,
             searchablePdfSaveState = searchablePdfSaveState,
             documentPages = documentPages,
+            libraryDocument = libraryDocument,
+            libraryActionState = libraryUiState.actionState,
             importUiState = importUiState,
             onPageFilterChange = onPageFilterChange,
             onPageRotate = onPageRotate,
             onPageMove = onPageMove,
             onPageRemove = onPageRemove,
+            onSaveToLibrary = onSaveToLibrary,
+            onExtractLibraryPages = onExtractLibraryPages,
+            onConsumeLibraryAction = onConsumeLibraryAction,
             onBack = { navigateTo(PageHarborScreen.Home) },
             onSavePdf = onSavePdf,
             onSaveSearchablePdf = onSaveSearchablePdf,
@@ -198,8 +223,9 @@ fun PageHarborApp(
             onCancelImport = onCancelImport,
             onDiscard = { navigateTo(PageHarborScreen.Home); onClearScanResult() },
         )
-        else -> HomeScreen(
+        else -> LibraryHomeScreen(
             snackbarHostState = snackbarHostState,
+            libraryUiState = libraryUiState,
             scannerSpikeState = scannerSpikeState,
             hasActiveSession = documentPages.isNotEmpty(),
             importUiState = importUiState,
@@ -210,6 +236,19 @@ fun PageHarborApp(
             gitRevision = BuildConfig.GIT_REVISION,
             showPrivacyInfo = showPrivacyInfo,
             showAbout = showAbout,
+            thumbnailUri = libraryThumbnailUri,
+            onQueryChange = onLibraryQueryChange,
+            onFolderSelected = onLibraryFolderSelected,
+            onSortOrderChange = onLibrarySortOrderChange,
+            onOpenDocument = onOpenLibraryDocument,
+            onRenameDocument = onRenameLibraryDocument,
+            onMoveDocument = onMoveLibraryDocument,
+            onDeleteDocument = onDeleteLibraryDocument,
+            onMergeDocuments = onMergeLibraryDocuments,
+            onCreateFolder = onCreateLibraryFolder,
+            onRenameFolder = onRenameLibraryFolder,
+            onDeleteFolder = onDeleteLibraryFolder,
+            onConsumeLibraryAction = onConsumeLibraryAction,
             onScanDocument = {
                 onScanDocument()
             },

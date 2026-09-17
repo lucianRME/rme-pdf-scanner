@@ -548,7 +548,7 @@ private fun OcrResultSection(
 }
 
 @Composable
-private fun PrivacyInfoDialog(onDismiss: () -> Unit) {
+internal fun PrivacyInfoDialog(onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -565,6 +565,7 @@ private fun PrivacyInfoDialog(onDismiss: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium),
             ) {
                 Text(text = stringResource(R.string.home_privacy_dialog_local_processing))
+                Text(text = stringResource(R.string.home_privacy_dialog_library))
                 Text(text = stringResource(R.string.home_privacy_dialog_no_cloud))
                 Text(text = stringResource(R.string.home_privacy_dialog_user_choice))
                 Text(text = stringResource(R.string.home_privacy_dialog_no_tracking))
@@ -580,7 +581,7 @@ private fun PrivacyInfoDialog(onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun AboutDialog(
+internal fun AboutDialog(
     showBuildDetails: Boolean,
     buildTypeLabel: String,
     versionName: String,

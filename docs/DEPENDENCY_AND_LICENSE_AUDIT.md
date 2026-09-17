@@ -1,6 +1,6 @@
 # Dependency and License Audit
 
-Status: `v0.7.0-dev` release-readiness audit, 26 July 2026.
+Status: updated for `v1.4.0` preparation, 17 September 2026.
 
 ## Method
 
@@ -10,14 +10,17 @@ The release runtime graph was resolved with:
 ./gradlew :app:dependencies --configuration releaseRuntimeClasspath
 ```
 
-Direct declarations are AndroidX/Compose/Material, Google ML Kit Document Scanner `16.0.0`, Google
-ML Kit Text Recognition `16.0.1`, and PdfBox-Android `2.0.27.0`. The inspection included POM
+Direct declarations are AndroidX/Compose/Material, Room `2.8.5`, Google ML Kit Document Scanner
+`16.0.0`, Google ML Kit Text Recognition `16.0.1`, and PdfBox-Android `2.0.27.0`. KSP is a build-time
+processor used for Room code generation and is not packaged in the app. The inspection included POM
 metadata, the PdfBox Android AAR, and the minified release artifact.
 
 ## Results
 
 - AndroidX, Compose, Kotlin, coroutines, JSpecify, javax.inject, and Apache Commons Codec are
   Apache-2.0-family dependencies.
+- Room runtime/KTX are AndroidX Apache-2.0 components. Room adds no network permission or cloud SDK;
+  RME uses it only for the private on-device library and FTS index.
 - PdfBox-Android is Apache-2.0 and brings Bouncy Castle `1.72` transitively. Bouncy Castle's
   MIT-style notice is preserved in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
 - PdfBox-Android bundles Liberation Sans Regular `2.1.5`, licensed in its font metadata under SIL

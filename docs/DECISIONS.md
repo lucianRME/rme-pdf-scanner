@@ -75,6 +75,8 @@ Implementation should avoid public claims of absolute offline scanning until sca
 
 ## ADR-005: No Internal Document Library In MVP
 
+Status: superseded by ADR-015 for v1.4; retained as the historical MVP decision.
+
 Decision:
 PageHarbor will export documents but will not initially maintain a permanent internal document collection.
 
@@ -196,3 +198,41 @@ RME validates signatures and actual readability rather than trusting names or de
 Picker cancellation and explicit processing cancellation preserve an existing session. Activity recreation or destruction interrupts active preparation, registered owned resources are cleaned, and stale completion is rejected. External URIs are never deleted. Rendered pages live below a dedicated private import root and are removed on page removal, replacement, discard, cancellation, or final session cleanup; process-death orphans are removed when stale.
 
 This adds no dependency, `INTERNET` permission, broad storage permission, persistable URI grant, document library, analytics, account, backend, or cloud-provider integration. Process-death session recovery remains unsupported.
+
+## ADR-015: Explicit Private Local Document Library
+
+Decision:
+Add an opt-in persistent document library backed by Room `2.8.5` and app-private revision files.
+Keep `DocumentSession` as the only review, OCR, edit, and export model: opening a saved document maps
+its normalized database/page records back into that same session. Save only after the user chooses
+**Save to RME** or **Save changes**; do not silently persist an unsaved active session.
+
+Use normalized document, page, and one-level folder tables plus an FTS4 table containing title and
+explicitly recognized OCR text. Store bounded thumbnails and full page copies below
+`files/document-library`, which is excluded from Android backup and device transfer. Keep the shared
+20-page limit. Deleting a folder moves its documents to no folder; deleting a document permanently
+removes only RME-owned database and file records.
+
+Rationale:
+Persistent reopen/edit and local title/OCR search require durable identifiers, transactional metadata,
+and explicit retention. Room provides maintained SQLite/FTS integration without networking. Full
+immutable file revisions let RME prepare every page before switching the database, so a failed or
+cancelled save cannot replace the last complete document. A distinct `RME_OWNED_LIBRARY` ownership
+class prevents temporary-session cleanup from deleting persistent pages and prevents library cleanup
+from expanding to user-selected sources.
+
+Consequences:
+Library saves run off the main thread and hold a session lease. A new revision is copied first, Room
+atomically replaces document/page/FTS records, the revision is reopened as the active session, and old
+revisions are removed only after the lease is released. Merge creates a new document in the selected
+order. Extract creates a copy; split creates a new document and rewrites the non-empty original.
+Removing the final page is rejected.
+
+OCR text is sensitive persistent data only for an explicitly saved document after user-initiated OCR
+or save. It is never logged or transmitted. External URIs and source files are never deleted. The
+FileProvider remains non-exported, backup remains disabled, and no `INTERNET`, broad-storage, account,
+analytics, advertising, telemetry, backend, or cloud-provider capability is added.
+
+Room schema version 1 is the first persistent-library schema, so upgrading from v1.3 requires no data
+migration. Its schema is exported and opened in instrumentation coverage; every later schema version
+must ship an explicit migration and migration test. Unsaved process-death recovery remains unsupported.

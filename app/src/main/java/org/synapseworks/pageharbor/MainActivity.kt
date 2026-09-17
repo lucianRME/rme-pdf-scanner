@@ -11,6 +11,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.lifecycle.lifecycleScope
 import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
@@ -93,9 +95,12 @@ import org.synapseworks.pageharbor.ocr.OcrUiState
 import org.synapseworks.pageharbor.ocr.canStartOcr
 import org.synapseworks.pageharbor.ocr.clearedOcrState
 import org.synapseworks.pageharbor.ocr.ocrStateAfterResult
+import org.synapseworks.pageharbor.library.LibraryResult
+import org.synapseworks.pageharbor.library.LibraryViewModel
 
 class MainActivity : ComponentActivity() {
     private val session: PageHarborSessionViewModel by viewModels()
+    private val library: LibraryViewModel by viewModels()
     private var scannerSpikeState: ScannerSpikeState
         get() = session.scannerState
         set(value) { session.scannerState = value }
@@ -278,6 +283,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         setContent {
+            val libraryUiState by library.uiState.collectAsState()
             PageHarborApp(
                 screen = session.screen,
                 onScreenChange = { target ->
@@ -296,12 +302,29 @@ class MainActivity : ComponentActivity() {
                 ocrSelectedPageIndex = ocrSelectedPageIndex,
                 scannedPageUris = scannedPageUris,
                 documentPages = session.documentPages,
+                libraryDocument = session.documentSession.libraryDocument,
                 importUiState = session.importUiState,
+                libraryUiState = libraryUiState,
+                libraryThumbnailUri = library::thumbnailUri,
+                onLibraryQueryChange = library::updateQuery,
+                onLibraryFolderSelected = library::selectFolder,
+                onLibrarySortOrderChange = library::updateSortOrder,
+                onOpenLibraryDocument = ::openLibraryDocument,
+                onRenameLibraryDocument = ::renameLibraryDocument,
+                onMoveLibraryDocument = ::moveLibraryDocument,
+                onDeleteLibraryDocument = ::deleteLibraryDocument,
+                onMergeLibraryDocuments = library::mergeDocuments,
+                onCreateLibraryFolder = library::createFolder,
+                onRenameLibraryFolder = library::renameFolder,
+                onDeleteLibraryFolder = ::deleteLibraryFolder,
+                onConsumeLibraryAction = library::consumeActionState,
                 onOcrSelectedPageChange = { ocrSelectedPageIndex = it },
                 onPageFilterChange = session::setPageFilter,
                 onPageRotate = session::rotatePageClockwise,
                 onPageMove = session::movePage,
                 onPageRemove = session::removePage,
+                onSaveToLibrary = ::saveCurrentDocumentToLibrary,
+                onExtractLibraryPages = ::extractLibraryPages,
                 searchablePdfSaveState = searchablePdfSaveState,
                 onScanDocument = ::launchDocumentScanner,
                 onImportFiles = ::launchFileImport,
@@ -322,6 +345,141 @@ class MainActivity : ComponentActivity() {
             )
         }
         if (savedInstanceState == null) handleInboundIntent(intent)
+    }
+
+    private fun openLibraryDocument(documentId: String) {
+        lifecycleScope.launch {
+            when (val opened = library.openDocument(documentId)) {
+                is LibraryResult.Success -> {
+                    clearRecognizedText()
+                    clearSearchablePdfSave()
+                    clearNormalDocumentOperations()
+                    if (session.openLibraryDocument(opened.value.session) &&
+                        !session.hasActiveDocumentSessionLeases()
+                    ) {
+                        library.cleanupDocumentRevisions(documentId)
+                    }
+                }
+                is LibraryResult.Failure -> Unit
+            }
+        }
+    }
+
+    private fun deleteLibraryDocument(documentId: String) {
+        if (session.documentSession.libraryDocument?.documentId == documentId) {
+            clearRecognizedText()
+            clearSearchablePdfSave()
+            clearNormalDocumentOperations()
+            session.clearScan()
+        }
+        library.deleteDocument(documentId)
+    }
+
+    private fun renameLibraryDocument(documentId: String, title: String) {
+        library.renameDocument(documentId, title) {
+            val current = session.documentSession.libraryDocument
+            if (current?.documentId == documentId) {
+                session.updateLibraryReference(
+                    title = title.trim().replace(Regex("\\s+"), " ").take(120),
+                    folderId = current.folderId,
+                )
+            }
+        }
+    }
+
+    private fun moveLibraryDocument(documentId: String, folderId: String?) {
+        library.moveDocument(documentId, folderId) {
+            val current = session.documentSession.libraryDocument
+            if (current?.documentId == documentId) {
+                session.updateLibraryReference(current.title, folderId)
+            }
+        }
+    }
+
+    private fun deleteLibraryFolder(folderId: String) {
+        library.deleteFolder(folderId) {
+            val current = session.documentSession.libraryDocument
+            if (current?.folderId == folderId) {
+                session.updateLibraryReference(current.title, null)
+            }
+        }
+    }
+
+    private fun saveCurrentDocumentToLibrary(title: String) {
+        val lease = session.acquireDocumentSessionLease(documentSessionLeaseReleaseObserverForTest)
+            ?: return
+        val recognized = (ocrUiState as? OcrUiState.Success)?.result
+        lifecycleScope.launch {
+            var openedDocumentId: String? = null
+            try {
+                when (val saved = library.saveSession(lease.session, title, recognized)) {
+                    is LibraryResult.Success -> {
+                        when (val opened = library.openDocument(saved.value.id)) {
+                            is LibraryResult.Success -> {
+                                clearRecognizedText()
+                                clearSearchablePdfSave()
+                                clearNormalDocumentOperations()
+                                if (session.openLibraryDocument(opened.value.session)) {
+                                    openedDocumentId = saved.value.id
+                                }
+                            }
+                            is LibraryResult.Failure -> Unit
+                        }
+                    }
+                    is LibraryResult.Failure -> Unit
+                }
+            } finally {
+                session.releaseDocumentSessionLease(lease)
+                val documentId = openedDocumentId
+                if (documentId != null && !session.hasActiveDocumentSessionLeases()) {
+                    library.cleanupDocumentRevisions(documentId)
+                }
+            }
+        }
+    }
+
+    private fun extractLibraryPages(
+        pageIds: Set<String>,
+        title: String,
+        removeFromOriginal: Boolean,
+    ) {
+        val lease = session.acquireDocumentSessionLease(documentSessionLeaseReleaseObserverForTest)
+            ?: return
+        val originalId = lease.session.libraryDocument?.documentId ?: run {
+            session.releaseDocumentSessionLease(lease)
+            return
+        }
+        lifecycleScope.launch {
+            var originalReplaced = false
+            try {
+                when (
+                    library.extractPages(
+                        documentId = originalId,
+                        pageIds = pageIds,
+                        title = title,
+                        removeFromOriginal = removeFromOriginal,
+                    )
+                ) {
+                    is LibraryResult.Success -> if (removeFromOriginal) {
+                        when (val opened = library.openDocument(originalId)) {
+                            is LibraryResult.Success -> {
+                                clearRecognizedText()
+                                clearSearchablePdfSave()
+                                clearNormalDocumentOperations()
+                                originalReplaced = session.openLibraryDocument(opened.value.session)
+                            }
+                            is LibraryResult.Failure -> Unit
+                        }
+                    }
+                    is LibraryResult.Failure -> Unit
+                }
+            } finally {
+                session.releaseDocumentSessionLease(lease)
+                if (originalReplaced && !session.hasActiveDocumentSessionLeases()) {
+                    library.cleanupDocumentRevisions(originalId)
+                }
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -480,6 +638,13 @@ class MainActivity : ComponentActivity() {
                 }
                 ocrUiState = ocrStateAfterResult(result)
                 ocrSelectedPageIndex = 0
+                lease.session.libraryDocument?.let { saved ->
+                    library.indexOcr(
+                        documentId = saved.documentId,
+                        pageIds = lease.session.pages.map(DocumentPage::persistentId),
+                        result = result,
+                    )
+                }
                 ocrTerminalStateObserverForTest?.invoke()
             } finally {
                 session.releaseDocumentSessionLease(lease)

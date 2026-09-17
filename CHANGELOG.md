@@ -4,7 +4,40 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.4.0]
+
+### Added
+
+- An explicit, private on-device document library with thumbnails, titles, timestamps, page counts,
+  OCR status, folders, title search, and recognized-text search.
+- Reopen-and-edit support through the same document review pipeline used by scans and imports.
+- Ordered document merge plus page extraction and split/move operations, all bounded by the shared
+  20-page document limit.
+- Recently updated, recently created, and title sorting.
+
+### Changed
+
+- Home is now an adaptive Material 3 library surface while Scan and Import remain immediate actions.
+- Document review now provides **Save to RME** and **Save changes** actions and prevents deleting the
+  final page of a document.
+- Saved-document OCR text is indexed locally only after user-initiated recognition or save.
+- Set the app version to `1.4.0` (version code 15).
+
+### Security / Privacy
+
+- Library pages, thumbnails, metadata, folders, and optional OCR text stay in app-private storage.
+- External/user-selected sources are never deleted; deleting a saved document removes only RME's
+  private copy.
+- Android cloud backup and device transfer remain disabled and exclude files and databases.
+- No `INTERNET`, broad-storage, analytics, tracking, account, advertising, backend, or cloud SDK was
+  added.
+
+### Known limitations
+
+- Password-protected PDF export, trash/restore, and a dedicated metadata-removal tool remain out of
+  this release because they require separate export-compatibility and retention validation.
+- Unsaved active sessions are not recovered after Android process death; explicitly saved library
+  documents persist across restarts.
 
 ## [1.3.0]
 

@@ -31,6 +31,7 @@ import org.synapseworks.pageharbor.document.session.DocumentPage
 import org.synapseworks.pageharbor.document.session.DocumentPageId
 import org.synapseworks.pageharbor.document.session.DocumentSession
 import org.synapseworks.pageharbor.document.session.DocumentSourceCategory
+import org.synapseworks.pageharbor.document.session.LibraryDocumentReference
 import org.synapseworks.pageharbor.document.session.PendingResourceRegistrationResult
 import org.synapseworks.pageharbor.document.session.toAndroidUri
 import org.synapseworks.pageharbor.image.DocumentFilter
@@ -364,6 +365,39 @@ class PageHarborSessionViewModel internal constructor(
         screen = PageHarborScreen.ScanResult
     }
 
+    /** Replaces the active work with one durable library document without deleting library files. */
+    fun openLibraryDocument(session: DocumentSession): Boolean {
+        if (session.pages.isEmpty() || session.libraryDocument == null || activeAcquisition != null) {
+            return false
+        }
+        val previous = documentSession
+        if (!replaceDocumentSession(session)) return false
+        if (activeDocumentSessionLeases.isEmpty()) {
+            acquisitionCoordinator.releaseDetachedSessions(
+                sessions = listOf(previous),
+                preservingSession = session,
+            )
+        } else {
+            deferredReleaseSessions += previous
+        }
+        scannerState = createScannerResultSummary(session.pages.size, null)
+        lastAcquisitionError = null
+        importUiState = DocumentImportUiState.Idle
+        ocrUiState = OcrUiState.Idle
+        ocrSelectedPageIndex = 0
+        resetTransientState()
+        screen = PageHarborScreen.ScanResult
+        return true
+    }
+
+    fun updateLibraryReference(title: String, folderId: String?): Boolean {
+        val current = documentSession.libraryDocument ?: return false
+        val updated = current.copy(title = title, folderId = folderId)
+        if (updated == current) return false
+        documentSession = documentSession.copy(libraryDocument = updated)
+        return true
+    }
+
     fun clearScan() {
         activeAcquisition?.let { request ->
             acquisitionCoordinator.interrupt(request.token, documentSession)
@@ -408,6 +442,9 @@ class PageHarborSessionViewModel internal constructor(
         releaseDeferredSessionsWhenSafe()
         lease.releaseObserverForTest?.invoke()
     }
+
+    internal fun hasActiveDocumentSessionLeases(): Boolean =
+        activeDocumentSessionLeases.isNotEmpty()
 
     /** Active work is Activity-owned and is cancelled by the Activity; completed data remains. */
     fun resetTransientStateForRecreation() {
@@ -458,6 +495,7 @@ class PageHarborSessionViewModel internal constructor(
 
     fun removePage(pageId: Long): Boolean {
         val previousSession = documentSession
+        if (previousSession.pages.size <= 1) return false
         val updated = previousSession.remove(DocumentPageId(pageId)) ?: return false
         if (!replaceDocumentSession(updated)) return false
         if (activeDocumentSessionLeases.isEmpty()) {
