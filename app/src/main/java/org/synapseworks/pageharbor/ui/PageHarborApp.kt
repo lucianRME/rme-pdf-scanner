@@ -14,6 +14,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.launch
 import android.net.Uri
+import android.os.SystemClock
 import org.synapseworks.pageharbor.BuildConfig
 import org.synapseworks.pageharbor.R
 import org.synapseworks.pageharbor.document.PageExportResult
@@ -86,7 +87,13 @@ fun PageHarborApp(
     onClearRecognizedText: () -> Unit = {},
     onCopyRecognizedText: ((String) -> Unit)? = null,
     onViewSourceCode: () -> Unit = {},
+    onRateRme: () -> Unit = {},
+    onSuggestFeature: () -> Unit = {},
+    onShareRme: () -> Unit = {},
     onClearScanResult: () -> Unit = {},
+    onExitApp: () -> Unit = {},
+    exitBackClock: () -> Long = SystemClock::elapsedRealtime,
+    exitBackTimeoutMillis: Long = DoubleBackExitController.DEFAULT_TIMEOUT_MILLIS,
     darkTheme: Boolean = isSystemInDarkTheme(),
 ) {
     PageHarborTheme(darkTheme = darkTheme) {
@@ -134,6 +141,10 @@ fun PageHarborApp(
         val importTemporaryFileMessage = stringResource(R.string.import_error_temporary_file)
         val importBusyMessage = stringResource(R.string.import_error_busy)
         val importInterruptedMessage = stringResource(R.string.import_error_interrupted)
+        val exitBackHintMessage = stringResource(R.string.exit_back_hint)
+        val exitController = remember(exitBackClock, exitBackTimeoutMillis) {
+            DoubleBackExitController(exitBackClock, exitBackTimeoutMillis)
+        }
 
         suspend fun showTransientFeedback(message: String) {
             snackbarHostState.currentSnackbarData?.dismiss()
@@ -141,12 +152,27 @@ fun PageHarborApp(
         }
 
         fun navigateTo(target: PageHarborScreen) {
+            exitController.reset()
             currentScreen = target
             onScreenChange(target)
         }
 
+        fun handleTopLevelBack() {
+            when (exitController.onBack()) {
+                DoubleBackExitController.Result.ShowHint -> coroutineScope.launch {
+                    showTransientFeedback(exitBackHintMessage)
+                }
+
+                DoubleBackExitController.Result.Exit -> onExitApp()
+            }
+        }
+
         LaunchedEffect(screen) {
             currentScreen = screen
+        }
+
+        LaunchedEffect(showPrivacyInfo, showAbout) {
+            if (showPrivacyInfo || showAbout) exitController.reset()
         }
 
         BackHandler(
@@ -154,6 +180,13 @@ fun PageHarborApp(
                 ocrUiState is OcrUiState.Success,
         ) {
             navigateTo(PageHarborScreen.ScanResult)
+        }
+
+        BackHandler(
+            enabled = currentScreen == PageHarborScreen.ScanResult &&
+                scannerSpikeState is ScannerSpikeState.ResultSummary,
+        ) {
+            navigateTo(PageHarborScreen.Home)
         }
 
         when {
@@ -202,6 +235,7 @@ fun PageHarborApp(
             searchablePdfSaveState = searchablePdfSaveState,
             documentPages = documentPages,
             libraryDocument = libraryDocument,
+            libraryFolders = libraryUiState.folders,
             libraryActionState = libraryUiState.actionState,
             importUiState = importUiState,
             onPageFilterChange = onPageFilterChange,
@@ -210,6 +244,9 @@ fun PageHarborApp(
             onPageRemove = onPageRemove,
             onSaveToLibrary = onSaveToLibrary,
             onExtractLibraryPages = onExtractLibraryPages,
+            onRenameLibraryDocument = onRenameLibraryDocument,
+            onMoveLibraryDocument = onMoveLibraryDocument,
+            onDeleteLibraryDocument = onDeleteLibraryDocument,
             onConsumeLibraryAction = onConsumeLibraryAction,
             onBack = { navigateTo(PageHarborScreen.Home) },
             onSavePdf = onSavePdf,
@@ -268,6 +305,11 @@ fun PageHarborApp(
                 showAbout = false
             },
             onViewSourceCode = onViewSourceCode,
+            onRateRme = onRateRme,
+            onSuggestFeature = onSuggestFeature,
+            onShareRme = onShareRme,
+            onTopLevelBack = ::handleTopLevelBack,
+            onTopLevelBackSequenceReset = exitController::reset,
         )
         }
 

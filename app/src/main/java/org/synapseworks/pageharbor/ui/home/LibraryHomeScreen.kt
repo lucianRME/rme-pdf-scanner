@@ -3,7 +3,9 @@ package org.synapseworks.pageharbor.ui.home
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.content.res.Configuration
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,7 +37,13 @@ import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PrivacyTip
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.UploadFile
@@ -52,6 +60,8 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -80,7 +90,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
@@ -147,14 +159,19 @@ fun LibraryHomeScreen(
     onAbout: () -> Unit,
     onDismissAbout: () -> Unit,
     onViewSourceCode: () -> Unit,
+    onRateRme: () -> Unit,
+    onSuggestFeature: () -> Unit,
+    onShareRme: () -> Unit,
+    onTopLevelBack: () -> Unit,
+    onTopLevelBackSequenceReset: () -> Unit,
 ) {
     var namingDialog by remember { mutableStateOf<NamingDialog?>(null) }
     var movingDocument by remember { mutableStateOf<LibraryDocumentSummary?>(null) }
     var deletingDocument by remember { mutableStateOf<LibraryDocumentSummary?>(null) }
     var mergeSelection by remember { mutableStateOf<List<String>>(emptyList()) }
     var confirmFolderDelete by remember { mutableStateOf(false) }
+    var toolsQuery by rememberSaveable { mutableStateOf("") }
     var destinationIndex by rememberSaveable { mutableIntStateOf(LibraryDestination.Home.ordinal) }
-    var appMenuExpanded by remember { mutableStateOf(false) }
     val destination = LibraryDestination.entries[destinationIndex]
     val coroutineScope = rememberCoroutineScope()
     val selectedFolder = libraryUiState.folders.firstOrNull {
@@ -174,6 +191,40 @@ fun LibraryHomeScreen(
         -> null
     }
 
+    LaunchedEffect(namingDialog, movingDocument, deletingDocument, confirmFolderDelete) {
+        if (
+            namingDialog != null ||
+            movingDocument != null ||
+            deletingDocument != null ||
+            confirmFolderDelete
+        ) {
+            onTopLevelBackSequenceReset()
+        }
+    }
+
+    BackHandler {
+        when {
+            destination == LibraryDestination.Tools && toolsQuery.isNotBlank() -> {
+                onTopLevelBackSequenceReset()
+                toolsQuery = ""
+            }
+            (destination == LibraryDestination.Home || destination == LibraryDestination.Documents) &&
+                libraryUiState.query.isNotBlank() -> {
+                onTopLevelBackSequenceReset()
+                onQueryChange("")
+            }
+            destination == LibraryDestination.Documents && mergeSelection.isNotEmpty() -> {
+                onTopLevelBackSequenceReset()
+                mergeSelection = emptyList()
+            }
+            destination == LibraryDestination.Documents && selectedFolder != null -> {
+                onTopLevelBackSequenceReset()
+                onFolderSelected(null)
+            }
+            else -> onTopLevelBack()
+        }
+    }
+
     LaunchedEffect(actionEventId) {
         if (actionEventId != null && actionMessage != null) {
             snackbarHostState.currentSnackbarData?.dismiss()
@@ -187,17 +238,14 @@ fun LibraryHomeScreen(
         topBar = {
             LibraryTopAppBar(
                 destination = destination,
-                menuExpanded = appMenuExpanded,
-                onMenuExpandedChange = { appMenuExpanded = it },
                 onCreateFolder = { namingDialog = NamingDialog.CreateFolder },
-                onPrivacyInfo = onPrivacyInfo,
-                onAbout = onAbout,
             )
         },
         bottomBar = {
             LibraryNavigationBar(
                 selectedDestination = destination,
                 onDestinationSelected = { selected ->
+                    if (selected != destination) onTopLevelBackSequenceReset()
                     destinationIndex = selected.ordinal
                 },
             )
@@ -278,7 +326,10 @@ fun LibraryHomeScreen(
 
             LibraryDestination.Tools -> ToolsDestination(
                 modifier = Modifier.padding(padding),
-                enabled = !working && !acquiring,
+                interactionEnabled = !working && !acquiring,
+                savedDocumentCount = libraryUiState.recentDocuments.size,
+                query = toolsQuery,
+                onQueryChange = { toolsQuery = it },
                 scannerSpikeState = scannerSpikeState,
                 hasActiveSession = hasActiveSession,
                 importUiState = importUiState,
@@ -292,6 +343,15 @@ fun LibraryHomeScreen(
                         snackbarHostState.showSnackbar(message)
                     }
                 },
+            )
+
+            LibraryDestination.More -> MoreDestination(
+                modifier = Modifier.padding(padding),
+                onRateRme = onRateRme,
+                onSuggestFeature = onSuggestFeature,
+                onShareRme = onShareRme,
+                onPrivacyInfo = onPrivacyInfo,
+                onAbout = onAbout,
             )
         }
     }
@@ -379,11 +439,7 @@ fun LibraryHomeScreen(
 @Composable
 private fun LibraryTopAppBar(
     destination: LibraryDestination,
-    menuExpanded: Boolean,
-    onMenuExpandedChange: (Boolean) -> Unit,
     onCreateFolder: () -> Unit,
-    onPrivacyInfo: () -> Unit,
-    onAbout: () -> Unit,
 ) {
     TopAppBar(
         title = {
@@ -401,33 +457,6 @@ private fun LibraryTopAppBar(
                     )
                 }
             }
-            Box {
-                IconButton(onClick = { onMenuExpandedChange(true) }) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = stringResource(R.string.app_more_options),
-                    )
-                }
-                DropdownMenu(
-                    expanded = menuExpanded,
-                    onDismissRequest = { onMenuExpandedChange(false) },
-                ) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.home_privacy_action)) },
-                        onClick = {
-                            onMenuExpandedChange(false)
-                            onPrivacyInfo()
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.home_about_action)) },
-                        onClick = {
-                            onMenuExpandedChange(false)
-                            onAbout()
-                        },
-                    )
-                }
-            }
         },
     )
 }
@@ -439,7 +468,7 @@ private fun LibraryNavigationBar(
 ) {
     val largeText = LocalDensity.current.fontScale >= 1.8f
     val navigationLabelStyle = if (largeText) {
-        MaterialTheme.typography.labelMedium.copy(fontSize = 10.sp)
+        MaterialTheme.typography.labelMedium.copy(fontSize = 7.sp)
     } else {
         MaterialTheme.typography.labelMedium
     }
@@ -454,6 +483,7 @@ private fun LibraryNavigationBar(
                             LibraryDestination.Home -> Icons.Default.Home
                             LibraryDestination.Documents -> Icons.Default.Description
                             LibraryDestination.Tools -> Icons.Default.Build
+                            LibraryDestination.More -> Icons.Default.MoreHoriz
                         },
                         contentDescription = null,
                     )
@@ -766,7 +796,10 @@ private fun DocumentsDestination(
 @Composable
 private fun ToolsDestination(
     modifier: Modifier,
-    enabled: Boolean,
+    interactionEnabled: Boolean,
+    savedDocumentCount: Int,
+    query: String,
+    onQueryChange: (String) -> Unit,
     scannerSpikeState: ScannerSpikeState,
     hasActiveSession: Boolean,
     importUiState: DocumentImportUiState,
@@ -778,9 +811,100 @@ private fun ToolsDestination(
     val mergeGuidance = stringResource(R.string.tools_merge_guidance)
     val pagesGuidance = stringResource(R.string.tools_pages_guidance)
     val ocrGuidance = stringResource(R.string.tools_ocr_guidance)
+    val mergeEnabled = interactionEnabled && savedDocumentCount >= 2
+    val documentToolEnabled = interactionEnabled && savedDocumentCount >= 1
+    val tools = listOf(
+        ToolLauncherItemModel(
+            key = "import",
+            icon = Icons.Default.UploadFile,
+            label = stringResource(R.string.tools_import_title),
+            accessibilityLabel = if (interactionEnabled) {
+                stringResource(R.string.tools_import_accessibility)
+            } else {
+                stringResource(
+                    R.string.tools_busy_accessibility,
+                    stringResource(R.string.tools_import_title),
+                )
+            },
+            searchTerms = listOf("import", "file", "image", "pdf"),
+            enabled = interactionEnabled,
+            onClick = onImportFiles,
+        ),
+        ToolLauncherItemModel(
+            key = "merge",
+            icon = Icons.AutoMirrored.Filled.CallMerge,
+            label = stringResource(R.string.tools_merge_title),
+            accessibilityLabel = if (!interactionEnabled) {
+                stringResource(
+                    R.string.tools_busy_accessibility,
+                    stringResource(R.string.tools_merge_title),
+                )
+            } else if (mergeEnabled) {
+                stringResource(R.string.tools_merge_accessibility)
+            } else {
+                stringResource(R.string.tools_merge_unavailable_accessibility)
+            },
+            searchTerms = listOf("merge", "combine", "join"),
+            enabled = mergeEnabled,
+            onClick = { onOpenDocuments(mergeGuidance) },
+        ),
+        ToolLauncherItemModel(
+            key = "pages",
+            icon = Icons.Default.ContentCut,
+            label = stringResource(R.string.tools_pages_title),
+            accessibilityLabel = if (!interactionEnabled) {
+                stringResource(
+                    R.string.tools_busy_accessibility,
+                    stringResource(R.string.tools_pages_title),
+                )
+            } else if (documentToolEnabled) {
+                stringResource(R.string.tools_pages_accessibility)
+            } else {
+                stringResource(R.string.tools_pages_unavailable_accessibility)
+            },
+            searchTerms = listOf("split", "extract", "pages"),
+            enabled = documentToolEnabled,
+            onClick = { onOpenDocuments(pagesGuidance) },
+        ),
+        ToolLauncherItemModel(
+            key = "ocr",
+            icon = Icons.Default.TextFields,
+            label = stringResource(R.string.tools_ocr_title),
+            accessibilityLabel = if (!interactionEnabled) {
+                stringResource(
+                    R.string.tools_busy_accessibility,
+                    stringResource(R.string.tools_ocr_title),
+                )
+            } else if (documentToolEnabled) {
+                stringResource(R.string.tools_ocr_accessibility)
+            } else {
+                stringResource(R.string.tools_ocr_unavailable_accessibility)
+            },
+            searchTerms = listOf("ocr", "text", "recognize", "extract text"),
+            enabled = documentToolEnabled,
+            onClick = { onOpenDocuments(ocrGuidance) },
+        ),
+    )
+    val normalizedQuery = query.trim()
+    val visibleTools = if (normalizedQuery.isEmpty()) {
+        tools
+    } else {
+        tools.filter { tool ->
+            (tool.searchTerms + tool.label).any { term ->
+                term.contains(normalizedQuery, ignoreCase = true)
+            }
+        }
+    }
+
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val fontScale = LocalDensity.current.fontScale
-        val useGrid = maxWidth >= 600.dp && !(fontScale >= 1.8f && maxWidth < 840.dp)
+        val columnCount = when {
+            fontScale >= 1.8f && maxWidth >= 840.dp -> 4
+            fontScale >= 1.8f && maxWidth >= 600.dp -> 3
+            fontScale >= 1.8f -> 2
+            maxWidth < 360.dp -> 3
+            else -> 4
+        }
         val horizontalPadding = when {
             maxWidth >= 840.dp -> PageHarborLayout.expandedScreenHorizontalPadding
             maxWidth >= 600.dp -> PageHarborLayout.mediumScreenHorizontalPadding
@@ -795,18 +919,21 @@ private fun ToolsDestination(
                 .widthIn(max = PageHarborLayout.expandedContentMaxWidth)
                 .fillMaxSize()
                 .padding(horizontal = horizontalPadding),
-            columns = if (useGrid) {
-                GridCells.Adaptive(PageHarborLayout.libraryGridMinimumCellWidth)
-            } else {
-                GridCells.Fixed(1)
-            },
+            columns = GridCells.Fixed(columnCount),
             contentPadding = PaddingValues(
                 top = PageHarborSpacing.small,
                 bottom = PageHarborLayout.navigationContentBottomPadding,
             ),
-            horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium),
-            verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium),
+            horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
+            verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
         ) {
+            item(key = "tools-search", span = { GridItemSpan(maxLineSpan) }) {
+                ToolsSearchField(
+                    query = query,
+                    onQueryChange = onQueryChange,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             if (showActiveStatus) {
                 item(key = "tools-active-work", span = { GridItemSpan(maxLineSpan) }) {
                     ActiveWorkStatus(
@@ -818,106 +945,279 @@ private fun ToolsDestination(
                     )
                 }
             }
-            item(key = "tools-import-heading", span = { GridItemSpan(maxLineSpan) }) {
-                ToolSectionHeading(R.string.tools_import_heading)
-            }
-            item(key = "tools-import") {
-                ToolTile(
-                    icon = Icons.Default.UploadFile,
-                    title = stringResource(R.string.tools_import_title),
-                    supportingText = stringResource(R.string.tools_import_description),
-                    enabled = enabled,
-                    onClick = onImportFiles,
-                )
-            }
-            item(key = "tools-document-heading", span = { GridItemSpan(maxLineSpan) }) {
-                ToolSectionHeading(R.string.tools_document_heading)
-            }
-            item(key = "tools-merge") {
-                ToolTile(
-                    icon = Icons.AutoMirrored.Filled.CallMerge,
-                    title = stringResource(R.string.tools_merge_title),
-                    supportingText = stringResource(R.string.tools_merge_description),
-                    enabled = enabled,
-                    onClick = { onOpenDocuments(mergeGuidance) },
-                )
-            }
-            item(key = "tools-pages") {
-                ToolTile(
-                    icon = Icons.Default.ContentCut,
-                    title = stringResource(R.string.tools_pages_title),
-                    supportingText = stringResource(R.string.tools_pages_description),
-                    enabled = enabled,
-                    onClick = { onOpenDocuments(pagesGuidance) },
-                )
-            }
-            item(key = "tools-text-heading", span = { GridItemSpan(maxLineSpan) }) {
-                ToolSectionHeading(R.string.tools_text_heading)
-            }
-            item(key = "tools-ocr") {
-                ToolTile(
-                    icon = Icons.Default.TextFields,
-                    title = stringResource(R.string.tools_ocr_title),
-                    supportingText = stringResource(R.string.tools_ocr_description),
-                    enabled = enabled,
-                    onClick = { onOpenDocuments(ocrGuidance) },
-                )
+            if (visibleTools.isEmpty()) {
+                item(key = "tools-empty", span = { GridItemSpan(maxLineSpan) }) {
+                    ToolsEmptyState()
+                }
+            } else {
+                item(key = "tools-heading-all", span = { GridItemSpan(maxLineSpan) }) {
+                    ToolSectionHeading(R.string.tools_all_heading)
+                }
+                items(visibleTools, key = { "tools-${it.key}" }) { tool ->
+                    ToolLauncherItem(tool)
+                }
             }
         }
     }
 }
+
+@Composable
+private fun MoreDestination(
+    modifier: Modifier,
+    onRateRme: () -> Unit,
+    onSuggestFeature: () -> Unit,
+    onShareRme: () -> Unit,
+    onPrivacyInfo: () -> Unit,
+    onAbout: () -> Unit,
+) {
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .widthIn(max = PageHarborLayout.homeContentMaxWidth)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(
+                    start = PageHarborLayout.compactScreenHorizontalPadding,
+                    top = PageHarborSpacing.large,
+                    end = PageHarborLayout.compactScreenHorizontalPadding,
+                    bottom = PageHarborLayout.navigationContentBottomPadding,
+                ),
+            verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.large),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall)) {
+                Text(
+                    modifier = Modifier.semantics { heading() },
+                    text = stringResource(R.string.app_name_short),
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+                Text(
+                    text = stringResource(R.string.more_tagline),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            MoreActionGroup(
+                actions = listOf(
+                    MoreAction(
+                        Icons.Default.Star,
+                        R.string.more_rate_title,
+                        R.string.more_rate_description,
+                        onRateRme,
+                    ),
+                    MoreAction(
+                        Icons.Default.Lightbulb,
+                        R.string.more_suggest_title,
+                        R.string.more_suggest_description,
+                        onSuggestFeature,
+                    ),
+                    MoreAction(
+                        Icons.Default.Share,
+                        R.string.more_share_title,
+                        R.string.more_share_description,
+                        onShareRme,
+                    ),
+                ),
+            )
+            Text(
+                modifier = Modifier.semantics { heading() },
+                text = stringResource(R.string.more_information_heading),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            MoreActionGroup(
+                actions = listOf(
+                    MoreAction(
+                        Icons.Default.PrivacyTip,
+                        R.string.home_privacy_action,
+                        R.string.more_privacy_description,
+                        onPrivacyInfo,
+                    ),
+                    MoreAction(
+                        Icons.Default.Info,
+                        R.string.home_about_action,
+                        R.string.more_about_description,
+                        onAbout,
+                    ),
+                ),
+            )
+        }
+    }
+}
+
+@Composable
+private fun MoreActionGroup(actions: List<MoreAction>) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column {
+            actions.forEachIndexed { index, action ->
+                ListItem(
+                    modifier = Modifier.clickable(onClick = action.onClick),
+                    colors = androidx.compose.material3.ListItemDefaults.colors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    ),
+                    leadingContent = {
+                        Icon(
+                            imageVector = action.icon,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    },
+                    headlineContent = { Text(stringResource(action.titleResource)) },
+                    supportingContent = { Text(stringResource(action.descriptionResource)) },
+                )
+                if (index < actions.lastIndex) HorizontalDivider()
+            }
+        }
+    }
+}
+
+private data class MoreAction(
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val titleResource: Int,
+    val descriptionResource: Int,
+    val onClick: () -> Unit,
+)
 
 @Composable
 private fun ToolSectionHeading(titleResource: Int) {
     Text(
-        modifier = Modifier.semantics { heading() },
+        modifier = Modifier
+            .padding(top = PageHarborSpacing.extraSmall)
+            .semantics { heading() },
         text = stringResource(titleResource),
-        style = MaterialTheme.typography.titleLarge,
+        style = MaterialTheme.typography.titleMedium,
     )
 }
 
 @Composable
-private fun ToolTile(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    supportingText: String,
-    enabled: Boolean,
-    onClick: () -> Unit,
+private fun ToolsSearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Card(
+    val label = stringResource(R.string.tools_search_label)
+    OutlinedTextField(
+        modifier = modifier.semantics { contentDescription = label },
+        value = query,
+        onValueChange = onQueryChange,
+        singleLine = true,
+        shape = MaterialTheme.shapes.extraLarge,
+        placeholder = { Text(label) },
+        leadingIcon = {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+            )
+        },
+        trailingIcon = if (query.isNotEmpty()) {
+            {
+                IconButton(onClick = { onQueryChange("") }) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = stringResource(R.string.tools_search_clear),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+        } else {
+            null
+        },
+    )
+}
+
+@Composable
+private fun ToolLauncherItem(tool: ToolLauncherItemModel) {
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 104.dp),
-        enabled = enabled,
-        onClick = onClick,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Row(
-            modifier = Modifier.padding(PageHarborSpacing.medium),
-            horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                modifier = Modifier.size(24.dp),
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
+            .heightIn(min = 112.dp)
+            .clickable(
+                enabled = tool.enabled,
+                role = Role.Button,
+                onClick = tool.onClick,
             )
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall),
-            ) {
-                Text(text = title, style = MaterialTheme.typography.titleMedium)
-                Text(
-                    text = supportingText,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            .semantics(mergeDescendants = true) {
+                contentDescription = tool.accessibilityLabel
+                if (!tool.enabled) disabled()
+            }
+            .padding(
+                horizontal = PageHarborSpacing.extraSmall,
+                vertical = PageHarborSpacing.small,
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
+    ) {
+        Surface(
+            modifier = Modifier.size(56.dp),
+            shape = MaterialTheme.shapes.large,
+            color = if (tool.enabled) {
+                MaterialTheme.colorScheme.secondaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            },
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    modifier = Modifier.size(28.dp),
+                    imageVector = tool.icon,
+                    contentDescription = null,
+                    tint = if (tool.enabled) {
+                        MaterialTheme.colorScheme.onSecondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                    },
                 )
             }
         }
+        Text(
+            text = tool.label,
+            style = MaterialTheme.typography.labelLarge,
+            color = if (tool.enabled) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+            },
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+        )
     }
 }
+
+@Composable
+private fun ToolsEmptyState() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = PageHarborSpacing.extraLarge),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
+    ) {
+        Icon(
+            imageVector = Icons.Default.Search,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = stringResource(R.string.tools_no_results),
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+private data class ToolLauncherItemModel(
+    val key: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val label: String,
+    val accessibilityLabel: String,
+    val searchTerms: List<String>,
+    val enabled: Boolean,
+    val onClick: () -> Unit,
+)
 
 private enum class LibraryDestination(
     val titleResource: Int,
@@ -926,6 +1226,7 @@ private enum class LibraryDestination(
     Home(R.string.app_name_short, R.string.navigation_home),
     Documents(R.string.navigation_documents, R.string.navigation_documents),
     Tools(R.string.navigation_tools, R.string.navigation_tools),
+    More(R.string.navigation_more, R.string.navigation_more),
 }
 
 private fun List<String>.toggle(value: String): List<String> =
@@ -1812,6 +2113,11 @@ private fun LibraryScreenPreview() {
             onAbout = {},
             onDismissAbout = {},
             onViewSourceCode = {},
+            onRateRme = {},
+            onSuggestFeature = {},
+            onShareRme = {},
+            onTopLevelBack = {},
+            onTopLevelBackSequenceReset = {},
         )
     }
 }

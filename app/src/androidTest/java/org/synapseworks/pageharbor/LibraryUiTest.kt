@@ -83,17 +83,17 @@ class LibraryUiTest {
             )
         }
 
-        composeTestRule.onNodeWithText("Save PDF")
-            .performScrollTo()
+        composeTestRule.onNodeWithText("More").performClick()
+        composeTestRule.onNodeWithText("Export PDF")
             .assertIsDisplayed()
             .assertIsEnabled()
-        composeTestRule.onNodeWithText("Save to RME").performScrollTo().performClick()
+        composeTestRule.onNodeWithText("Save to RME").performClick()
         composeTestRule.onNodeWithText("Save editable local document").assertIsDisplayed()
-        composeTestRule.onAllNodesWithText("Save to RME")[1].performClick()
+        composeTestRule.onNodeWithText("Save to RME").performClick()
         assertEquals("Document", savedTitle)
-        composeTestRule.onNodeWithText("Remove page").performScrollTo().assertIsNotEnabled()
+        composeTestRule.onNodeWithText("Edit").performClick()
+        composeTestRule.onNodeWithText("Remove page").assertIsNotEnabled()
         composeTestRule.onNodeWithText("A document must keep at least one page.")
-            .performScrollTo()
             .assertIsDisplayed()
     }
 
@@ -114,6 +114,7 @@ class LibraryUiTest {
             )
         }
 
+        composeTestRule.onNodeWithText("More").performClick()
         composeTestRule.onNodeWithText("Extract or split pages").performScrollTo().performClick()
         composeTestRule.onNodeWithText("Page 2").performClick()
         composeTestRule.onNodeWithText("Extract as a new document").performClick()

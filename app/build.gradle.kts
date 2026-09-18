@@ -197,6 +197,7 @@ dependencies {
     implementation(libs.pdfbox.android)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
+    implementation(libs.play.review)
     ksp(libs.androidx.room.compiler)
 
     testImplementation(libs.junit)

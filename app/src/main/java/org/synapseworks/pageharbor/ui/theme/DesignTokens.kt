@@ -35,8 +35,8 @@ object PageHarborLayout {
     val navigationContentBottomPadding = 96.dp
     val documentPreviewMinHeight = 180.dp
     val documentPreviewMaxHeight = 220.dp
-    val editorDocumentPreviewMinHeight = 280.dp
-    val editorDocumentPreviewMaxHeight = 440.dp
+    val editorDocumentPreviewMinHeight = 120.dp
+    val editorDocumentPreviewMaxHeight = 720.dp
     val scrollableDialogContentMaxHeight = 360.dp
     val inlineProgressIndicatorSize = 20.dp
     val minimumTouchTarget = 48.dp

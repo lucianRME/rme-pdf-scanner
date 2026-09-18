@@ -13,6 +13,8 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.core.net.toUri
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
@@ -97,10 +99,15 @@ import org.synapseworks.pageharbor.ocr.clearedOcrState
 import org.synapseworks.pageharbor.ocr.ocrStateAfterResult
 import org.synapseworks.pageharbor.library.LibraryResult
 import org.synapseworks.pageharbor.library.LibraryViewModel
+import org.synapseworks.pageharbor.review.GooglePlayReviewLauncher
+import org.synapseworks.pageharbor.review.ReviewAttemptRunner
+import org.synapseworks.pageharbor.review.ReviewEligibilityViewModel
 
 class MainActivity : ComponentActivity() {
     private val session: PageHarborSessionViewModel by viewModels()
     private val library: LibraryViewModel by viewModels()
+    private val reviewEligibility: ReviewEligibilityViewModel by viewModels()
+    private val playReviewLauncher by lazy { GooglePlayReviewLauncher() }
     private var scannerSpikeState: ScannerSpikeState
         get() = session.scannerState
         set(value) { session.scannerState = value }
@@ -265,6 +272,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        reviewEligibility.recordAppSession()
         enableEdgeToEdge()
         var observedDocumentRevision = session.documentRevision
         lifecycleScope.launch {
@@ -336,12 +344,16 @@ class MainActivity : ComponentActivity() {
                 onRecognizeText = ::recognizeText,
                 onClearRecognizedText = ::clearRecognizedText,
                 onViewSourceCode = ::openSourceCode,
+                onRateRme = ::openPlayListing,
+                onSuggestFeature = ::suggestFeature,
+                onShareRme = ::shareRme,
                 onClearScanResult = {
                     clearRecognizedText()
                     clearSearchablePdfSave()
                     clearNormalDocumentOperations()
                     session.clearScan()
                 },
+                onExitApp = ::finish,
             )
         }
         if (savedInstanceState == null) handleInboundIntent(intent)
@@ -411,9 +423,13 @@ class MainActivity : ComponentActivity() {
         val recognized = (ocrUiState as? OcrUiState.Success)?.result
         lifecycleScope.launch {
             var openedDocumentId: String? = null
+            var shouldAttemptReview = false
             try {
                 when (val saved = library.saveSession(lease.session, title, recognized)) {
                     is LibraryResult.Success -> {
+                        shouldAttemptReview = runCatching {
+                            reviewEligibility.recordSuccessfulDocumentSave(BuildConfig.VERSION_NAME)
+                        }.getOrDefault(false)
                         when (val opened = library.openDocument(saved.value.id)) {
                             is LibraryResult.Success -> {
                                 clearRecognizedText()
@@ -435,7 +451,24 @@ class MainActivity : ComponentActivity() {
                     library.cleanupDocumentRevisions(documentId)
                 }
             }
+            if (shouldAttemptReview) attemptInAppReviewIfSafe()
         }
+    }
+
+    private fun attemptInAppReviewIfSafe() {
+        if (
+            isFinishing ||
+            isDestroyed ||
+            !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) ||
+            session.screen != PageHarborScreen.ScanResult ||
+            session.hasActiveDocumentSessionLeases()
+        ) {
+            return
+        }
+        ReviewAttemptRunner(
+            markAttempt = reviewEligibility::markReviewAttempt,
+            launch = { playReviewLauncher.launch(this) },
+        ).run(BuildConfig.VERSION_NAME)
     }
 
     private fun extractLibraryPages(
@@ -1486,13 +1519,77 @@ class MainActivity : ComponentActivity() {
     private fun openSourceCode() {
         val sourceIntent = Intent(
             Intent.ACTION_VIEW,
-            Uri.parse(getString(R.string.source_code_url)),
+            getString(R.string.source_code_url).toUri(),
         )
 
         try {
             startActivity(sourceIntent)
         } catch (_: ActivityNotFoundException) {
             // No browser is available. Keep the app stable and avoid logging local state.
+        }
+    }
+
+    private fun openPlayListing() {
+        val marketIntent = Intent(
+            Intent.ACTION_VIEW,
+            getString(R.string.rme_market_url).toUri(),
+        )
+        val webIntent = Intent(
+            Intent.ACTION_VIEW,
+            getString(R.string.rme_play_url).toUri(),
+        )
+        try {
+            startActivity(marketIntent)
+        } catch (_: ActivityNotFoundException) {
+            try {
+                startActivity(webIntent)
+            } catch (_: ActivityNotFoundException) {
+                // No compatible store or browser is installed. Keep local app state untouched.
+            }
+        }
+    }
+
+    private fun suggestFeature() {
+        val supportAddress = getString(R.string.rme_feature_email)
+        val subject = getString(R.string.rme_feature_subject)
+        val emailIntent = Intent(
+            Intent.ACTION_SENDTO,
+            "mailto:$supportAddress?subject=${Uri.encode(subject)}".toUri(),
+        )
+        try {
+            startActivity(emailIntent)
+        } catch (_: ActivityNotFoundException) {
+            val fallback = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_EMAIL, arrayOf(supportAddress))
+                putExtra(Intent.EXTRA_SUBJECT, subject)
+            }
+            try {
+                startActivity(Intent.createChooser(fallback, subject))
+            } catch (_: ActivityNotFoundException) {
+                // No email or share target is installed. Keep local app state untouched.
+            }
+        }
+    }
+
+    private fun shareRme() {
+        val message = getString(
+            R.string.rme_share_message,
+            getString(R.string.rme_play_url),
+        )
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, message)
+        }
+        try {
+            startActivity(
+                Intent.createChooser(
+                    shareIntent,
+                    getString(R.string.rme_share_chooser_title),
+                ),
+            )
+        } catch (_: ActivityNotFoundException) {
+            // No share target is installed. Keep local app state untouched.
         }
     }
 }

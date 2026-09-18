@@ -45,6 +45,7 @@ internal fun FilteredDocumentPreview(
     pageUri: Uri,
     pageNumber: Int,
     pageCount: Int,
+    modifier: Modifier = Modifier,
     minHeight: Dp = PageHarborLayout.documentPreviewMinHeight,
     maxHeight: Dp = PageHarborLayout.documentPreviewMaxHeight,
 ) {
@@ -60,7 +61,7 @@ internal fun FilteredDocumentPreview(
     )
     val description = stringResource(R.string.scan_preview_description, pageNumber, pageCount)
     Surface(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .heightIn(
                 min = minHeight,
