@@ -43,6 +43,7 @@ class LibraryRepository internal constructor(
     private val dao: LibraryDao = LibraryDatabase.get(context).libraryDao(),
     private val fileStore: LibraryFileStore = LibraryFileStore(context),
     private val nowMillis: () -> Long = System::currentTimeMillis,
+    private val operationGate: LibraryOperationGate = LibraryOperationCoordinator.gate,
 ) {
     constructor(context: Context) : this(
         context = context,
@@ -85,6 +86,15 @@ class LibraryRepository internal constructor(
         title: String,
         folderId: String? = session.libraryDocument?.folderId,
         ocrResult: OcrResult? = null,
+    ): LibraryResult<SavedLibraryDocument> = operationGate.withMutation {
+        saveSessionUnlocked(session, title, folderId, ocrResult)
+    }
+
+    private suspend fun saveSessionUnlocked(
+        session: DocumentSession,
+        title: String,
+        folderId: String?,
+        ocrResult: OcrResult?,
     ): LibraryResult<SavedLibraryDocument> {
         if (session.pages.isEmpty()) return LibraryResult.Failure(LibraryError.EMPTY_DOCUMENT)
         val normalizedTitle = normalizeLibraryTitle(title)
@@ -230,6 +240,10 @@ class LibraryRepository internal constructor(
     }
 
     suspend fun renameDocument(documentId: String, title: String): LibraryResult<Unit> {
+        return operationGate.withMutation { renameDocumentUnlocked(documentId, title) }
+    }
+
+    private suspend fun renameDocumentUnlocked(documentId: String, title: String): LibraryResult<Unit> {
         val normalized = normalizeLibraryTitle(title)
         if (normalized.isBlank()) return LibraryResult.Failure(LibraryError.TITLE_REQUIRED)
         return try {
@@ -246,6 +260,14 @@ class LibraryRepository internal constructor(
     }
 
     suspend fun indexOcr(
+        documentId: String,
+        pageIds: List<String?>,
+        result: OcrResult,
+    ): LibraryResult<Unit> = operationGate.withMutation {
+        indexOcrUnlocked(documentId, pageIds, result)
+    }
+
+    private suspend fun indexOcrUnlocked(
         documentId: String,
         pageIds: List<String?>,
         result: OcrResult,
@@ -285,6 +307,13 @@ class LibraryRepository internal constructor(
     suspend fun createFolder(
         name: String,
         parentFolderId: String? = null,
+    ): LibraryResult<LibraryFolder> = operationGate.withMutation {
+        createFolderUnlocked(name, parentFolderId)
+    }
+
+    private suspend fun createFolderUnlocked(
+        name: String,
+        parentFolderId: String?,
     ): LibraryResult<LibraryFolder> {
         val normalized = normalizeFolderName(name)
         if (normalized.isBlank()) return LibraryResult.Failure(LibraryError.TITLE_REQUIRED)
@@ -322,6 +351,10 @@ class LibraryRepository internal constructor(
     }
 
     suspend fun renameFolder(folderId: String, name: String): LibraryResult<Unit> {
+        return operationGate.withMutation { renameFolderUnlocked(folderId, name) }
+    }
+
+    private suspend fun renameFolderUnlocked(folderId: String, name: String): LibraryResult<Unit> {
         val normalized = normalizeFolderName(name)
         if (normalized.isBlank()) return LibraryResult.Failure(LibraryError.TITLE_REQUIRED)
         return try {
@@ -347,6 +380,13 @@ class LibraryRepository internal constructor(
     }
 
     suspend fun moveFolder(folderId: String, parentFolderId: String?): LibraryResult<Unit> {
+        return operationGate.withMutation { moveFolderUnlocked(folderId, parentFolderId) }
+    }
+
+    private suspend fun moveFolderUnlocked(
+        folderId: String,
+        parentFolderId: String?,
+    ): LibraryResult<Unit> {
         return try {
             val folder = dao.folder(folderId)
                 ?: return LibraryResult.Failure(LibraryError.FOLDER_NOT_FOUND)
@@ -377,7 +417,11 @@ class LibraryRepository internal constructor(
         }
     }
 
-    suspend fun deleteFolder(folderId: String): LibraryResult<Unit> = try {
+    suspend fun deleteFolder(folderId: String): LibraryResult<Unit> = operationGate.withMutation {
+        deleteFolderUnlocked(folderId)
+    }
+
+    private suspend fun deleteFolderUnlocked(folderId: String): LibraryResult<Unit> = try {
         if (dao.deleteFolder(folderId, nowMillis())) {
             LibraryResult.Success(Unit)
         } else {
@@ -390,6 +434,13 @@ class LibraryRepository internal constructor(
     }
 
     suspend fun moveDocument(documentId: String, folderId: String?): LibraryResult<Unit> {
+        return operationGate.withMutation { moveDocumentUnlocked(documentId, folderId) }
+    }
+
+    private suspend fun moveDocumentUnlocked(
+        documentId: String,
+        folderId: String?,
+    ): LibraryResult<Unit> {
         if (folderId != null && runDatabase { dao.folder(folderId) } == null) {
             return LibraryResult.Failure(LibraryError.FOLDER_NOT_FOUND)
         }
@@ -406,7 +457,11 @@ class LibraryRepository internal constructor(
         }
     }
 
-    suspend fun deleteDocument(documentId: String): LibraryResult<Unit> = try {
+    suspend fun deleteDocument(documentId: String): LibraryResult<Unit> = operationGate.withMutation {
+        deleteDocumentUnlocked(documentId)
+    }
+
+    private suspend fun deleteDocumentUnlocked(documentId: String): LibraryResult<Unit> = try {
         if (dao.deleteDocument(documentId) == null) {
             LibraryResult.Failure(LibraryError.DOCUMENT_NOT_FOUND)
         } else {
@@ -420,6 +475,13 @@ class LibraryRepository internal constructor(
     }
 
     suspend fun mergeDocuments(
+        documentIds: List<String>,
+        title: String,
+    ): LibraryResult<SavedLibraryDocument> = operationGate.withMutation {
+        mergeDocumentsUnlocked(documentIds, title)
+    }
+
+    private suspend fun mergeDocumentsUnlocked(
         documentIds: List<String>,
         title: String,
     ): LibraryResult<SavedLibraryDocument> {
@@ -441,6 +503,15 @@ class LibraryRepository internal constructor(
     }
 
     suspend fun extractPages(
+        documentId: String,
+        pageIds: Set<String>,
+        title: String,
+        removeFromOriginal: Boolean,
+    ): LibraryResult<SavedLibraryDocument> = operationGate.withMutation {
+        extractPagesUnlocked(documentId, pageIds, title, removeFromOriginal)
+    }
+
+    private suspend fun extractPagesUnlocked(
         documentId: String,
         pageIds: Set<String>,
         title: String,
@@ -607,7 +678,11 @@ class LibraryRepository internal constructor(
         )
     }
 
-    suspend fun cleanupDocumentRevisions(documentId: String) {
+    suspend fun cleanupDocumentRevisions(documentId: String) = operationGate.withMutation {
+        cleanupDocumentRevisionsUnlocked(documentId)
+    }
+
+    private suspend fun cleanupDocumentRevisionsUnlocked(documentId: String) {
         val pages = runDatabase { dao.pages(documentId) } ?: return
         val keepDirectory = pages.firstOrNull()?.relativePath
             ?.let(fileStore::resolve)
