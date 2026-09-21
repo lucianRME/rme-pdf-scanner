@@ -1,0 +1,29 @@
+{
+  "formatVersion": 1,
+  "minimumReaderVersion": 1,
+  "requiredFeatures": [],
+  "backupId": "00000000-0000-4000-8000-000000000015",
+  "createdAtEpochMillis": 1790035200000,
+  "producer": {
+    "applicationId": "org.synapseworks.pageharbor",
+    "versionName": "1.5.0",
+    "versionCode": 16
+  },
+  "summary": {
+    "folderCount": 2,
+    "documentCount": 1,
+    "pageCount": 21,
+    "sourceAssetCount": 1,
+    "contentByteLength": 14344
+  },
+  "metadata": {
+    "folders": "metadata/folders.jsonl",
+    "documents": "metadata/documents.jsonl",
+    "pages": "metadata/pages.jsonl",
+    "sourceAssets": "metadata/source-assets.jsonl"
+  },
+  "integrity": {
+    "algorithm": "SHA-256",
+    "checksumsEntry": "checksums.sha256"
+  }
+}

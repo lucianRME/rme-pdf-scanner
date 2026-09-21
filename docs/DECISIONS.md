@@ -236,3 +236,44 @@ analytics, advertising, telemetry, backend, or cloud-provider capability is adde
 Room schema version 1 is the first persistent-library schema, so upgrading from v1.3 requires no data
 migration. Its schema is exported and opened in instrumentation coverage; every later schema version
 must ship an explicit migration and migration test. Unsaved process-death recovery remains unsupported.
+
+## ADR-016: Portable, Versioned Library Backup And Recoverable Restore
+
+Decision:
+Define RME Backup as a logical, versioned library contract rather than a copy of Room or app-private
+paths. An unencrypted backup is an inspectable ZIP containing JSON metadata, original standard assets,
+editable page assets, and SHA-256 checksums. The public format preserves stable folder, document, and
+page identities, relationships, timestamps, page order, edits, and saved OCR state. Room row IDs, FTS
+rows, relative paths, thumbnails, caches, preferences, and other derived or device-local state are not
+part of the contract.
+
+The portable format is independent of current editor limits and can represent nested folders, source
+PDFs, and documents with more than 20 pages. Page assets and their metadata are authoritative for the
+current editable state; an optional source PDF is preserved as source provenance and recoverable user
+content. A reader must validate capabilities and report an incompatibility before mutation rather than
+silently truncate, flatten, or discard valid backup data.
+
+Backup and restore use user-selected Android Storage Access Framework locations and bounded streaming
+I/O. Restore authenticates and verifies the complete input in a private staging area, presents a
+preview, resolves conflicts explicitly, regenerates thumbnails and FTS, and performs one final
+transactional activation. A persistent operation journal makes interrupted staging removable and
+post-commit cleanup recoverable. The existing library remains authoritative until activation succeeds.
+
+Optional password encryption wraps the complete ordinary ZIP, including its manifest and checksums,
+in the separately versioned `RMEENC01` chunked authenticated-encryption envelope specified in
+[RME Backup Format Version 1](RME_BACKUP_FORMAT_V1.md). No title, folder name, OCR text, count, or other
+sensitive metadata appears outside the encrypted payload. The portable key derives only from the
+user's password, never from Android Keystore, so another device can restore the backup.
+
+Rationale:
+A schema dump would couple long-term recovery to Room internals and would be unsafe to merge or migrate.
+Standard assets plus documented JSON remain recoverable without RME, while explicit checksums and an
+authenticated encrypted envelope detect damage. Staging and one final activation prevent a cancelled,
+corrupt, unsupported, or incorrectly decrypted backup from changing the live library.
+
+Consequences:
+Writers must reopen the SAF output and complete verification before reporting success. Readers reject
+unsupported versions, duplicate or unsafe paths, missing or extra entries, invalid relationships,
+checksum mismatches, truncated encrypted streams, and trailing data. Backup operations must coordinate
+with library mutation or hold revision leases so cleanup cannot delete a page revision being streamed.
+Android automatic backup remains disabled; this explicit export is the only RME library-backup path.
