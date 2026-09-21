@@ -198,6 +198,7 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     implementation(libs.play.review)
+    implementation(libs.androidx.biometric)
     ksp(libs.androidx.room.compiler)
 
     testImplementation(libs.junit)

@@ -13,6 +13,7 @@ mlkitTextRecognition = "16.0.1"
 pdfboxAndroid = "2.0.27.0"
 room = "2.8.5"
 playReview = "2.0.2"
+biometric = "1.1.0"
 ksp = "2.2.20-2.0.4"
 
 [libraries]
@@ -38,6 +39,7 @@ androidx-room-runtime = { group = "androidx.room", name = "room-runtime", versio
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 play-review = { group = "com.google.android.play", name = "review", version.ref = "playReview" }
+androidx-biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
