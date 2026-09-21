@@ -133,22 +133,22 @@ The 64-byte header is:
 | 8 | 2 | envelope version `1` |
 | 10 | 2 | header length `64` |
 | 12 | 1 | KDF ID `1` = PBKDF2-HMAC-SHA256 |
-| 13 | 1 | AEAD ID `1` = AES-256-GCM |
-| 14 | 1 | nonce mode `1` |
-| 15 | 1 | flags `0` |
+| 13 | 1 | KDF semantic version `1` |
+| 14 | 1 | AEAD ID `1` = AES-256-GCM |
+| 15 | 1 | nonce mode `1` |
 | 16 | 4 | iteration count; v1 writers use at least `600000` |
 | 20 | 4 | data chunk size; v1 writers use `4194304` bytes |
 | 24 | 1 | salt length `16` |
 | 25 | 1 | nonce length `12` |
 | 26 | 1 | tag length `16` |
-| 27 | 1 | reserved `0` |
+| 27 | 1 | flags `0` |
 | 28 | 16 | random salt |
 | 44 | 12 | random base nonce |
 | 56 | 8 | reserved zero bytes |
 
-The KDF identifier and concrete iteration count are stored in every header. A reader enforces bounded
-parameters before KDF work or allocation. A future KDF such as Argon2id receives a new identifier and
-version without changing older semantics.
+The KDF identifier, KDF semantic version, and concrete iteration count are stored in every header. A
+reader enforces bounded parameters before KDF work or allocation. A future KDF such as Argon2id
+receives a new identifier and version without changing older semantics.
 
 The password is used exactly as entered without Unicode normalization. Encode it as UTF-8, then RFC
 4648 Base64 without padding, and pass those ASCII characters to `PBEKeySpec`. Derive a 256-bit key.
