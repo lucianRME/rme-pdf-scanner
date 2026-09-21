@@ -6,9 +6,6 @@ import androidx.core.content.FileProvider
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileNotFoundException
-import java.nio.ByteBuffer
-import java.nio.charset.StandardCharsets
-import java.security.MessageDigest
 import java.util.UUID
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
@@ -25,6 +22,8 @@ import org.synapseworks.pageharbor.document.session.LibraryDocumentReference
 import org.synapseworks.pageharbor.document.session.createLibraryDocumentResource
 import org.synapseworks.pageharbor.document.session.toAndroidUri
 import org.synapseworks.pageharbor.image.DocumentFilter
+import org.synapseworks.pageharbor.library.duplicate.DocumentFingerprintV1
+import org.synapseworks.pageharbor.library.duplicate.FingerprintPage
 import org.synapseworks.pageharbor.ocr.OcrResult
 
 data class SavedLibraryDocument(
@@ -652,7 +651,7 @@ class LibraryRepository internal constructor(
             thumbnailRelativePath = prepared.value.thumbnailRelativePath,
             ocrStatus = ocrStatusFor(pages.map { it.ocrText to it.ocrError }).name,
             libraryState = LibraryDocumentState.ACTIVE.name,
-            contentHashVersion = LIBRARY_CONTENT_HASH_VERSION,
+            contentHashVersion = DocumentFingerprintV1.VERSION,
             contentSha256 = logicalDocumentSha256(pages),
             contentByteCount = contentByteCount,
             sourceModifiedAtMillis = sourceAssetEntities.firstOrNull()?.sourceModifiedAtMillis,
@@ -783,27 +782,16 @@ private fun ocrStatusFor(values: List<Pair<String?, String?>>): LibraryOcrStatus
 }
 
 private fun logicalDocumentSha256(pages: List<LibraryPageEntity>): String {
-    val digest = MessageDigest.getInstance("SHA-256")
-    digest.update("RME-DOCUMENT-CONTENT\u0000$LIBRARY_CONTENT_HASH_VERSION\u0000".toByteArray())
-    digest.update(ByteBuffer.allocate(Int.SIZE_BYTES).putInt(pages.size).array())
-    pages.sortedBy(LibraryPageEntity::position).forEach { page ->
-        digest.update(ByteBuffer.allocate(Int.SIZE_BYTES).putInt(page.position).array())
-        digest.updateLengthPrefixed(page.contentType)
-        digest.updateLengthPrefixed(requireNotNull(page.contentSha256))
-        digest.update(ByteBuffer.allocate(Long.SIZE_BYTES).putLong(page.sourceByteCount ?: 0L).array())
-        digest.update(ByteBuffer.allocate(Int.SIZE_BYTES).putInt(page.rotationDegrees).array())
-        digest.updateLengthPrefixed(page.filterName)
-    }
-    return digest.digest().joinToString(separator = "") { byte ->
-        "%02x".format(byte.toInt() and 0xff)
-    }
+    return DocumentFingerprintV1.calculate(
+        pages.sortedBy(LibraryPageEntity::position).map { page ->
+            FingerprintPage(
+                assetSha256 = requireNotNull(page.contentSha256),
+                mimeType = page.contentType,
+                byteLength = requireNotNull(page.sourceByteCount),
+                rotationDegrees = page.rotationDegrees,
+                filterName = page.filterName,
+            )
+        },
+    ).sha256
 }
-
-private fun MessageDigest.updateLengthPrefixed(value: String) {
-    val bytes = value.toByteArray(StandardCharsets.UTF_8)
-    update(ByteBuffer.allocate(Int.SIZE_BYTES).putInt(bytes.size).array())
-    update(bytes)
-}
-
-private const val LIBRARY_CONTENT_HASH_VERSION = 1
 private const val ORIGINAL_DOCUMENT_ASSET_ROLE = "ORIGINAL_DOCUMENT"
