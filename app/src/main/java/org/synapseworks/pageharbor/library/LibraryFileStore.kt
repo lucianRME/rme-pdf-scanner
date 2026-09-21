@@ -8,6 +8,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
+import java.security.MessageDigest
 import java.util.UUID
 import kotlin.math.max
 import kotlinx.coroutines.CancellationException
@@ -18,6 +19,7 @@ import kotlinx.coroutines.withContext
 import org.synapseworks.pageharbor.document.session.DEFAULT_MAX_IMAGE_SOURCE_BYTES
 import org.synapseworks.pageharbor.document.session.DocumentImageMetadata
 import org.synapseworks.pageharbor.document.session.DocumentPageRotation
+import org.synapseworks.pageharbor.document.importing.MAX_PDF_IMPORT_BYTES
 import org.synapseworks.pageharbor.image.ArgbImage
 import org.synapseworks.pageharbor.image.DocumentFilter
 import org.synapseworks.pageharbor.image.DocumentImageFilterEngine
@@ -34,6 +36,14 @@ internal data class LibraryPageSource(
     val openStream: () -> InputStream,
 )
 
+internal data class LibrarySourceAssetSource(
+    val role: String,
+    val contentType: String,
+    val sourceModifiedAtMillis: Long?,
+    val matchesCurrentRevision: Boolean,
+    val openStream: () -> InputStream,
+)
+
 internal data class PreparedLibraryPage(
     val pageId: String,
     val position: Int,
@@ -45,11 +55,24 @@ internal data class PreparedLibraryPage(
     val filter: DocumentFilter,
     val ocrText: String?,
     val ocrError: String?,
+    val contentSha256: String,
+)
+
+internal data class PreparedLibrarySourceAsset(
+    val assetId: String,
+    val role: String,
+    val relativePath: String,
+    val contentType: String,
+    val byteCount: Long,
+    val sha256: String,
+    val sourceModifiedAtMillis: Long?,
+    val matchesCurrentRevision: Boolean,
 )
 
 internal data class PreparedLibraryRevision(
     val revisionDirectory: File,
     val pages: List<PreparedLibraryPage>,
+    val sourceAssets: List<PreparedLibrarySourceAsset>,
     val thumbnailRelativePath: String?,
     val warning: LibraryWarning?,
 )
@@ -62,6 +85,7 @@ internal class LibraryFileStore(
     suspend fun prepareRevision(
         documentId: String,
         sources: List<LibraryPageSource>,
+        sourceAssets: List<LibrarySourceAssetSource> = emptyList(),
     ): LibraryResult<PreparedLibraryRevision> = withContext(Dispatchers.IO) {
         if (!isSafeIdentifier(documentId) || sources.isEmpty()) {
             return@withContext LibraryResult.Failure(LibraryError.CORRUPTED_RECORD)
@@ -81,13 +105,19 @@ internal class LibraryFileStore(
                 val pageId = source.persistentId?.takeIf(::isSafeIdentifier)
                     ?: UUID.randomUUID().toString()
                 val destination = File(staging, "$pageId.${extensionFor(source.contentType)}")
-                when (copyBounded(source.openStream, destination)) {
-                    CopyOutcome.SUCCESS -> Unit
-                    CopyOutcome.SOURCE_TOO_LARGE -> {
+                val copied = when (
+                    val copy = copyBounded(
+                        openSource = source.openStream,
+                        destination = destination,
+                        maxBytes = DEFAULT_MAX_IMAGE_SOURCE_BYTES,
+                    )
+                ) {
+                    is CopyOutcome.Success -> copy
+                    CopyOutcome.SourceTooLarge -> {
                         staging.deleteRecursivelySafely(root)
                         return@withContext LibraryResult.Failure(LibraryError.SOURCE_TOO_LARGE)
                     }
-                    CopyOutcome.FAILED -> {
+                    CopyOutcome.Failed -> {
                         staging.deleteRecursivelySafely(root)
                         return@withContext LibraryResult.Failure(LibraryError.SOURCE_MISSING)
                     }
@@ -98,11 +128,45 @@ internal class LibraryFileStore(
                     relativePath = relativePath(destination),
                     contentType = source.contentType,
                     sourceCategory = source.sourceCategory,
-                    imageMetadata = source.imageMetadata.copy(sourceByteCount = destination.length()),
+                    imageMetadata = source.imageMetadata.copy(sourceByteCount = copied.byteCount),
                     rotation = source.rotation,
                     filter = source.filter,
                     ocrText = source.ocrText,
                     ocrError = source.ocrError,
+                    contentSha256 = copied.sha256,
+                )
+            }
+
+            val preparedSourceAssets = sourceAssets.map { source ->
+                currentCoroutineContext().ensureActive()
+                val assetId = UUID.randomUUID().toString()
+                val destination = File(staging, "source-$assetId.${sourceAssetExtension(source.contentType)}")
+                val copied = when (
+                    val copy = copyBounded(
+                        openSource = source.openStream,
+                        destination = destination,
+                        maxBytes = MAX_PDF_IMPORT_BYTES,
+                    )
+                ) {
+                    is CopyOutcome.Success -> copy
+                    CopyOutcome.SourceTooLarge -> {
+                        staging.deleteRecursivelySafely(root)
+                        return@withContext LibraryResult.Failure(LibraryError.SOURCE_TOO_LARGE)
+                    }
+                    CopyOutcome.Failed -> {
+                        staging.deleteRecursivelySafely(root)
+                        return@withContext LibraryResult.Failure(LibraryError.SOURCE_MISSING)
+                    }
+                }
+                PreparedLibrarySourceAsset(
+                    assetId = assetId,
+                    role = source.role,
+                    relativePath = relativePath(destination),
+                    contentType = source.contentType,
+                    byteCount = copied.byteCount,
+                    sha256 = copied.sha256,
+                    sourceModifiedAtMillis = source.sourceModifiedAtMillis,
+                    matchesCurrentRevision = source.matchesCurrentRevision,
                 )
             }
 
@@ -122,6 +186,11 @@ internal class LibraryFileStore(
                     relativePath = relativePath(File(completed, File(page.relativePath).name)),
                 )
             }
+            val completedSourceAssets = preparedSourceAssets.map { asset ->
+                asset.copy(
+                    relativePath = relativePath(File(completed, File(asset.relativePath).name)),
+                )
+            }
             val thumbnailPath = if (thumbnailCreated) {
                 relativePath(File(completed, THUMBNAIL_FILENAME))
             } else {
@@ -131,6 +200,7 @@ internal class LibraryFileStore(
                 PreparedLibraryRevision(
                     revisionDirectory = completed,
                     pages = completedPages,
+                    sourceAssets = completedSourceAssets,
                     thumbnailRelativePath = thumbnailPath,
                     warning = if (thumbnailCreated) null else LibraryWarning.THUMBNAIL_UNAVAILABLE,
                 ),
@@ -194,31 +264,38 @@ internal class LibraryFileStore(
     private suspend fun copyBounded(
         openSource: () -> InputStream,
         destination: File,
+        maxBytes: Long,
     ): CopyOutcome = try {
+        val digest = MessageDigest.getInstance("SHA-256")
+        var total = 0L
         openSource().use { source ->
             FileOutputStream(destination).use { output ->
                 val buffer = ByteArray(COPY_BUFFER_SIZE)
-                var total = 0L
                 while (true) {
                     currentCoroutineContext().ensureActive()
                     val count = source.read(buffer)
                     if (count < 0) break
                     total += count
-                    if (total > DEFAULT_MAX_IMAGE_SOURCE_BYTES) return CopyOutcome.SOURCE_TOO_LARGE
+                    if (total > maxBytes) return CopyOutcome.SourceTooLarge
                     output.write(buffer, 0, count)
+                    digest.update(buffer, 0, count)
                 }
                 output.flush()
             }
         }
-        if (destination.isFile && destination.length() > 0L) CopyOutcome.SUCCESS else CopyOutcome.FAILED
+        if (destination.isFile && destination.length() == total && total > 0L) {
+            CopyOutcome.Success(total, digest.digest().toHexString())
+        } else {
+            CopyOutcome.Failed
+        }
     } catch (error: CancellationException) {
         throw error
     } catch (_: IOException) {
-        CopyOutcome.FAILED
+        CopyOutcome.Failed
     } catch (_: SecurityException) {
-        CopyOutcome.FAILED
+        CopyOutcome.Failed
     } catch (_: IllegalArgumentException) {
-        CopyOutcome.FAILED
+        CopyOutcome.Failed
     }
 
     private fun createThumbnail(
@@ -310,10 +387,10 @@ internal class LibraryFileStore(
         }
     }
 
-    private enum class CopyOutcome {
-        SUCCESS,
-        SOURCE_TOO_LARGE,
-        FAILED,
+    private sealed interface CopyOutcome {
+        data class Success(val byteCount: Long, val sha256: String) : CopyOutcome
+        data object SourceTooLarge : CopyOutcome
+        data object Failed : CopyOutcome
     }
 
     companion object {
@@ -330,6 +407,15 @@ private fun extensionFor(contentType: String): String = when (contentType.lowerc
     "image/png" -> "png"
     "image/webp" -> "webp"
     else -> "jpg"
+}
+
+private fun sourceAssetExtension(contentType: String): String = when (contentType.lowercase()) {
+    "application/pdf" -> "pdf"
+    else -> "bin"
+}
+
+private fun ByteArray.toHexString(): String = joinToString(separator = "") { byte ->
+    "%02x".format(byte.toInt() and 0xff)
 }
 
 private fun isSafeIdentifier(value: String): Boolean =

@@ -2013,6 +2013,7 @@ internal fun libraryActionMessage(state: LibraryActionState): String? = when (st
             LibraryActionSuccess.DELETED -> R.string.library_deleted
             LibraryActionSuccess.FOLDER_CREATED -> R.string.library_folder_created
             LibraryActionSuccess.FOLDER_RENAMED -> R.string.library_folder_renamed
+            LibraryActionSuccess.FOLDER_MOVED -> R.string.library_moved
             LibraryActionSuccess.FOLDER_DELETED -> R.string.library_folder_deleted
             LibraryActionSuccess.MERGED -> R.string.library_merged
             LibraryActionSuccess.EXTRACTED -> R.string.library_extracted
@@ -2086,8 +2087,8 @@ private fun LibraryScreenPreview() {
             importUiState = DocumentImportUiState.Idle,
             showBuildDetails = false,
             buildTypeLabel = "release",
-            versionName = "1.4.0",
-            versionCode = 15,
+            versionName = "1.5.0",
+            versionCode = 16,
             gitRevision = "preview",
             showPrivacyInfo = false,
             showAbout = false,

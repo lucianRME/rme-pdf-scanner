@@ -9,6 +9,11 @@ enum class LibraryOcrStatus {
     FAILED,
 }
 
+enum class LibraryDocumentState {
+    ACTIVE,
+    PENDING,
+}
+
 enum class LibrarySortOrder {
     MODIFIED_DESC,
     CREATED_DESC,
@@ -24,6 +29,7 @@ data class LibraryFolder(
     val id: String,
     val name: String,
     val documentCount: Int = 0,
+    val parentFolderId: String? = null,
 )
 
 data class LibraryDocumentSummary(
@@ -53,6 +59,7 @@ data class LibraryPageRecord(
     val filterName: String,
     val ocrText: String?,
     val ocrError: String?,
+    val contentSha256: String? = null,
 )
 
 data class LibraryDocumentRecord(
