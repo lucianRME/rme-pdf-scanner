@@ -445,4 +445,111 @@ abstract class LibraryDao {
         deletePendingDocuments(operationId)
         deleteOperationRow(operationId)
     }
+
+    @Insert
+    protected abstract suspend fun insertRestorePages(entities: List<LibraryPageEntity>)
+
+    @Insert
+    protected abstract suspend fun insertRestoreSourceAssets(entities: List<LibrarySourceAssetEntity>)
+
+    @Update
+    protected abstract suspend fun updateOperationItemInternal(entity: LibraryDataOperationItemEntity)
+
+    @Query(
+        """
+        UPDATE library_data_operation_items
+        SET item_state = 'ACTIVE'
+        WHERE operation_id = :operationId AND item_state = 'PREPARED'
+        """,
+    )
+    protected abstract suspend fun activatePreparedRestoreItems(operationId: String)
+
+    @Transaction
+    open suspend fun insertRestoreOperation(
+        operation: LibraryDataOperationEntity,
+        items: List<LibraryDataOperationItemEntity>,
+    ) {
+        require(items.all { it.operationId == operation.operationId })
+        insertOperation(operation)
+        if (items.isNotEmpty()) insertOperationItems(items)
+    }
+
+    @Transaction
+    open suspend fun insertPendingRestoreDocument(
+        document: LibraryDocumentEntity,
+        pages: List<LibraryPageEntity>,
+        sourceAssets: List<LibrarySourceAssetEntity>,
+        updatedItem: LibraryDataOperationItemEntity,
+        updatedOperation: LibraryDataOperationEntity,
+    ) {
+        require(document.libraryState == LibraryDocumentState.PENDING.name)
+        val operationId = requireNotNull(document.pendingOperationId)
+        require(updatedOperation.operationId == operationId)
+        require(updatedItem.operationId == operationId)
+        require(updatedItem.targetDocumentId == document.documentId)
+        require(pages.isNotEmpty() && pages.all { it.documentId == document.documentId })
+        require(sourceAssets.all { it.documentId == document.documentId })
+        check(documentAnyState(document.documentId) == null)
+        insertDocument(document)
+        insertRestorePages(pages)
+        if (sourceAssets.isNotEmpty()) insertRestoreSourceAssets(sourceAssets)
+        updateOperationItemInternal(updatedItem)
+        updateOperation(updatedOperation)
+    }
+
+    @Transaction
+    open suspend fun activateRestoreOperation(
+        operationId: String,
+        folders: List<LibraryFolderEntity>,
+        assignments: List<LibraryRestoreDocumentActivation>,
+        completedOperation: LibraryDataOperationEntity,
+        modifiedAt: Long,
+    ) {
+        val storedOperation = requireNotNull(operation(operationId))
+        require(completedOperation.operationId == operationId)
+        require(completedOperation.phase == "COMPLETED")
+        require(storedOperation.phase !in setOf("COMPLETED", "CANCELLED", "FAILED"))
+        val pending = pendingDocuments(operationId)
+        val assignmentByDocument = assignments.associateBy(LibraryRestoreDocumentActivation::documentId)
+        require(assignmentByDocument.size == assignments.size)
+        require(assignmentByDocument.keys == pending.mapTo(linkedSetOf()) { it.documentId })
+
+        folders.forEach { folder ->
+            check(this.folder(folder.folderId) == null)
+            insertFolderInternal(folder)
+        }
+        pending.forEach { document ->
+            val pages = pagesAnyState(document.documentId)
+            check(pages.isNotEmpty() && pages.size == document.pageCount)
+            val assignment = requireNotNull(assignmentByDocument[document.documentId])
+            updateDocument(
+                document.copy(
+                    folderId = assignment.folderId,
+                    libraryState = LibraryDocumentState.ACTIVE.name,
+                    pendingOperationId = null,
+                ),
+            )
+            deleteSearch(document.rowId)
+            insertSearch(
+                LibraryDocumentSearchEntity(
+                    rowId = document.rowId,
+                    title = document.title,
+                    ocrText = pages.joinToString("\n\n") { it.ocrText.orEmpty() },
+                ),
+            )
+        }
+        activatePreparedRestoreItems(operationId)
+        if (pending.isNotEmpty() || folders.isNotEmpty()) bumpLibraryRevision(modifiedAt)
+        updateOperation(completedOperation)
+    }
+
+    @Transaction
+    open suspend fun discardPendingRestoreDocuments(operationId: String) {
+        deletePendingDocuments(operationId)
+    }
 }
+
+data class LibraryRestoreDocumentActivation(
+    val documentId: String,
+    val folderId: String?,
+)
