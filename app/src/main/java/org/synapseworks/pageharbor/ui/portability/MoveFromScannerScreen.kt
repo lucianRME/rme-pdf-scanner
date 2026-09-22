@@ -38,10 +38,8 @@ fun MoveFromScannerScreen(
         modifier = modifier,
     ) {
         PortabilityIntro(
-            title = "Choose where your documents come from",
-            supportingText = "RME imports standard files that you explicitly select. It does not " +
-                "access another app's private storage or account. Choosing an app changes the " +
-                "instructions only.",
+            title = "Choose your scanner",
+            supportingText = "Choose where your documents are coming from.",
         )
 
         ScannerSourceChooser(
@@ -49,14 +47,8 @@ fun MoveFromScannerScreen(
             onSourceSelected = onSourceSelected,
         )
 
-        PortabilitySection(title = "How to prepare files") {
+        PortabilitySection(title = "Next step") {
             InformationCallout(text = selectedSource.guidance)
-            Text(
-                text = "PDFs remain separate documents. Images are grouped only when RME can do so " +
-                    "safely; uncertain groups are shown for review before import.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
 
         PortabilityActions(
@@ -76,7 +68,7 @@ fun MoveFromScannerScreen(
         )
 
         Text(
-            text = "Android's system picker controls which files or folder RME can read.",
+            text = "Choose files or a folder to review before import.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

@@ -80,13 +80,19 @@ internal fun PortabilityScreen(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
-                    .widthIn(max = PageHarborLayout.expandedContentMaxWidth)
+                    .widthIn(max = PageHarborLayout.portabilityContentMaxWidth)
                     .verticalScroll(rememberScrollState())
                     .padding(
                         horizontal = horizontalPadding,
                         vertical = PageHarborLayout.compactScreenVerticalPadding,
                     ),
-                verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.large),
+                verticalArrangement = Arrangement.spacedBy(
+                    if (LocalDensity.current.fontScale >= 1.8f) {
+                        PageHarborSpacing.small
+                    } else {
+                        PageHarborSpacing.large
+                    },
+                ),
                 content = content,
             )
         }

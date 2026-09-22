@@ -63,12 +63,26 @@ fun BackupRestoreScreen(
     ) {
         BackupStatusCard(status = status)
 
-        PortabilitySection(title = "Portable backup") {
+        PortabilitySection(title = "RME backup") {
             Text(
-                text = "Create a complete RME backup in a location you choose through Android's " +
-                    "system picker. Every backup is reopened and verified before RME reports success.",
+                text = "Back up your complete RME library for later restore.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            PortabilityActions(
+                actions = listOf(
+                    PortabilityAction(
+                        label = "Back up now",
+                        onClick = onBackupNow,
+                        enabled = actionsEnabled && !backupInProgress && encryption.canCreateBackup,
+                        style = PortabilityActionStyle.PRIMARY,
+                    ),
+                    PortabilityAction(
+                        label = "Restore backup",
+                        onClick = onRestoreBackup,
+                        enabled = actionsEnabled && !backupInProgress,
+                    ),
+                ),
             )
             BackupEncryptionCard(
                 state = encryption,
@@ -79,31 +93,23 @@ fun BackupRestoreScreen(
             )
         }
 
-        PortabilityActions(
-            actions = listOf(
-                PortabilityAction(
-                    label = "Back up now",
-                    onClick = onBackupNow,
-                    enabled = actionsEnabled && !backupInProgress && encryption.canCreateBackup,
-                    style = PortabilityActionStyle.PRIMARY,
+        PortabilitySection(title = "Other options") {
+            PortabilityActions(
+                actions = listOf(
+                    PortabilityAction(
+                        label = "Export library",
+                        onClick = onExportLibrary,
+                        enabled = actionsEnabled && !backupInProgress,
+                        style = PortabilityActionStyle.OUTLINED,
+                    ),
                 ),
-                PortabilityAction(
-                    label = "Restore backup",
-                    onClick = onRestoreBackup,
-                    enabled = actionsEnabled && !backupInProgress,
-                ),
-                PortabilityAction(
-                    label = "Export library",
-                    onClick = onExportLibrary,
-                    enabled = actionsEnabled && !backupInProgress,
-                ),
-            ),
-        )
-
-        InformationCallout(
-            text = "Export library creates ordinary PDFs and folders for long-term access. An RME " +
-                "backup additionally preserves editable library structure for restoration in RME.",
-        )
+            )
+            Text(
+                text = "Save your documents as standard PDF files readable without RME.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
@@ -205,7 +211,7 @@ private fun BackupEncryptionCard(
                     style = MaterialTheme.typography.titleSmall,
                 )
                 Text(
-                    text = "Protect the complete backup, including document and folder metadata.",
+                    text = "Protect the complete backup with a password.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -265,8 +271,7 @@ private fun BackupEncryptionCard(
                 },
             )
             InformationCallout(
-                text = "RME never stores this password. To restore on another phone, you need the " +
-                    "backup file and this exact password. A forgotten password cannot be recovered.",
+                text = "Keep this password with the backup. It cannot be recovered if forgotten.",
             )
         }
     }

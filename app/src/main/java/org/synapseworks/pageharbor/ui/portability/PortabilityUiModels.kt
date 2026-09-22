@@ -7,24 +7,19 @@ enum class ScannerMigrationSource(
 ) {
     CAMSCANNER(
         displayName = "CamScanner",
-        guidance = "In CamScanner, select the documents, choose Share or Export, then choose RME " +
-            "from Android's share sheet. If that version only saves files, export them and use " +
-            "Select files here.",
+        guidance = "Export or share your PDFs/images from CamScanner, then select them here.",
     ),
     ADOBE_SCAN(
         displayName = "Adobe Scan / Acrobat",
-        guidance = "In Adobe Scan or Acrobat, choose Share or Send a copy, then choose RME from " +
-            "Android's share sheet. You can also save standard PDF or image files and select them here.",
+        guidance = "Export or share your PDFs/images from Adobe Scan or Acrobat, then select them here.",
     ),
     GENIUS_SCAN(
         displayName = "Genius Scan",
-        guidance = "In Genius Scan, export the selected documents as PDFs or images and choose RME " +
-            "from Android's share sheet. You can also save them and select them here.",
+        guidance = "Export or share your PDFs/images from Genius Scan, then select them here.",
     ),
     OTHER(
         displayName = "Other scanner",
-        guidance = "Use the scanner app's Share, Export, or Send a copy action and choose RME from " +
-            "Android's share sheet. If needed, save standard PDF or image files and select them here.",
+        guidance = "Export or share your PDFs/images from your scanner, then select them here.",
     ),
 }
 

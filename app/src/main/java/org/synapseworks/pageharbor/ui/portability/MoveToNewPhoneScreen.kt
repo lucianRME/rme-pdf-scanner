@@ -30,24 +30,19 @@ fun MoveToNewPhoneScreen(
         modifier = modifier,
     ) {
         PortabilityIntro(
-            title = "Your backup, your transfer method",
-            supportingText = "RME creates and restores the backup locally. It does not upload, store, " +
-                "or transport the file between phones.",
+            title = "Move your library safely",
+            supportingText = "Create a verified backup, then restore it on your new phone.",
         )
 
         InformationCallout(
-            text = "After the old phone verifies the backup, move that file with a storage or file " +
-                "provider you choose in Android's system picker. Choose a location you can also " +
-                "access from the new phone.",
+            text = "RME does not upload your documents or use an RME cloud service.",
         )
 
         DeviceStepsCard(
             title = "On your old phone",
             steps = listOf(
                 "Create an RME backup.",
-                "Optionally protect it with a password.",
-                "Wait for RME to reopen and verify the backup.",
-                "Save or copy the verified file using your chosen storage or file provider.",
+                "Save or copy the verified backup.",
             ),
         )
         PortabilityActions(
@@ -65,10 +60,7 @@ fun MoveToNewPhoneScreen(
             title = "On your new phone",
             steps = listOf(
                 "Install RME.",
-                "Choose Restore backup and select the transferred file.",
-                "Enter the backup password if you used one.",
-                "Let RME verify the complete backup.",
-                "Review the preview and duplicate choices, then restore.",
+                "Select the backup and choose Restore backup.",
             ),
         )
         PortabilityActions(
@@ -81,12 +73,6 @@ fun MoveToNewPhoneScreen(
             ),
         )
 
-        Text(
-            text = "Keep the old phone's library and verified backup until you have checked the " +
-                "restored documents on the new phone.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 
