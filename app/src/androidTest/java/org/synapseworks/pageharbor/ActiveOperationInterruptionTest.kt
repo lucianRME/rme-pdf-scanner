@@ -910,7 +910,9 @@ private class ControllableOperationGate {
     fun await() {
         reached.countDown()
         try {
-            check(released.await(10, TimeUnit.SECONDS)) { "Test gate release timed out" }
+            // The test controls release after ActivityScenario completes its lifecycle transition.
+            // A second fixed deadline here races that transition on slower API 36 devices.
+            released.await()
         } finally {
             exited.countDown()
         }
