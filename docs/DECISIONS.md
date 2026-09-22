@@ -277,3 +277,35 @@ unsupported versions, duplicate or unsafe paths, missing or extra entries, inval
 checksum mismatches, truncated encrypted streams, and trailing data. Backup operations must coordinate
 with library mutation or hold revision leases so cleanup cannot delete a page revision being streamed.
 Android automatic backup remains disabled; this explicit export is the only RME library-backup path.
+
+## ADR-017: V1.5 Library Portability, Foreground Execution, And Permission Gate
+
+Decision:
+Evolve the local library to Room schema version 2 with nested folders, durable source assets,
+versioned content hashes, a monotonic library revision, and an operation journal. The 20-page limit
+remains specific to the ML Kit interactive scanner; ordinary import and library-level migration use
+a high 10,000-page safety ceiling and never truncate or split a valid document silently. Imported
+PDFs saved to the library retain their original PDF source in addition to the current editable page
+assets.
+
+Run backup, restore, migration, and ordinary-library export through scheduler-independent streaming
+engines and configuration-retained ViewModels. Operations estimate storage before publication,
+publish only complete document or restore transactions, retain recovery journal state where needed,
+and stop cooperatively at safe boundaries. They remain foreground, user-initiated operations for
+v1.5 and do not claim process-death continuation.
+
+Rationale:
+This delivers safe local portability without adding a scheduler, notification channel, or a new
+scheduler-specific permission surface. On the target Android versions, promoting arbitrarily long
+WorkManager work to a
+foreground service would require a separate dependency and manifest review, including an appropriate
+foreground-service type/permission and notification behavior. That is a user-visible privacy and
+permission decision, not an implementation detail.
+
+Consequences:
+No WorkManager dependency, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_DATA_SYNC`,
+`POST_NOTIFICATIONS`, `INTERNET`, or `ACCESS_NETWORK_STATE` permission is added in v1.5. Moving the
+task away from the app, force-stopping it, or process death can interrupt active foreground work;
+atomic publication and journals prevent a partial document or restore from becoming visible, and the
+user can retry incomplete migration items. Persistent background execution remains deferred until a
+separate permission and lifecycle review explicitly approves it.

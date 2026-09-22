@@ -1,6 +1,6 @@
 # Dependency and License Audit
 
-Status: updated for `v1.4.0` preparation, 17 September 2026.
+Status: updated for `v1.5.0` preparation, 22 September 2026.
 
 ## Method
 
@@ -10,10 +10,24 @@ The release runtime graph was resolved with:
 ./gradlew :app:dependencies --configuration releaseRuntimeClasspath
 ```
 
-Direct declarations are AndroidX/Compose/Material, Room `2.8.5`, Google ML Kit Document Scanner
-`16.0.0`, Google ML Kit Text Recognition `16.0.1`, and PdfBox-Android `2.0.27.0`. KSP is a build-time
-processor used for Room code generation and is not packaged in the app. The inspection included POM
-metadata, the PdfBox Android AAR, and the minified release artifact.
+Direct runtime declarations in v1.5 are listed below; the resolved graph also includes the Kotlin
+standard library `2.2.20` supplied by the Kotlin Android plugin:
+
+- AndroidX Core KTX `1.17.0`, Lifecycle Runtime KTX `2.9.4`, and Activity Compose `1.11.0`.
+- Compose BOM `2025.09.01`, Compose UI/UI Graphics/UI Tooling Preview, Material 3, and the extended
+  Material icon set.
+- Google Play services ML Kit Document Scanner `16.0.0` and ML Kit Text Recognition `16.0.1`.
+- PdfBox-Android `2.0.27.0` for local PDF parsing and searchable-PDF generation.
+- Room Runtime/KTX `2.8.5`.
+- Google Play In-App Review `2.0.2`.
+- AndroidX Biometric `1.1.0`, added in v1.5 for optional strong-biometric app-lock prompts and
+  Keystore-backed authentication. It is Apache-2.0, does not provide RME with biometric templates,
+  and introduces no analytics, telemetry, cloud service, or network behavior.
+
+KSP `2.2.20-2.0.4`, Room Compiler `2.8.5`, AndroidX test libraries, and Compose test/tooling
+  artifacts are build- or test-time dependencies and are not packaged as runtime application
+  features. The inspection included POM metadata, the PdfBox Android AAR, the resolved
+  `releaseRuntimeClasspath`, and the minified release artifact.
 
 ## Results
 
@@ -21,6 +35,9 @@ metadata, the PdfBox Android AAR, and the minified release artifact.
   Apache-2.0-family dependencies.
 - Room runtime/KTX are AndroidX Apache-2.0 components. Room adds no network permission or cloud SDK;
   RME uses it only for the private on-device library and FTS index.
+- AndroidX Biometric is an Apache-2.0 AndroidX library. RME uses only its `BiometricPrompt` API and
+  a local Android Keystore-backed cryptographic proof for optional app lock; biometric enrollment
+  data remains in the operating system and is never read or stored by RME.
 - PdfBox-Android is Apache-2.0 and brings Bouncy Castle `1.72` transitively. Bouncy Castle's
   MIT-style notice is preserved in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
 - PdfBox-Android bundles Liberation Sans Regular `2.1.5`, licensed in its font metadata under SIL
