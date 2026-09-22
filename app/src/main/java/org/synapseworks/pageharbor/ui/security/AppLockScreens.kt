@@ -8,13 +8,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material3.AlertDialog
@@ -25,35 +22,29 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import org.synapseworks.pageharbor.R
 import org.synapseworks.pageharbor.security.AppLockAuthenticatedChangeResult
-import org.synapseworks.pageharbor.security.AppLockBiometricAvailability
+import org.synapseworks.pageharbor.security.AppLockAuthenticationAvailability
 import org.synapseworks.pageharbor.security.AppLockIssue
 import org.synapseworks.pageharbor.security.AppLockPhase
 import org.synapseworks.pageharbor.security.AppLockSetupResult
 import org.synapseworks.pageharbor.security.AppLockState
-import org.synapseworks.pageharbor.security.AppLockUnlockResult
 import org.synapseworks.pageharbor.security.AutoLockTimeout
 import org.synapseworks.pageharbor.ui.theme.PageHarborTheme
 
@@ -61,17 +52,13 @@ import org.synapseworks.pageharbor.ui.theme.PageHarborTheme
 @Composable
 fun AppLockScreen(
     state: AppLockState,
-    biometricAvailability: AppLockBiometricAvailability,
-    onUnlockWithPin: (CharArray) -> AppLockUnlockResult,
-    onUnlockWithBiometric: () -> Unit,
+    authenticationAvailability: AppLockAuthenticationAvailability,
+    onUnlock: () -> Unit,
+    onOpenDeviceSecuritySettings: () -> Unit,
     onExit: () -> Unit,
 ) {
     PageHarborTheme {
-        var pin by rememberSaveable { mutableStateOf("") }
         var localMessage by remember { mutableStateOf<Int?>(null) }
-        LaunchedEffect(state.phase) {
-            if (state.phase != AppLockPhase.LOCKED) pin = ""
-        }
         Scaffold { padding ->
             Column(
                 modifier = Modifier
@@ -99,17 +86,27 @@ fun AppLockScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(24.dp))
-                OutlinedTextField(
-                    modifier = Modifier.widthIn(max = 420.dp).fillMaxWidth(),
-                    value = pin,
-                    onValueChange = { pin = it.filter(Char::isDigit).take(MAX_PIN_LENGTH) },
-                    label = { Text(stringResource(R.string.app_lock_pin_label)) },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                    visualTransformation = PasswordVisualTransformation(),
-                )
-                appLockIssueMessage(state.issue, state.retryAfterMillis)?.let { message ->
-                    Spacer(Modifier.height(8.dp))
+                if (authenticationAvailability == AppLockAuthenticationAvailability.NO_SECURE_DEVICE_LOCK) {
+                    Text(
+                        text = stringResource(R.string.app_lock_no_device_lock_message),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedButton(onClick = onOpenDeviceSecuritySettings) {
+                        Text(stringResource(R.string.app_lock_open_device_security_settings))
+                    }
+                } else {
+                    Button(
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = authenticationAvailability ==
+                            AppLockAuthenticationAvailability.AVAILABLE,
+                        onClick = onUnlock,
+                    ) {
+                        Text(stringResource(R.string.app_lock_unlock_with_device))
+                    }
+                }
+                appLockIssueMessage(state.issue)?.let { message ->
+                    Spacer(Modifier.height(12.dp))
                     Text(
                         text = message,
                         color = MaterialTheme.colorScheme.error,
@@ -121,48 +118,7 @@ fun AppLockScreen(
                     Text(
                         text = stringResource(message),
                         color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodyMedium,
                     )
-                }
-                Spacer(Modifier.height(16.dp))
-                Button(
-                    modifier = Modifier.widthIn(max = 420.dp).fillMaxWidth(),
-                    enabled = pin.length >= MIN_PIN_LENGTH,
-                    onClick = {
-                        val characters = pin.toCharArray()
-                        val result = try {
-                            onUnlockWithPin(characters)
-                        } finally {
-                            characters.fill('\u0000')
-                            pin = ""
-                        }
-                        localMessage = when (result) {
-                            AppLockUnlockResult.ACCEPTED,
-                            AppLockUnlockResult.ALREADY_UNLOCKED,
-                            -> null
-                            AppLockUnlockResult.THROTTLED -> R.string.app_lock_error_throttled
-                            AppLockUnlockResult.REJECTED -> R.string.app_lock_error_incorrect
-                            else -> R.string.app_lock_error_unavailable
-                        }
-                    },
-                ) {
-                    Text(stringResource(R.string.app_lock_unlock_action))
-                }
-                if (
-                    state.config.biometricEnabled &&
-                    biometricAvailability == AppLockBiometricAvailability.AVAILABLE
-                ) {
-                    Spacer(Modifier.height(12.dp))
-                    OutlinedButton(
-                        modifier = Modifier.widthIn(max = 420.dp).fillMaxWidth(),
-                        onClick = onUnlockWithBiometric,
-                    ) {
-                        Icon(Icons.Default.Fingerprint, contentDescription = null)
-                        Text(
-                            modifier = Modifier.padding(start = 8.dp),
-                            text = stringResource(R.string.app_lock_biometric_unlock_action),
-                        )
-                    }
                 }
                 Spacer(Modifier.height(20.dp))
                 TextButton(onClick = onExit) {
@@ -177,17 +133,14 @@ fun AppLockScreen(
 @Composable
 fun AppLockSettingsScreen(
     state: AppLockState,
-    biometricAvailability: AppLockBiometricAvailability,
+    authenticationAvailability: AppLockAuthenticationAvailability,
     onBack: () -> Unit,
-    onSetup: (CharArray, CharArray, AutoLockTimeout) -> AppLockSetupResult,
-    onReplacePin: (CharArray, CharArray) -> AppLockAuthenticatedChangeResult,
+    onSetup: (AutoLockTimeout) -> AppLockSetupResult,
     onTimeoutChange: (AutoLockTimeout) -> AppLockAuthenticatedChangeResult,
-    onEnableBiometric: () -> AppLockAuthenticatedChangeResult,
-    onDisableBiometric: () -> AppLockAuthenticatedChangeResult,
     onDisable: () -> AppLockAuthenticatedChangeResult,
     onLockNow: () -> Unit,
+    onOpenDeviceSecuritySettings: () -> Unit,
 ) {
-    var pinDialog by remember { mutableStateOf<PinDialogMode?>(null) }
     var confirmDisable by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<Int?>(null) }
 
@@ -253,9 +206,32 @@ fun AppLockSettingsScreen(
             }
 
             if (!state.config.enabled) {
+                Text(stringResource(R.string.app_lock_device_auth_description))
+                if (authenticationAvailability == AppLockAuthenticationAvailability.NO_SECURE_DEVICE_LOCK) {
+                    Text(
+                        text = stringResource(R.string.app_lock_no_device_lock_message),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    OutlinedButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = onOpenDeviceSecuritySettings,
+                    ) {
+                        Text(stringResource(R.string.app_lock_open_device_security_settings))
+                    }
+                }
                 Button(
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = { pinDialog = PinDialogMode.Setup },
+                    enabled = authenticationAvailability ==
+                        AppLockAuthenticationAvailability.AVAILABLE,
+                    onClick = {
+                        message = when (onSetup(AutoLockTimeout.DEFAULT)) {
+                            is AppLockSetupResult.Success -> R.string.app_lock_updated
+                            AppLockSetupResult.DeviceAuthenticationUnavailable ->
+                                R.string.app_lock_no_device_lock_message
+                            AppLockSetupResult.StorageUnavailable ->
+                                R.string.app_lock_error_unavailable
+                        }
+                    },
                 ) {
                     Text(stringResource(R.string.app_lock_enable_action))
                 }
@@ -282,42 +258,7 @@ fun AppLockSettingsScreen(
                         Text(text = stringResource(timeout.labelResource()))
                     }
                 }
-
-                OutlinedButton(
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = biometricAvailability == AppLockBiometricAvailability.AVAILABLE ||
-                        state.config.biometricEnabled,
-                    onClick = {
-                        val result = if (state.config.biometricEnabled) {
-                            onDisableBiometric()
-                        } else {
-                            onEnableBiometric()
-                        }
-                        message = if (result == AppLockAuthenticatedChangeResult.APPLIED) {
-                            R.string.app_lock_updated
-                        } else {
-                            R.string.app_lock_biometric_unavailable
-                        }
-                    },
-                ) {
-                    Icon(Icons.Default.Fingerprint, contentDescription = null)
-                    Text(
-                        modifier = Modifier.padding(start = 8.dp),
-                        text = stringResource(
-                            if (state.config.biometricEnabled) {
-                                R.string.app_lock_disable_biometric_action
-                            } else {
-                                R.string.app_lock_enable_biometric_action
-                            },
-                        ),
-                    )
-                }
-                OutlinedButton(
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = { pinDialog = PinDialogMode.Replace },
-                ) {
-                    Text(stringResource(R.string.app_lock_change_pin_action))
-                }
+                Text(stringResource(R.string.app_lock_device_auth_description))
                 Button(modifier = Modifier.fillMaxWidth(), onClick = onLockNow) {
                     Text(stringResource(R.string.app_lock_lock_now_action))
                 }
@@ -329,31 +270,6 @@ fun AppLockSettingsScreen(
                 }
             }
         }
-    }
-
-    pinDialog?.let { mode ->
-        PinSetupDialog(
-            title = stringResource(
-                if (mode == PinDialogMode.Setup) {
-                    R.string.app_lock_create_pin_title
-                } else {
-                    R.string.app_lock_change_pin_action
-                },
-            ),
-            onDismiss = { pinDialog = null },
-            onSubmit = { pin, confirmation ->
-                val result = if (mode == PinDialogMode.Setup) {
-                    onSetup(pin, confirmation, AutoLockTimeout.DEFAULT) is AppLockSetupResult.Success
-                } else {
-                    onReplacePin(pin, confirmation) == AppLockAuthenticatedChangeResult.APPLIED
-                }
-                if (result) {
-                    pinDialog = null
-                    message = R.string.app_lock_updated
-                }
-                result
-            },
-        )
     }
 
     if (confirmDisable) {
@@ -381,89 +297,16 @@ fun AppLockSettingsScreen(
 }
 
 @Composable
-private fun PinSetupDialog(
-    title: String,
-    onDismiss: () -> Unit,
-    onSubmit: (CharArray, CharArray) -> Boolean,
-) {
-    var pin by remember { mutableStateOf("") }
-    var confirmation by remember { mutableStateOf("") }
-    var invalid by remember { mutableStateOf(false) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(stringResource(R.string.app_lock_setup_supporting))
-                OutlinedTextField(
-                    value = pin,
-                    onValueChange = { pin = it.filter(Char::isDigit).take(MAX_PIN_LENGTH) },
-                    label = { Text(stringResource(R.string.app_lock_new_pin_label)) },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                    visualTransformation = PasswordVisualTransformation(),
-                )
-                OutlinedTextField(
-                    value = confirmation,
-                    onValueChange = {
-                        confirmation = it.filter(Char::isDigit).take(MAX_PIN_LENGTH)
-                    },
-                    label = { Text(stringResource(R.string.app_lock_confirm_pin_label)) },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                    visualTransformation = PasswordVisualTransformation(),
-                    isError = invalid,
-                )
-                if (invalid) {
-                    Text(
-                        text = stringResource(R.string.app_lock_pin_requirements),
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = pin.length >= MIN_PIN_LENGTH && confirmation.length >= MIN_PIN_LENGTH,
-                onClick = {
-                    val pinCharacters = pin.toCharArray()
-                    val confirmationCharacters = confirmation.toCharArray()
-                    val accepted = try {
-                        onSubmit(pinCharacters, confirmationCharacters)
-                    } finally {
-                        pinCharacters.fill('\u0000')
-                        confirmationCharacters.fill('\u0000')
-                    }
-                    if (accepted) {
-                        pin = ""
-                        confirmation = ""
-                    } else {
-                        invalid = true
-                    }
-                },
-            ) { Text(stringResource(R.string.app_lock_save_action)) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.library_cancel)) }
-        },
-    )
-}
-
-@Composable
-private fun appLockIssueMessage(issue: AppLockIssue?, retryAfterMillis: Long): String? = when (issue) {
-    AppLockIssue.INCORRECT_PIN -> stringResource(R.string.app_lock_error_incorrect)
-    AppLockIssue.PIN_THROTTLED -> stringResource(
-        R.string.app_lock_error_throttled_seconds,
-        ((retryAfterMillis + 999L) / 1_000L).coerceAtLeast(1L),
-    )
-    AppLockIssue.BIOMETRIC_CANCELLED -> stringResource(R.string.app_lock_biometric_cancelled)
-    AppLockIssue.BIOMETRIC_FAILED -> stringResource(R.string.app_lock_biometric_failed)
-    AppLockIssue.BIOMETRIC_KEY_INVALIDATED ->
-        stringResource(R.string.app_lock_biometric_invalidated)
-    AppLockIssue.BIOMETRIC_UNAVAILABLE,
-    AppLockIssue.CREDENTIAL_UNAVAILABLE,
-    AppLockIssue.STORAGE_UNAVAILABLE,
-    -> stringResource(R.string.app_lock_error_unavailable)
+private fun appLockIssueMessage(issue: AppLockIssue?): String? = when (issue) {
+    AppLockIssue.AUTHENTICATION_CANCELLED ->
+        stringResource(R.string.app_lock_authentication_cancelled)
+    AppLockIssue.AUTHENTICATION_FAILED ->
+        stringResource(R.string.app_lock_authentication_failed)
+    AppLockIssue.AUTHENTICATION_UNAVAILABLE ->
+        stringResource(R.string.app_lock_error_unavailable)
+    AppLockIssue.NO_SECURE_DEVICE_LOCK ->
+        stringResource(R.string.app_lock_no_device_lock_message)
+    AppLockIssue.STORAGE_UNAVAILABLE -> stringResource(R.string.app_lock_error_unavailable)
     null -> null
 }
 
@@ -472,8 +315,3 @@ private fun AutoLockTimeout.labelResource(): Int = when (this) {
     AutoLockTimeout.ONE_MINUTE -> R.string.app_lock_timeout_one_minute
     AutoLockTimeout.FIVE_MINUTES -> R.string.app_lock_timeout_five_minutes
 }
-
-private enum class PinDialogMode { Setup, Replace }
-
-private const val MIN_PIN_LENGTH = 6
-private const val MAX_PIN_LENGTH = 32

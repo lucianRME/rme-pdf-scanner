@@ -20,9 +20,9 @@ standard library `2.2.20` supplied by the Kotlin Android plugin:
 - PdfBox-Android `2.0.27.0` for local PDF parsing and searchable-PDF generation.
 - Room Runtime/KTX `2.8.5`.
 - Google Play In-App Review `2.0.2`.
-- AndroidX Biometric `1.1.0`, added in v1.5 for optional strong-biometric app-lock prompts and
-  Keystore-backed authentication. It is Apache-2.0, does not provide RME with biometric templates,
-  and introduces no analytics, telemetry, cloud service, or network behavior.
+- AndroidX Biometric `1.1.0`, added in v1.5 for Android system-authentication app-lock prompts. It
+  is Apache-2.0, does not provide RME with biometric templates, and introduces no analytics,
+  telemetry, cloud service, or network behavior.
 
 KSP `2.2.20-2.0.4`, Room Compiler `2.8.5`, AndroidX test libraries, and Compose test/tooling
   artifacts are build- or test-time dependencies and are not packaged as runtime application
@@ -35,9 +35,9 @@ KSP `2.2.20-2.0.4`, Room Compiler `2.8.5`, AndroidX test libraries, and Compose 
   Apache-2.0-family dependencies.
 - Room runtime/KTX are AndroidX Apache-2.0 components. Room adds no network permission or cloud SDK;
   RME uses it only for the private on-device library and FTS index.
-- AndroidX Biometric is an Apache-2.0 AndroidX library. RME uses only its `BiometricPrompt` API and
-  a local Android Keystore-backed cryptographic proof for optional app lock; biometric enrollment
-  data remains in the operating system and is never read or stored by RME.
+- AndroidX Biometric is an Apache-2.0 AndroidX library. RME uses only its `BiometricPrompt` API;
+  device credentials and biometric enrollment remain owned by Android, with no RME PIN or app-lock
+  verifier stored locally.
 - PdfBox-Android is Apache-2.0 and brings Bouncy Castle `1.72` transitively. Bouncy Castle's
   MIT-style notice is preserved in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
 - PdfBox-Android bundles Liberation Sans Regular `2.1.5`, licensed in its font metadata under SIL

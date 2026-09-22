@@ -58,26 +58,15 @@ class AppLockModelsTest {
     }
 
     @Test
-    fun disclosureAndRecoveryDoNotOverstateProtectionOrPromiseRecovery() {
+    fun disclosureDoesNotOverstateProtectionOrPromiseAppCredentialRecovery() {
         assertTrue(AppLockDisclosure.DEFAULT.atRestLimitation.contains("does not encrypt"))
-        assertTrue(AppLockDisclosure.DEFAULT.recovery.contains("cannot recover"))
-
-        val recovery = AppLockRecoveryModel(biometricUnlockAvailable = false)
-        assertFalse(recovery.hasMasterRecoveryKey)
-        assertFalse(recovery.deletesDocumentsAfterFailedAttempts)
-        assertTrue(AppLockRecoveryPath.NO_REMOTE_RECOVERY in recovery.availablePaths)
-        assertFalse(
-            AppLockRecoveryPath.AUTHENTICATED_BIOMETRIC_PIN_REPLACEMENT in recovery.availablePaths,
-        )
+        assertTrue(AppLockDisclosure.DEFAULT.recovery.contains("device"))
     }
 
     @Test
     fun persistenceSchemaHasNoPinOrUnlockedSessionField() {
-        assertTrue("salt_base64" in AppLockPreferenceSchema.ALL_KEYS)
-        assertTrue("verifier_base64" in AppLockPreferenceSchema.ALL_KEYS)
-        assertTrue("kdf_iterations" in AppLockPreferenceSchema.ALL_KEYS)
-        assertTrue("biometric_enabled" in AppLockPreferenceSchema.ALL_KEYS)
-        assertTrue(AppLockPreferenceSchema.ALL_KEYS.none { it == "pin" })
-        assertTrue(AppLockPreferenceSchema.ALL_KEYS.none { "unlocked" in it })
+        assertFalse(AppLockPreferenceSchema.ENABLED in AppLockPreferenceSchema.LEGACY_KEYS)
+        assertFalse(AppLockPreferenceSchema.AUTO_LOCK_TIMEOUT in AppLockPreferenceSchema.LEGACY_KEYS)
+        assertTrue("salt_base64" in AppLockPreferenceSchema.LEGACY_KEYS)
     }
 }

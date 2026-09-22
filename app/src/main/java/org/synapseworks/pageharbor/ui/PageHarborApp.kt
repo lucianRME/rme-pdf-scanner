@@ -35,7 +35,7 @@ import org.synapseworks.pageharbor.ocr.OcrUiState
 import org.synapseworks.pageharbor.library.LibrarySortOrder
 import org.synapseworks.pageharbor.library.LibraryUiState
 import org.synapseworks.pageharbor.security.AppLockAuthenticatedChangeResult
-import org.synapseworks.pageharbor.security.AppLockBiometricAvailability
+import org.synapseworks.pageharbor.security.AppLockAuthenticationAvailability
 import org.synapseworks.pageharbor.security.AppLockSetupResult
 import org.synapseworks.pageharbor.security.AppLockState
 import org.synapseworks.pageharbor.security.AutoLockTimeout
@@ -111,21 +111,16 @@ fun PageHarborApp(
     onSuggestFeature: () -> Unit = {},
     onShareRme: () -> Unit = {},
     appLockState: AppLockState? = null,
-    appLockBiometricAvailability: AppLockBiometricAvailability =
-        AppLockBiometricAvailability.UNSUPPORTED,
-    onSetupAppLock: (CharArray, CharArray, AutoLockTimeout) -> AppLockSetupResult =
-        { _, _, _ -> AppLockSetupResult.StorageUnavailable },
-    onReplaceAppLockPin: (CharArray, CharArray) -> AppLockAuthenticatedChangeResult =
-        { _, _ -> AppLockAuthenticatedChangeResult.STORAGE_UNAVAILABLE },
+    appLockAuthenticationAvailability: AppLockAuthenticationAvailability =
+        AppLockAuthenticationAvailability.UNSUPPORTED,
+    onSetupAppLock: (AutoLockTimeout) -> AppLockSetupResult =
+        { AppLockSetupResult.StorageUnavailable },
     onAppLockTimeoutChange: (AutoLockTimeout) -> AppLockAuthenticatedChangeResult =
-        { AppLockAuthenticatedChangeResult.STORAGE_UNAVAILABLE },
-    onEnableAppLockBiometric: () -> AppLockAuthenticatedChangeResult =
-        { AppLockAuthenticatedChangeResult.BIOMETRIC_UNAVAILABLE },
-    onDisableAppLockBiometric: () -> AppLockAuthenticatedChangeResult =
         { AppLockAuthenticatedChangeResult.STORAGE_UNAVAILABLE },
     onDisableAppLock: () -> AppLockAuthenticatedChangeResult =
         { AppLockAuthenticatedChangeResult.STORAGE_UNAVAILABLE },
     onLockAppNow: () -> Unit = {},
+    onOpenDeviceSecuritySettings: () -> Unit = {},
     portabilityState: PortabilityWorkflowState = PortabilityWorkflowState.Hidden,
     portabilityCallbacks: PortabilityCallbacks = PortabilityCallbacks(),
     onReviewUiBusyChanged: (Boolean) -> Unit = {},
@@ -363,18 +358,16 @@ fun PageHarborApp(
         )
         showAppLockSettings && appLockState != null -> AppLockSettingsScreen(
             state = appLockState,
-            biometricAvailability = appLockBiometricAvailability,
+            authenticationAvailability = appLockAuthenticationAvailability,
             onBack = { showAppLockSettings = false },
             onSetup = onSetupAppLock,
-            onReplacePin = onReplaceAppLockPin,
             onTimeoutChange = onAppLockTimeoutChange,
-            onEnableBiometric = onEnableAppLockBiometric,
-            onDisableBiometric = onDisableAppLockBiometric,
             onDisable = onDisableAppLock,
             onLockNow = {
                 showAppLockSettings = false
                 onLockAppNow()
             },
+            onOpenDeviceSecuritySettings = onOpenDeviceSecuritySettings,
         )
         currentScreen == PageHarborScreen.OcrResult && ocrUiState is OcrUiState.Success -> {
             OcrResultScreen(

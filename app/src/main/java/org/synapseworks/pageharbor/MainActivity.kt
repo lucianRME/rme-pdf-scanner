@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
+import android.provider.Settings
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -135,9 +136,9 @@ import org.synapseworks.pageharbor.review.ReviewAttemptRunner
 import org.synapseworks.pageharbor.review.ReviewEligibilityViewModel
 import org.synapseworks.pageharbor.review.ReviewMilestone
 import org.synapseworks.pageharbor.review.ReviewMilestoneOutcome
-import org.synapseworks.pageharbor.security.AndroidXAppLockBiometricController
+import org.synapseworks.pageharbor.security.AndroidXAppLockAuthenticationController
 import org.synapseworks.pageharbor.security.AppLockAccessDecision
-import org.synapseworks.pageharbor.security.AppLockBiometricAvailability
+import org.synapseworks.pageharbor.security.AppLockAuthenticationAvailability
 import org.synapseworks.pageharbor.security.AppLockPhase
 import org.synapseworks.pageharbor.security.AppLockProtectedEntryPoint
 import org.synapseworks.pageharbor.security.AppLockViewModel
@@ -180,11 +181,10 @@ class MainActivity : FragmentActivity() {
     private val backupReminder: BackupReminderViewModel by viewModels()
     private val protectedActions: ProtectedActionQueueViewModel by viewModels()
     private val playReviewLauncher by lazy { GooglePlayReviewLauncher() }
-    private val appLockBiometricController by lazy {
-        AndroidXAppLockBiometricController(
+    private val appLockAuthenticationController by lazy {
+        AndroidXAppLockAuthenticationController(
             activity = this,
             promptTitle = getString(R.string.app_lock_locked_title),
-            pinFallbackLabel = getString(R.string.app_lock_pin_label),
         )
     }
     private var portabilityRoute by mutableStateOf(PortabilityRoute.NONE)
@@ -506,11 +506,11 @@ class MainActivity : FragmentActivity() {
             if (appLockState.phase == AppLockPhase.LOCKED) {
                 AppLockScreen(
                     state = appLockState,
-                    biometricAvailability = appLockBiometricController.availability(),
-                    onUnlockWithPin = appLock::unlockWithPin,
-                    onUnlockWithBiometric = {
-                        appLock.authenticateWithBiometric(appLockBiometricController)
+                    authenticationAvailability = appLockAuthenticationController.availability(),
+                    onUnlock = {
+                        appLock.authenticate(appLockAuthenticationController)
                     },
+                    onOpenDeviceSecuritySettings = ::openDeviceSecuritySettings,
                     onExit = ::finish,
                 )
             } else {
@@ -584,16 +584,14 @@ class MainActivity : FragmentActivity() {
                     onSuggestFeature = ::suggestFeature,
                     onShareRme = ::shareRme,
                     appLockState = appLockState,
-                    appLockBiometricAvailability = appLockBiometricController.availability(),
-                    onSetupAppLock = appLock::setup,
-                    onReplaceAppLockPin = appLock::replacePinAfterAuthentication,
-                    onAppLockTimeoutChange = appLock::setAutoLockTimeoutAfterAuthentication,
-                    onEnableAppLockBiometric = {
-                        appLock.enableBiometricAfterAuthentication(appLockBiometricController)
+                    appLockAuthenticationAvailability = appLockAuthenticationController.availability(),
+                    onSetupAppLock = { timeout ->
+                        appLock.setup(timeout, appLockAuthenticationController.availability())
                     },
-                    onDisableAppLockBiometric = appLock::disableBiometricAfterAuthentication,
+                    onAppLockTimeoutChange = appLock::setAutoLockTimeoutAfterAuthentication,
                     onDisableAppLock = appLock::disableAfterAuthentication,
                     onLockAppNow = appLock::lockNow,
+                    onOpenDeviceSecuritySettings = ::openDeviceSecuritySettings,
                     portabilityState = portabilityUiState,
                     portabilityCallbacks = portabilityCallbacks(),
                     onReviewUiBusyChanged = { composeUiBusy = it },
@@ -644,7 +642,7 @@ class MainActivity : FragmentActivity() {
     }
 
     override fun onStop() {
-        appLockBiometricController.cancel()
+        appLockAuthenticationController.cancel()
         appLock.onAppBackgrounded(SystemClock.elapsedRealtime())
         super.onStop()
     }
@@ -1472,6 +1470,10 @@ class MainActivity : FragmentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleInboundIntent(intent)
+    }
+
+    private fun openDeviceSecuritySettings() {
+        startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS))
     }
 
     private fun runWhenUnlocked(

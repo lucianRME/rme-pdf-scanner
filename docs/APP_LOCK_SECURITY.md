@@ -1,75 +1,48 @@
 # App Lock Security
 
 Status: v1.5 implementation reference. App lock is an optional, device-local access control for
-the RME app interface. It is not a replacement for encrypted storage or a portable-backup
-password.
+RME: PDF & Document Scanner.
+
+## Device authentication
+
+- RME uses AndroidX `BiometricPrompt` with `BIOMETRIC_STRONG | DEVICE_CREDENTIAL` where the
+  platform supports the combined authenticator set.
+- On older supported Android releases, RME uses the supported system device-credential prompt.
+- The system can authenticate with a strong biometric, device PIN, pattern, or password.
+- RME does not create, request, store, verify, throttle, or recover a separate RME PIN.
+- Device credentials and biometric templates remain managed by Android; RME never reads or stores
+  biometric templates.
+- If no secure device lock is configured, RME does not enable app lock silently. It explains the
+  requirement and offers a path to Android security settings.
+- Cancellation, failed authentication, unavailable authentication, and stale callbacks leave RME
+  locked.
 
 ## What app lock protects
 
 When enabled, app lock protects access through the RME app interface. On a cold process start,
-RME composes only the lock screen until the user authenticates. Protected activity results,
-deep-link-like entry points, and inbound shares are held until the lock is cleared; they are not
-delivered to document UI while the app is locked.
+protected content remains locked until Android reports successful device authentication. Inbound
+shares, deep-link-like intents, Activity results, picker results, and queued protected actions are
+held until unlock; they are not previewed or dispatched behind an overlay.
 
-App lock does **not** encrypt the local RME document library at rest. Files in the local library
-remain protected by Android's device storage security, not by the RME app-lock PIN. RME cannot
-recover a lost PIN, and there is no SynapseWorks account, remote recovery service, master PIN, or
-master recovery key. A user who loses every configured authentication path may be unable to open
-the app interface; app lock does not delete documents after failed attempts.
+App lock does **not** encrypt the local RME document library at rest. Local files remain protected
+by Android device storage security. App lock is UI access control, not a portable encryption key.
 
-## PIN credential
+## Auto-lock
 
-- PINs contain at least six digits.
-- RME never stores the PIN characters or a plaintext PIN.
-- Enrollment derives a 32-byte value with PBKDF2-HMAC-SHA256 using a random salt and 310,000
-  iterations.
-- The verifier is protected with a non-exportable HMAC-SHA256 pepper held in Android Keystore.
-- Failed attempts use persisted retry throttling. Throttling state survives process restarts.
-- PIN replacement and app-lock settings changes require an authenticated process-local session.
+The available choices are immediately, one minute, and five minutes. The default is one minute.
+Elapsed-realtime timestamps are used for timeout decisions. Moving the app to the background
+cancels an active system-authentication attempt, and a stale callback cannot unlock a newer
+session.
 
-PIN characters and transient password input are cleared on the best-effort paths provided by the
-implementation. No PIN, document content, OCR text, or unlocked-session proof is written to the
-app-lock preferences.
+## Portable backup encryption is separate
 
-## Biometric unlock
+Encrypted portable backups continue to use a user-defined **backup password**. That password:
 
-RME uses AndroidX `BiometricPrompt` with `BIOMETRIC_STRONG` only. RME never reads, stores, or
-transmits biometric templates. Android owns biometric enrollment and matching.
+- remains required for encrypted portable backups;
+- is independent of Android device credentials and app lock;
+- works when restoring on another phone; and
+- is never replaced by, derived from, or used as the device PIN/pattern/password.
 
-The biometric path uses a device-local, non-exportable Android Keystore AES key to bind the prompt
-to a cryptographic proof. Biometric cancellation or failure leaves the app locked. If the Keystore
-key is invalidated, RME disables biometric unlock and leaves PIN unlock available; it does not
-silently enroll a replacement key during unlock. A replacement biometric key requires an
-authenticated PIN session.
-
-## Auto-lock and lifecycle
-
-The user can choose:
-
-- immediately when the app backgrounds;
-- after one minute (the default); or
-- after five minutes.
-
-The timer uses Android elapsed-realtime values. A cold process start is locked whenever app lock is
-enabled. Moving the app to the background cancels an active biometric attempt, and a stale prompt
-callback cannot unlock a newer session. The user can also lock the app immediately from settings.
-
-## Protected entry points
-
-RME gates normal app content, activity-result callbacks, inbound `ACTION_SEND`/`ACTION_SEND_MULTIPLE`
-shares, and protected navigation work. A locked inbound share is queued in memory and is processed
-only after successful unlock; it does not preview or import content behind a fake overlay. Picker
-results are likewise held until the app is unlocked.
-
-## Portable backups
-
-App lock and portable-backup encryption solve different problems:
-
-- App lock protects access through this app on this device and does not encrypt local files at rest.
-- An encrypted RME portable backup encrypts the complete backup ZIP, including titles, folder names,
-  OCR text, metadata, and checksums, with the user-supplied backup password.
-- The backup password is independent of the app-lock PIN and is not derived from Android Keystore
-  material, so an encrypted backup can be restored on another device.
-
-Keep a verified encrypted backup and its password separately from the locked device. RME provides
-no remote PIN recovery.
+Backup encryption protects the portable backup artifact. App lock protects UI access on the current
+device. Neither feature introduces an RME account, remote recovery service, master credential,
+analytics, telemetry, or network transport.

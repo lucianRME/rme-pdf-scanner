@@ -12,7 +12,6 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
-import java.security.KeyStore
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -43,28 +42,16 @@ class ProtectedActionQueueInstrumentedTest {
     private val fixture = File(fixtureRoot, "$SENSITIVE_VALUE_SENTINEL.pdf")
 
     private lateinit var originalPersistentState: AppLockPersistentState
-    private var originalPepperKeyExisted = false
 
     @Before
     fun installIsolatedLockedState() {
         originalPersistentState = stateStore.read()
-        originalPepperKeyExisted = androidKeyStore().containsAlias(
-            AndroidKeystoreAppLockPepper.DEFAULT_ALIAS,
-        )
-
-        val pin = TEST_PIN.toCharArray()
-        val credential = try {
-            PinVerifier(AndroidKeystoreAppLockPepper()).createCredential(pin)
-        } finally {
-            pin.fill('\u0000')
-        }
         stateStore.write(
             AppLockPersistentState(
                 config = AppLockConfig(
                     enabled = true,
                     autoLockTimeout = AutoLockTimeout.FIVE_MINUTES,
                 ),
-                credential = credential,
             ),
         )
         fixtureRoot.mkdirs()
@@ -75,9 +62,6 @@ class ProtectedActionQueueInstrumentedTest {
     fun restorePersistentState() {
         fixture.delete()
         stateStore.write(originalPersistentState)
-        if (!originalPepperKeyExisted && originalPersistentState.credential == null) {
-            androidKeyStore().deleteEntry(AndroidKeystoreAppLockPepper.DEFAULT_ALIAS)
-        }
     }
 
     @Test
@@ -324,12 +308,15 @@ class ProtectedActionQueueInstrumentedTest {
     }
 
     private fun unlock(activity: MainActivity) {
-        val pin = TEST_PIN.toCharArray()
-        try {
-            assertEquals(AppLockUnlockResult.ACCEPTED, appLock(activity).unlockWithPin(pin))
-        } finally {
-            pin.fill('\u0000')
-        }
+        val attempt = checkNotNull(
+            appLock(activity).beginAuthentication(AppLockAuthenticationAvailability.AVAILABLE),
+        )
+        assertTrue(
+            appLock(activity).onAuthenticationResult(
+                attempt.id,
+                AppLockAuthenticationResult.Success,
+            ),
+        )
     }
 
     private fun awaitScenario(
@@ -382,12 +369,7 @@ class ProtectedActionQueueInstrumentedTest {
             .use { reader -> reader.readText() }
     }
 
-    private fun androidKeyStore(): KeyStore = KeyStore.getInstance("AndroidKeyStore").apply {
-        load(null)
-    }
-
     private companion object {
-        const val TEST_PIN = "593104"
         const val SENSITIVE_VALUE_SENTINEL = "DO_NOT_LOG_PROTECTED_PAYLOAD_7C19"
         const val LOG_TAG = "RmeProtectedQueueTest"
         const val LOG_FLUSH_MILLIS = 200L

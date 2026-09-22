@@ -7,13 +7,10 @@ enum class AppLockPhase {
 }
 
 enum class AppLockIssue {
-    INCORRECT_PIN,
-    PIN_THROTTLED,
-    CREDENTIAL_UNAVAILABLE,
-    BIOMETRIC_CANCELLED,
-    BIOMETRIC_FAILED,
-    BIOMETRIC_UNAVAILABLE,
-    BIOMETRIC_KEY_INVALIDATED,
+    AUTHENTICATION_CANCELLED,
+    AUTHENTICATION_FAILED,
+    AUTHENTICATION_UNAVAILABLE,
+    NO_SECURE_DEVICE_LOCK,
     STORAGE_UNAVAILABLE,
 }
 
@@ -21,9 +18,8 @@ data class AppLockState(
     val phase: AppLockPhase,
     val config: AppLockConfig,
     val issue: AppLockIssue? = null,
-    val retryAfterMillis: Long = 0L,
-    val activeBiometricAttempt: AppLockBiometricAttemptId? = null,
-    /** Process-local proof that PIN replacement and settings changes are authenticated. */
+    val activeAuthenticationAttempt: AppLockAuthenticationAttemptId? = null,
+    /** Process-local proof that settings changes were made from an authenticated session. */
     val hasAuthenticatedSession: Boolean = false,
 ) {
     val shouldComposeProtectedContent: Boolean
@@ -49,10 +45,7 @@ data class AppLockAccessGate(
 
 sealed interface AppLockSetupResult {
     data class Success(val state: AppLockState) : AppLockSetupResult
-    data class InvalidPin(val reason: PinValidationResult) : AppLockSetupResult
-    data object ConfirmationMismatch : AppLockSetupResult
-    data object AuthenticationRequired : AppLockSetupResult
-    data object CredentialUnavailable : AppLockSetupResult
+    data object DeviceAuthenticationUnavailable : AppLockSetupResult
     data object StorageUnavailable : AppLockSetupResult
 }
 
@@ -60,85 +53,65 @@ enum class AppLockUnlockResult {
     ACCEPTED,
     ALREADY_UNLOCKED,
     NOT_CONFIGURED,
-    REJECTED,
-    THROTTLED,
-    CREDENTIAL_UNAVAILABLE,
+    CANCELLED,
+    FAILED,
+    AUTHENTICATION_UNAVAILABLE,
     STORAGE_UNAVAILABLE,
 }
 
 enum class AppLockAuthenticatedChangeResult {
     APPLIED,
     AUTHENTICATION_REQUIRED,
-    INVALID_PIN,
-    CONFIRMATION_MISMATCH,
-    CREDENTIAL_UNAVAILABLE,
-    BIOMETRIC_UNAVAILABLE,
+    DEVICE_AUTHENTICATION_UNAVAILABLE,
     STORAGE_UNAVAILABLE,
 }
 
-/**
- * Pure process-local app-lock state machine. It never stores PIN characters, document metadata, or
- * pending deep-link/share/result payloads. Android callers own those payloads and must consult
- * [gate] before delivering them to protected content.
- */
+/** Pure process-local state machine. Device authentication is performed only by AndroidX. */
 class AppLockRuntimeController(
     private val stateStore: AppLockStateStore,
-    private val credentialService: PinCredentialService,
-    private val pinAuthenticator: AppLockPinAttemptAuthenticator,
-    private val wallTimeMillis: () -> Long = System::currentTimeMillis,
 ) {
     private var persistentState: AppLockPersistentState
     private var backgroundedAtElapsedRealtimeMillis: Long? = null
-    private var nextBiometricAttemptId = 1L
+    private var nextAuthenticationAttemptId = 1L
 
     var state: AppLockState
         private set
 
     init {
         val loaded = runCatching(stateStore::read)
-        persistentState = loaded.getOrElse {
-            AppLockPersistentState(config = AppLockConfig(enabled = true))
-        }
+        persistentState = loaded.getOrElse { AppLockPersistentState() }
         val coldStart = AppLockSessionPolicy.coldStart(persistentState.config)
         state = AppLockState(
-            phase = when {
-                !persistentState.config.enabled -> AppLockPhase.DISABLED
-                coldStart.isLocked -> AppLockPhase.LOCKED
-                else -> AppLockPhase.UNLOCKED
-            },
+            phase = if (coldStart.isLocked) AppLockPhase.LOCKED else AppLockPhase.DISABLED,
             config = persistentState.config,
             issue = if (loaded.isFailure) AppLockIssue.STORAGE_UNAVAILABLE else null,
         )
     }
 
     fun setup(
-        pin: CharArray,
-        confirmation: CharArray,
-        autoLockTimeout: AutoLockTimeout = AutoLockTimeout.DEFAULT,
+        timeout: AutoLockTimeout = AutoLockTimeout.DEFAULT,
+        availability: AppLockAuthenticationAvailability,
     ): AppLockSetupResult {
-        if (persistentState.config.enabled) return AppLockSetupResult.AuthenticationRequired
-        val validation = PinPolicy.validate(pin)
-        if (validation != PinValidationResult.Valid) return AppLockSetupResult.InvalidPin(validation)
-        if (!pinsEqual(pin, confirmation)) return AppLockSetupResult.ConfirmationMismatch
-
-        val workingPin = pin.copyOf()
-        val credential = try {
-            credentialService.createCredential(workingPin)
-        } catch (_: Exception) {
-            return AppLockSetupResult.CredentialUnavailable
-        } finally {
-            workingPin.fill('\u0000')
+        if (persistentState.config.enabled) {
+            return AppLockSetupResult.Success(state)
+        }
+        if (availability != AppLockAuthenticationAvailability.AVAILABLE) {
+            state = state.copy(
+                issue = if (availability == AppLockAuthenticationAvailability.NO_SECURE_DEVICE_LOCK) {
+                    AppLockIssue.NO_SECURE_DEVICE_LOCK
+                } else {
+                    AppLockIssue.AUTHENTICATION_UNAVAILABLE
+                },
+            )
+            return AppLockSetupResult.DeviceAuthenticationUnavailable
         }
         val updated = AppLockPersistentState(
-            config = AppLockConfig(
-                enabled = true,
-                autoLockTimeout = autoLockTimeout,
-                biometricEnabled = false,
-            ),
-            credential = credential,
-            throttle = PinRetryThrottleState(),
+            config = AppLockConfig(enabled = true, autoLockTimeout = timeout),
         )
-        if (!persist(updated)) return AppLockSetupResult.StorageUnavailable
+        if (!persist(updated)) {
+            state = state.copy(issue = AppLockIssue.STORAGE_UNAVAILABLE)
+            return AppLockSetupResult.StorageUnavailable
+        }
         state = AppLockState(
             phase = AppLockPhase.UNLOCKED,
             config = updated.config,
@@ -147,152 +120,62 @@ class AppLockRuntimeController(
         return AppLockSetupResult.Success(state)
     }
 
-    fun unlockWithPin(pin: CharArray): AppLockUnlockResult {
-        if (!persistentState.config.enabled) return AppLockUnlockResult.NOT_CONFIGURED
-        if (state.phase == AppLockPhase.UNLOCKED) return AppLockUnlockResult.ALREADY_UNLOCKED
-
-        val workingPin = pin.copyOf()
-        val attempt = try {
-            pinAuthenticator.attempt(workingPin, persistentState, wallTimeMillis())
-        } catch (_: Exception) {
-            state = lockedState(AppLockIssue.CREDENTIAL_UNAVAILABLE)
-            return AppLockUnlockResult.CREDENTIAL_UNAVAILABLE
-        } finally {
-            workingPin.fill('\u0000')
-        }
-        if (!persist(attempt.state)) {
-            state = lockedState(AppLockIssue.STORAGE_UNAVAILABLE)
-            return AppLockUnlockResult.STORAGE_UNAVAILABLE
-        }
-        return when (attempt) {
-            is PinAttemptResult.Accepted -> {
-                state = AppLockState(
-                    phase = AppLockPhase.UNLOCKED,
-                    config = persistentState.config,
-                    hasAuthenticatedSession = true,
-                )
-                AppLockUnlockResult.ACCEPTED
-            }
-
-            is PinAttemptResult.Rejected -> {
-                state = lockedState(
-                    issue = AppLockIssue.INCORRECT_PIN,
-                    retryAfterMillis = attempt.retryAfterMillis,
-                )
-                AppLockUnlockResult.REJECTED
-            }
-
-            is PinAttemptResult.Throttled -> {
-                state = lockedState(
-                    issue = AppLockIssue.PIN_THROTTLED,
-                    retryAfterMillis = attempt.retryAfterMillis,
-                )
-                AppLockUnlockResult.THROTTLED
-            }
-
-            is PinAttemptResult.Unavailable -> {
-                state = lockedState(AppLockIssue.CREDENTIAL_UNAVAILABLE)
-                AppLockUnlockResult.CREDENTIAL_UNAVAILABLE
-            }
-        }
-    }
-
-    fun beginBiometricAuthentication(
-        availability: AppLockBiometricAvailability,
-    ): AppLockBiometricAttempt? {
-        if (
-            state.phase != AppLockPhase.LOCKED ||
-            !persistentState.config.biometricEnabled ||
-            state.activeBiometricAttempt != null
-        ) {
+    fun beginAuthentication(
+        availability: AppLockAuthenticationAvailability,
+    ): AppLockAuthenticationAttempt? {
+        if (state.phase != AppLockPhase.LOCKED || state.activeAuthenticationAttempt != null) {
             return null
         }
-        if (availability != AppLockBiometricAvailability.AVAILABLE) {
-            state = lockedState(AppLockIssue.BIOMETRIC_UNAVAILABLE)
+        if (availability != AppLockAuthenticationAvailability.AVAILABLE) {
+            state = lockedState(
+                if (availability == AppLockAuthenticationAvailability.NO_SECURE_DEVICE_LOCK) {
+                    AppLockIssue.NO_SECURE_DEVICE_LOCK
+                } else {
+                    AppLockIssue.AUTHENTICATION_UNAVAILABLE
+                },
+            )
             return null
         }
-        val attempt = AppLockBiometricAttempt(AppLockBiometricAttemptId(nextAttemptId()))
+        val attempt = AppLockAuthenticationAttempt(
+            AppLockAuthenticationAttemptId(nextAttemptId()),
+        )
         state = state.copy(
             issue = null,
-            retryAfterMillis = 0L,
-            activeBiometricAttempt = attempt.id,
+            activeAuthenticationAttempt = attempt.id,
         )
         return attempt
     }
 
     /** Stale callbacks are ignored and can never unlock a newer process/session attempt. */
-    fun onBiometricResult(
-        attemptId: AppLockBiometricAttemptId,
-        result: AppLockBiometricResult,
+    fun onAuthenticationResult(
+        attemptId: AppLockAuthenticationAttemptId,
+        result: AppLockAuthenticationResult,
     ): Boolean {
-        if (state.activeBiometricAttempt != attemptId || state.phase != AppLockPhase.LOCKED) {
+        if (state.activeAuthenticationAttempt != attemptId || state.phase != AppLockPhase.LOCKED) {
             return false
         }
-        when (result) {
-            AppLockBiometricResult.Success -> state = AppLockState(
+        state = when (result) {
+            AppLockAuthenticationResult.Success -> AppLockState(
                 phase = AppLockPhase.UNLOCKED,
                 config = persistentState.config,
                 hasAuthenticatedSession = true,
             )
-
-            AppLockBiometricResult.Failed -> state = state.copy(
-                issue = AppLockIssue.BIOMETRIC_FAILED,
+            AppLockAuthenticationResult.Failed -> state.copy(
+                issue = AppLockIssue.AUTHENTICATION_FAILED,
+                activeAuthenticationAttempt = attemptId,
             )
-
-            AppLockBiometricResult.Cancelled -> state = lockedState(
-                AppLockIssue.BIOMETRIC_CANCELLED,
+            AppLockAuthenticationResult.Cancelled -> lockedState(
+                AppLockIssue.AUTHENTICATION_CANCELLED,
             )
-
-            is AppLockBiometricResult.Unavailable -> state = lockedState(
-                AppLockIssue.BIOMETRIC_UNAVAILABLE,
+            is AppLockAuthenticationResult.Unavailable -> lockedState(
+                if (result.availability == AppLockAuthenticationAvailability.NO_SECURE_DEVICE_LOCK) {
+                    AppLockIssue.NO_SECURE_DEVICE_LOCK
+                } else {
+                    AppLockIssue.AUTHENTICATION_UNAVAILABLE
+                },
             )
-
-            AppLockBiometricResult.KeyInvalidated -> {
-                val disabledBiometric = persistentState.copy(
-                    config = persistentState.config.copy(biometricEnabled = false),
-                )
-                persistentState = disabledBiometric
-                try {
-                    stateStore.write(disabledBiometric)
-                } catch (_: Exception) {
-                    // Remain locked with PIN fallback; a later successful write can repair config.
-                }
-                state = lockedState(AppLockIssue.BIOMETRIC_KEY_INVALIDATED)
-            }
         }
         return true
-    }
-
-    fun replacePinAfterAuthentication(
-        newPin: CharArray,
-        confirmation: CharArray,
-    ): AppLockAuthenticatedChangeResult {
-        if (!canMakeAuthenticatedChange()) {
-            return AppLockAuthenticatedChangeResult.AUTHENTICATION_REQUIRED
-        }
-        val validation = PinPolicy.validate(newPin)
-        if (validation != PinValidationResult.Valid) {
-            return AppLockAuthenticatedChangeResult.INVALID_PIN
-        }
-        if (!pinsEqual(newPin, confirmation)) {
-            return AppLockAuthenticatedChangeResult.CONFIRMATION_MISMATCH
-        }
-
-        val workingPin = newPin.copyOf()
-        val credential = try {
-            credentialService.createCredential(workingPin)
-        } catch (_: Exception) {
-            return AppLockAuthenticatedChangeResult.CREDENTIAL_UNAVAILABLE
-        } finally {
-            workingPin.fill('\u0000')
-        }
-        val updated = persistentState.copy(
-            credential = credential,
-            throttle = PinRetryThrottleState(),
-        )
-        if (!persist(updated)) return AppLockAuthenticatedChangeResult.STORAGE_UNAVAILABLE
-        state = state.copy(config = updated.config, issue = null, retryAfterMillis = 0L)
-        return AppLockAuthenticatedChangeResult.APPLIED
     }
 
     fun setAutoLockTimeoutAfterAuthentication(
@@ -300,28 +183,6 @@ class AppLockRuntimeController(
     ): AppLockAuthenticatedChangeResult = updateConfigAfterAuthentication(
         persistentState.config.copy(autoLockTimeout = timeout),
     )
-
-    fun enableBiometricAfterAuthentication(
-        biometricController: AppLockBiometricController,
-    ): AppLockAuthenticatedChangeResult {
-        if (!canMakeAuthenticatedChange()) {
-            return AppLockAuthenticatedChangeResult.AUTHENTICATION_REQUIRED
-        }
-        if (
-            biometricController.availability() != AppLockBiometricAvailability.AVAILABLE ||
-            !biometricController.recreateKeyAfterPinAuthentication()
-        ) {
-            return AppLockAuthenticatedChangeResult.BIOMETRIC_UNAVAILABLE
-        }
-        return updateConfigAfterAuthentication(
-            persistentState.config.copy(biometricEnabled = true),
-        )
-    }
-
-    fun disableBiometricAfterAuthentication(): AppLockAuthenticatedChangeResult =
-        updateConfigAfterAuthentication(
-            persistentState.config.copy(biometricEnabled = false),
-        )
 
     fun disableAfterAuthentication(): AppLockAuthenticatedChangeResult {
         if (!canMakeAuthenticatedChange()) {
@@ -336,8 +197,7 @@ class AppLockRuntimeController(
 
     fun onAppBackgrounded(elapsedRealtimeMillis: Long) {
         backgroundedAtElapsedRealtimeMillis = elapsedRealtimeMillis
-        if (state.phase == AppLockPhase.LOCKED && state.activeBiometricAttempt != null) {
-            // A prompt callback delivered after backgrounding must not unlock protected content.
+        if (state.phase == AppLockPhase.LOCKED && state.activeAuthenticationAttempt != null) {
             state = lockedState()
         }
         if (
@@ -400,30 +260,15 @@ class AppLockRuntimeController(
         false
     }
 
-    private fun lockedState(
-        issue: AppLockIssue? = null,
-        retryAfterMillis: Long = 0L,
-    ): AppLockState = AppLockState(
+    private fun lockedState(issue: AppLockIssue? = null): AppLockState = AppLockState(
         phase = AppLockPhase.LOCKED,
         config = persistentState.config,
         issue = issue,
-        retryAfterMillis = retryAfterMillis,
     )
 
     private fun nextAttemptId(): Long {
-        val id = nextBiometricAttemptId
-        nextBiometricAttemptId = if (id == Long.MAX_VALUE) 1L else id + 1L
+        val id = nextAuthenticationAttemptId
+        nextAuthenticationAttemptId = if (id == Long.MAX_VALUE) 1L else id + 1L
         return id
-    }
-
-    private fun pinsEqual(first: CharArray, second: CharArray): Boolean {
-        var difference = first.size xor second.size
-        val maximumLength = maxOf(first.size, second.size)
-        for (index in 0 until maximumLength) {
-            val left = first.getOrElse(index) { '\u0000' }
-            val right = second.getOrElse(index) { '\u0000' }
-            difference = difference or (left.code xor right.code)
-        }
-        return difference == 0
     }
 }
