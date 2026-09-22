@@ -104,3 +104,48 @@ class BackupReminderCoordinator(
     private fun Long.saturatedAdd(increment: Long): Long =
         if (this > Long.MAX_VALUE - increment) Long.MAX_VALUE else this + increment
 }
+
+internal enum class BackupReminderPresentationDecision {
+    SHOW,
+    KEEP,
+    HIDE,
+}
+
+/**
+ * Keeps eligibility evaluation separate from recording an actual presentation. A reminder only
+ * becomes the persisted repeat baseline after the UI acknowledges that it entered composition.
+ */
+internal class BackupReminderPresentationGate(
+    private val coordinator: BackupReminderCoordinator,
+) {
+    private var pendingSnapshot: BackupReminderLibrarySnapshot? = null
+    private var presented = false
+
+    fun evaluate(snapshot: BackupReminderLibrarySnapshot): BackupReminderPresentationDecision {
+        if (presented) return BackupReminderPresentationDecision.KEEP
+        return if (coordinator.shouldShow(snapshot)) {
+            pendingSnapshot = snapshot
+            BackupReminderPresentationDecision.SHOW
+        } else {
+            pendingSnapshot = null
+            BackupReminderPresentationDecision.HIDE
+        }
+    }
+
+    fun markPresented(): Boolean {
+        if (presented) return true
+        val snapshot = pendingSnapshot ?: return false
+        if (!coordinator.markShown(snapshot)) {
+            pendingSnapshot = null
+            return false
+        }
+        pendingSnapshot = null
+        presented = true
+        return true
+    }
+
+    fun dismiss() {
+        pendingSnapshot = null
+        presented = false
+    }
+}

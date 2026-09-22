@@ -188,6 +188,9 @@ internal interface RestoreLibraryStore {
 
     suspend fun activate(plan: RestoreActivationPlan)
 
+    /** True only after the complete activation transaction and journal commit are durable. */
+    suspend fun isOperationCompleted(operationId: String): Boolean = false
+
     suspend fun terminate(
         operationId: String,
         cancelled: Boolean,

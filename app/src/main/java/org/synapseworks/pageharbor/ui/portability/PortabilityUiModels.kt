@@ -7,23 +7,24 @@ enum class ScannerMigrationSource(
 ) {
     CAMSCANNER(
         displayName = "CamScanner",
-        guidance = "In CamScanner, select the documents you want and use its Share or Export action " +
-            "to provide PDFs or images. Then select those files here.",
+        guidance = "In CamScanner, select the documents, choose Share or Export, then choose RME " +
+            "from Android's share sheet. If that version only saves files, export them and use " +
+            "Select files here.",
     ),
     ADOBE_SCAN(
         displayName = "Adobe Scan / Acrobat",
-        guidance = "In Adobe Scan or Acrobat, use Share or Save a copy to provide standard PDF or " +
-            "image files. Then select those files here.",
+        guidance = "In Adobe Scan or Acrobat, choose Share or Send a copy, then choose RME from " +
+            "Android's share sheet. You can also save standard PDF or image files and select them here.",
     ),
     GENIUS_SCAN(
         displayName = "Genius Scan",
-        guidance = "In Genius Scan, export the selected documents as PDFs or images to a location " +
-            "you can open from Android's system picker.",
+        guidance = "In Genius Scan, export the selected documents as PDFs or images and choose RME " +
+            "from Android's share sheet. You can also save them and select them here.",
     ),
     OTHER(
         displayName = "Other scanner",
-        guidance = "Use the scanner app's Share, Export, or Save a copy action to create standard " +
-            "PDF or image files, then select them here.",
+        guidance = "Use the scanner app's Share, Export, or Send a copy action and choose RME from " +
+            "Android's share sheet. If needed, save standard PDF or image files and select them here.",
     ),
 }
 
@@ -55,6 +56,8 @@ data class MigrationPreviewUiModel(
 data class MigrationGroupUiModel(
     val title: String,
     val detail: String,
+    val duplicateSelectionId: Long? = null,
+    val importAnyway: Boolean = false,
 )
 
 data class MigrationProgressUiModel(

@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -31,6 +33,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCut
@@ -39,8 +42,11 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.MoveToInbox
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
@@ -74,6 +80,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -87,8 +94,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -162,8 +171,14 @@ fun LibraryHomeScreen(
     onRateRme: () -> Unit,
     onSuggestFeature: () -> Unit,
     onShareRme: () -> Unit,
+    onAppLock: () -> Unit,
+    onMoveFromScanner: () -> Unit,
+    onBackupRestore: () -> Unit,
+    onMoveToNewPhone: () -> Unit,
     onTopLevelBack: () -> Unit,
     onTopLevelBackSequenceReset: () -> Unit,
+    onTransientUiBusyChange: (Boolean) -> Unit = {},
+    documentsDestinationRequestId: Long = 0L,
 ) {
     var namingDialog by remember { mutableStateOf<NamingDialog?>(null) }
     var movingDocument by remember { mutableStateOf<LibraryDocumentSummary?>(null) }
@@ -174,6 +189,7 @@ fun LibraryHomeScreen(
     var destinationIndex by rememberSaveable { mutableIntStateOf(LibraryDestination.Home.ordinal) }
     val destination = LibraryDestination.entries[destinationIndex]
     val coroutineScope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
     val selectedFolder = libraryUiState.folders.firstOrNull {
         it.id == libraryUiState.selectedFolderId
     }
@@ -192,14 +208,23 @@ fun LibraryHomeScreen(
     }
 
     LaunchedEffect(namingDialog, movingDocument, deletingDocument, confirmFolderDelete) {
-        if (
+        val isBusy =
             namingDialog != null ||
             movingDocument != null ||
             deletingDocument != null ||
             confirmFolderDelete
-        ) {
+        onTransientUiBusyChange(isBusy)
+        if (isBusy) {
             onTopLevelBackSequenceReset()
         }
+    }
+    LaunchedEffect(documentsDestinationRequestId) {
+        if (documentsDestinationRequestId > 0L) {
+            destinationIndex = LibraryDestination.Documents.ordinal
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose { onTransientUiBusyChange(false) }
     }
 
     BackHandler {
@@ -207,6 +232,7 @@ fun LibraryHomeScreen(
             destination == LibraryDestination.Tools && toolsQuery.isNotBlank() -> {
                 onTopLevelBackSequenceReset()
                 toolsQuery = ""
+                focusManager.clearFocus(force = true)
             }
             (destination == LibraryDestination.Home || destination == LibraryDestination.Documents) &&
                 libraryUiState.query.isNotBlank() -> {
@@ -219,7 +245,7 @@ fun LibraryHomeScreen(
             }
             destination == LibraryDestination.Documents && selectedFolder != null -> {
                 onTopLevelBackSequenceReset()
-                onFolderSelected(null)
+                onFolderSelected(selectedFolder.parentFolderId)
             }
             else -> onTopLevelBack()
         }
@@ -350,6 +376,10 @@ fun LibraryHomeScreen(
                 onRateRme = onRateRme,
                 onSuggestFeature = onSuggestFeature,
                 onShareRme = onShareRme,
+                onAppLock = onAppLock,
+                onMoveFromScanner = onMoveFromScanner,
+                onBackupRestore = onBackupRestore,
+                onMoveToNewPhone = onMoveToNewPhone,
                 onPrivacyInfo = onPrivacyInfo,
                 onAbout = onAbout,
             )
@@ -414,8 +444,9 @@ fun LibraryHomeScreen(
             confirmLabel = stringResource(R.string.library_folder_delete),
             onDismiss = { confirmFolderDelete = false },
             onConfirm = {
+                val parentFolderId = selectedFolder.parentFolderId
                 onDeleteFolder(selectedFolder.id)
-                onFolderSelected(null)
+                onFolderSelected(parentFolderId)
                 confirmFolderDelete = false
             },
         )
@@ -738,6 +769,7 @@ private fun DocumentsDestination(
             item(key = "documents-folders", span = { GridItemSpan(maxLineSpan) }) {
                 FolderControls(
                     folders = uiState.folders,
+                    breadcrumb = uiState.folderBreadcrumb,
                     selectedFolderId = uiState.selectedFolderId,
                     enabled = !working,
                     onFolderSelected = onFolderSelected,
@@ -808,6 +840,11 @@ private fun ToolsDestination(
     onViewScanResult: () -> Unit,
     onOpenDocuments: (String) -> Unit,
 ) {
+    val focusManager = LocalFocusManager.current
+    val density = LocalDensity.current
+    val imeBottom = WindowInsets.ime.getBottom(density)
+    var imeWasVisible by remember { mutableStateOf(false) }
+    var searchFieldFocused by remember { mutableStateOf(false) }
     val mergeGuidance = stringResource(R.string.tools_merge_guidance)
     val pagesGuidance = stringResource(R.string.tools_pages_guidance)
     val ocrGuidance = stringResource(R.string.tools_ocr_guidance)
@@ -886,6 +923,14 @@ private fun ToolsDestination(
         ),
     )
     val normalizedQuery = query.trim()
+    LaunchedEffect(imeBottom, query) {
+        val imeVisible = imeBottom > 0
+        if (imeWasVisible && !imeVisible && searchFieldFocused && query.isNotBlank()) {
+            onQueryChange("")
+            focusManager.clearFocus(force = true)
+        }
+        imeWasVisible = imeVisible
+    }
     val visibleTools = if (normalizedQuery.isEmpty()) {
         tools
     } else {
@@ -931,7 +976,9 @@ private fun ToolsDestination(
                 ToolsSearchField(
                     query = query,
                     onQueryChange = onQueryChange,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { searchFieldFocused = it.isFocused },
                 )
             }
             if (showActiveStatus) {
@@ -967,6 +1014,10 @@ private fun MoreDestination(
     onRateRme: () -> Unit,
     onSuggestFeature: () -> Unit,
     onShareRme: () -> Unit,
+    onAppLock: () -> Unit,
+    onMoveFromScanner: () -> Unit,
+    onBackupRestore: () -> Unit,
+    onMoveToNewPhone: () -> Unit,
     onPrivacyInfo: () -> Unit,
     onAbout: () -> Unit,
 ) {
@@ -997,14 +1048,55 @@ private fun MoreDestination(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            Text(
+                modifier = Modifier.semantics { heading() },
+                text = stringResource(R.string.more_data_backup_heading),
+                style = MaterialTheme.typography.titleMedium,
+            )
             MoreActionGroup(
                 actions = listOf(
                     MoreAction(
-                        Icons.Default.Star,
-                        R.string.more_rate_title,
-                        R.string.more_rate_description,
-                        onRateRme,
+                        Icons.Default.MoveToInbox,
+                        R.string.more_move_scanner_title,
+                        R.string.more_move_scanner_description,
+                        onMoveFromScanner,
                     ),
+                    MoreAction(
+                        Icons.Default.Backup,
+                        R.string.more_backup_restore_title,
+                        R.string.more_backup_restore_description,
+                        onBackupRestore,
+                    ),
+                    MoreAction(
+                        Icons.Default.PhoneAndroid,
+                        R.string.more_new_phone_title,
+                        R.string.more_new_phone_description,
+                        onMoveToNewPhone,
+                    ),
+                ),
+            )
+            Text(
+                modifier = Modifier.semantics { heading() },
+                text = stringResource(R.string.more_security_heading),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            MoreActionGroup(
+                actions = listOf(
+                    MoreAction(
+                        Icons.Default.Lock,
+                        R.string.more_app_lock_title,
+                        R.string.more_app_lock_description,
+                        onAppLock,
+                    ),
+                ),
+            )
+            Text(
+                modifier = Modifier.semantics { heading() },
+                text = stringResource(R.string.more_rme_heading),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            MoreActionGroup(
+                actions = listOf(
                     MoreAction(
                         Icons.Default.Lightbulb,
                         R.string.more_suggest_title,
@@ -1012,20 +1104,17 @@ private fun MoreDestination(
                         onSuggestFeature,
                     ),
                     MoreAction(
+                        Icons.Default.Star,
+                        R.string.more_rate_title,
+                        R.string.more_rate_description,
+                        onRateRme,
+                    ),
+                    MoreAction(
                         Icons.Default.Share,
                         R.string.more_share_title,
                         R.string.more_share_description,
                         onShareRme,
                     ),
-                ),
-            )
-            Text(
-                modifier = Modifier.semantics { heading() },
-                text = stringResource(R.string.more_information_heading),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            MoreActionGroup(
-                actions = listOf(
                     MoreAction(
                         Icons.Default.PrivacyTip,
                         R.string.home_privacy_action,
@@ -1336,31 +1425,73 @@ private fun ActiveWorkStatus(
 @Composable
 private fun FolderControls(
     folders: List<LibraryFolder>,
+    breadcrumb: List<LibraryFolder>,
     selectedFolderId: String?,
     enabled: Boolean,
     onFolderSelected: (String?) -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
-    ) {
-        FilterChip(
-            selected = selectedFolderId == null,
-            enabled = enabled,
-            onClick = { onFolderSelected(null) },
-            label = { Text(stringResource(R.string.library_all_documents)) },
-        )
-        folders.forEach { folder ->
-            FilterChip(
-                selected = selectedFolderId == folder.id,
+    val childFolders = folders.filter { it.parentFolderId == selectedFolderId }
+    Column(verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(
                 enabled = enabled,
-                onClick = { onFolderSelected(folder.id) },
-                label = {
-                    Text(stringResource(R.string.library_folder_with_count, folder.name, folder.documentCount))
-                },
+                onClick = { onFolderSelected(null) },
+            ) {
+                Text(stringResource(R.string.library_all_documents))
+            }
+            breadcrumb.forEach { folder ->
+                Text(
+                    text = ">",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(
+                    enabled = enabled && folder.id != selectedFolderId,
+                    onClick = { onFolderSelected(folder.id) },
+                ) {
+                    Text(
+                        text = folder.name,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+        if (childFolders.isNotEmpty()) {
+            Text(
+                modifier = Modifier.semantics { heading() },
+                text = stringResource(R.string.library_child_folders_heading),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
+            ) {
+                childFolders.forEach { folder ->
+                    FilterChip(
+                        selected = false,
+                        enabled = enabled,
+                        onClick = { onFolderSelected(folder.id) },
+                        label = {
+                            Text(
+                                stringResource(
+                                    R.string.library_folder_with_count,
+                                    folder.name,
+                                    folder.documentCount,
+                                ),
+                            )
+                        },
+                    )
+                }
+            }
         }
     }
 }
@@ -2117,6 +2248,10 @@ private fun LibraryScreenPreview() {
             onRateRme = {},
             onSuggestFeature = {},
             onShareRme = {},
+            onAppLock = {},
+            onMoveFromScanner = {},
+            onBackupRestore = {},
+            onMoveToNewPhone = {},
             onTopLevelBack = {},
             onTopLevelBackSequenceReset = {},
         )

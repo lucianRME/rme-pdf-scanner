@@ -2,13 +2,22 @@ package org.synapseworks.pageharbor.ui.portability
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -23,7 +32,15 @@ fun MigrationPreviewScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     importEnabled: Boolean = true,
+    showAllReviewItems: Boolean = false,
+    onDuplicateDecision: (Long, Boolean) -> Unit = { _, _ -> },
 ) {
+    var reviewPageIndex by rememberSaveable(preview.source, preview.ambiguousGroups.size) {
+        mutableIntStateOf(0)
+    }
+    LaunchedEffect(showAllReviewItems) {
+        if (!showAllReviewItems) reviewPageIndex = 0
+    }
     PortabilityScreen(
         title = "Move to RME",
         onBack = onBack,
@@ -50,12 +67,18 @@ fun MigrationPreviewScreen(
         if (preview.ambiguousGroups.isNotEmpty()) {
             PortabilitySection(title = "Needs review") {
                 Text(
-                    text = "RME is not certain how some images should be grouped. Review these " +
-                        "groups before importing.",
+                    text = "Review possible duplicates before importing. Items stay out of the " +
+                        "library unless you explicitly choose Import anyway.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                preview.ambiguousGroups.take(PREVIEW_GROUP_LIMIT).forEachIndexed { index, group ->
+                val visibleGroups = if (showAllReviewItems) {
+                    preview.ambiguousGroups.drop(reviewPageIndex * REVIEW_PAGE_SIZE)
+                        .take(REVIEW_PAGE_SIZE)
+                } else {
+                    preview.ambiguousGroups.take(PREVIEW_GROUP_LIMIT)
+                }
+                visibleGroups.forEachIndexed { index, group ->
                     if (index > 0) HorizontalDivider()
                     Column(verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall)) {
                         Text(
@@ -67,15 +90,64 @@ fun MigrationPreviewScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        group.duplicateSelectionId?.let { selectionId ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .toggleable(
+                                        value = group.importAnyway,
+                                        role = Role.Checkbox,
+                                        onValueChange = { checked ->
+                                            onDuplicateDecision(selectionId, checked)
+                                        },
+                                    ),
+                            ) {
+                                Checkbox(
+                                    checked = group.importAnyway,
+                                    onCheckedChange = null,
+                                )
+                                Text(
+                                    text = "Import this possible duplicate anyway",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
+                        }
                     }
                 }
-                val remaining = preview.ambiguousGroups.size - PREVIEW_GROUP_LIMIT
-                if (remaining > 0) {
+                if (showAllReviewItems) {
+                    val first = reviewPageIndex * REVIEW_PAGE_SIZE + 1
+                    val last = (first + visibleGroups.size - 1)
+                        .coerceAtMost(preview.ambiguousGroups.size)
                     Text(
-                        text = "$remaining more groups are available in Review.",
+                        text = "Review items $first–$last of ${preview.ambiguousGroups.size}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (preview.ambiguousGroups.size > REVIEW_PAGE_SIZE) {
+                        PortabilityActions(
+                            actions = listOf(
+                                PortabilityAction(
+                                    label = "Previous items",
+                                    onClick = { reviewPageIndex-- },
+                                    enabled = reviewPageIndex > 0,
+                                ),
+                                PortabilityAction(
+                                    label = "Next items",
+                                    onClick = { reviewPageIndex++ },
+                                    enabled = last < preview.ambiguousGroups.size,
+                                ),
+                            ),
+                        )
+                    }
+                } else {
+                    val remaining = preview.ambiguousGroups.size - visibleGroups.size
+                    if (remaining > 0) {
+                        Text(
+                            text = "$remaining more groups are available in Review.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }
@@ -106,8 +178,9 @@ fun MigrationPreviewScreen(
                     style = PortabilityActionStyle.PRIMARY,
                 ),
                 PortabilityAction(
-                    label = "Review",
+                    label = if (showAllReviewItems) "Show less" else "Review",
                     onClick = onReview,
+                    enabled = preview.ambiguousGroups.isNotEmpty(),
                 ),
                 PortabilityAction(
                     label = "Cancel",
@@ -356,5 +429,6 @@ fun MigrationIssuesScreen(
 }
 
 private const val PREVIEW_GROUP_LIMIT = 3
+private const val REVIEW_PAGE_SIZE = 25
 private const val ISSUE_PREVIEW_LIMIT = 5
 private const val ISSUE_SCREEN_LIMIT = 100

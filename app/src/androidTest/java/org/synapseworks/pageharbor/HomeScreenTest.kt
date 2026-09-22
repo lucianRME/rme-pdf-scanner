@@ -85,9 +85,9 @@ class HomeScreenTest {
         composeTestRule.onNodeWithContentDescription("Scan document").assertIsDisplayed()
 
         composeTestRule.onNodeWithText("More").assertIsDisplayed().performClick()
-        composeTestRule.onNodeWithText("Rate RME").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Suggest a feature").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Share RME").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Rate RME").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithText("Suggest a feature").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithText("Share RME").performScrollTo().assertIsDisplayed()
         composeTestRule.onNodeWithContentDescription("Scan document").assertIsDisplayed()
     }
 
@@ -121,8 +121,8 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("More").performClick()
-        composeTestRule.onNodeWithText("How privacy works").assertIsDisplayed()
-        composeTestRule.onNodeWithText("About RME PDF Scanner").assertIsDisplayed()
+        composeTestRule.onNodeWithText("How privacy works").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithText("About RME PDF Scanner").performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -137,9 +137,9 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("More").performClick()
-        composeTestRule.onNodeWithText("Rate RME").performClick()
-        composeTestRule.onNodeWithText("Suggest a feature").performClick()
-        composeTestRule.onNodeWithText("Share RME").performClick()
+        composeTestRule.onNodeWithText("Rate RME").performScrollTo().performClick()
+        composeTestRule.onNodeWithText("Suggest a feature").performScrollTo().performClick()
+        composeTestRule.onNodeWithText("Share RME").performScrollTo().performClick()
 
         assertEquals(listOf("rate", "suggest", "share"), calls)
     }
@@ -155,7 +155,7 @@ class HomeScreenTest {
                 "${BuildConfig.BUILD_TYPE_LABEL} · ${BuildConfig.GIT_REVISION}",
         ).assertCountEquals(0)
         composeTestRule.onNodeWithText("More").performClick()
-        composeTestRule.onNodeWithText("About RME PDF Scanner").performClick()
+        composeTestRule.onNodeWithText("About RME PDF Scanner").performScrollTo().performClick()
         composeTestRule.onNodeWithText("Git revision: ${BuildConfig.GIT_REVISION}")
             .assertIsDisplayed()
         assertTrue(BuildConfig.GIT_REVISION.isNotBlank())
@@ -1032,7 +1032,7 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("More").performClick()
-        composeTestRule.onNodeWithText("How privacy works").performClick()
+        composeTestRule.onNodeWithText("How privacy works").performScrollTo().performClick()
 
         composeTestRule.onNodeWithText("Documents are intended to be processed locally.")
             .assertIsDisplayed()
@@ -1057,7 +1057,7 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("More").performClick()
-        composeTestRule.onNodeWithText("How privacy works").performClick()
+        composeTestRule.onNodeWithText("How privacy works").performScrollTo().performClick()
         composeTestRule.onNodeWithText("OK").performClick()
 
         composeTestRule.onAllNodesWithText("Documents are intended to be processed locally.")
@@ -1071,7 +1071,7 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("More").performClick()
-        composeTestRule.onNodeWithText("About RME PDF Scanner").performClick()
+        composeTestRule.onNodeWithText("About RME PDF Scanner").performScrollTo().performClick()
 
         composeTestRule.onNodeWithText("Private document scanner for Android")
             .assertIsDisplayed()
@@ -1096,7 +1096,7 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("More").performClick()
-        composeTestRule.onNodeWithText("About RME PDF Scanner").performClick()
+        composeTestRule.onNodeWithText("About RME PDF Scanner").performScrollTo().performClick()
         composeTestRule.onNodeWithText("Close").performClick()
 
         composeTestRule.onAllNodesWithText("Private document scanner for Android")
@@ -1116,7 +1116,7 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("More").performClick()
-        composeTestRule.onNodeWithText("About RME PDF Scanner").performClick()
+        composeTestRule.onNodeWithText("About RME PDF Scanner").performScrollTo().performClick()
         composeTestRule.onNodeWithText("View source code").performClick()
 
         assertEquals(1, viewSourceClickCount)

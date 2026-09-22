@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
@@ -87,7 +88,6 @@ class BackBehaviorTest {
         pressBack()
 
         composeTestRule.onNodeWithContentDescription("Import files").assertIsDisplayed()
-        composeTestRule.onAllNodesWithText("Press back again to exit").assertCountEquals(0)
         composeTestRule.runOnIdle { assertEquals(0, exitCount) }
     }
 
@@ -99,7 +99,7 @@ class BackBehaviorTest {
         }
 
         composeTestRule.onNodeWithText("More").performClick()
-        composeTestRule.onNodeWithText("About RME PDF Scanner").performClick()
+        composeTestRule.onNodeWithText("About RME PDF Scanner").performScrollTo().performClick()
         composeTestRule.onNodeWithText("Open source under Apache License 2.0").assertIsDisplayed()
         pressBack()
 

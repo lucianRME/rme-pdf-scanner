@@ -129,20 +129,19 @@ class LibraryRepository internal constructor(
             title = normalizedTitle,
             folderId = folderId,
             sources = sources,
-            sourceAssets = session.directPdfSource?.let { directPdf ->
-                listOf(
-                    LibrarySourceAssetSource(
-                        role = ORIGINAL_DOCUMENT_ASSET_ROLE,
-                        contentType = "application/pdf",
-                        sourceModifiedAtMillis = null,
-                        matchesCurrentRevision = session.canUseDirectPdf,
-                        openStream = {
-                            applicationContext.contentResolver.openInputStream(directPdf.toAndroidUri())
-                                ?: throw FileNotFoundException()
-                        },
-                    ),
+            sourceAssets = session.originalPdfSources.map { originalPdf ->
+                LibrarySourceAssetSource(
+                    role = ORIGINAL_DOCUMENT_ASSET_ROLE,
+                    contentType = "application/pdf",
+                    sourceModifiedAtMillis = null,
+                    matchesCurrentRevision = session.canUseDirectPdf &&
+                        originalPdf == session.directPdfSource,
+                    openStream = {
+                        applicationContext.contentResolver.openInputStream(originalPdf.toAndroidUri())
+                            ?: throw FileNotFoundException()
+                    },
                 )
-            }.orEmpty(),
+            },
         )
     }
 
@@ -197,32 +196,40 @@ class LibraryRepository internal constructor(
         val summary = entity.toSummary(folderName = entity.folderId?.let { id ->
             runDatabase { dao.folder(id) }?.name
         })
-        val directPdfSource = runDatabase { dao.sourceAssets(documentId) }
-            ?.firstOrNull { asset -> asset.role == ORIGINAL_DOCUMENT_ASSET_ROLE }
-            ?.takeIf { asset -> asset.contentType.equals("application/pdf", ignoreCase = true) }
-            ?.let { asset ->
-                val file = fileStore.resolve(asset.relativePath)?.takeIf(File::isFile) ?: return@let null
-                val uri = try {
-                    FileProvider.getUriForFile(
-                        applicationContext,
-                        "${applicationContext.packageName}.fileprovider",
-                        file,
-                    )
-                } catch (_: IllegalArgumentException) {
-                    return@let null
-                }
-                createLibraryDocumentResource(
-                    reference = uri.toString(),
-                    path = file.path,
-                    rootPath = fileStore.root.path,
-                )?.let { resource -> resource to asset.matchesCurrentRevision }
+        val storedOriginalPdfs = runDatabase { dao.sourceAssets(documentId) }
+            ?.filter { asset ->
+                asset.role == ORIGINAL_DOCUMENT_ASSET_ROLE &&
+                    asset.contentType.equals("application/pdf", ignoreCase = true)
             }
+            ?: return LibraryResult.Failure(LibraryError.DATABASE_UNAVAILABLE)
+        val originalPdfResources = storedOriginalPdfs.map { asset ->
+            val file = fileStore.resolve(asset.relativePath)?.takeIf(File::isFile)
+                ?: return LibraryResult.Failure(LibraryError.SOURCE_MISSING)
+            val uri = try {
+                FileProvider.getUriForFile(
+                    applicationContext,
+                    "${applicationContext.packageName}.fileprovider",
+                    file,
+                )
+            } catch (_: IllegalArgumentException) {
+                return LibraryResult.Failure(LibraryError.CORRUPTED_RECORD)
+            }
+            val resource = createLibraryDocumentResource(
+                reference = uri.toString(),
+                path = file.path,
+                rootPath = fileStore.root.path,
+            ) ?: return LibraryResult.Failure(LibraryError.CORRUPTED_RECORD)
+            resource to asset
+        }
+        val singleOriginalPdf = originalPdfResources.singleOrNull()
+        val directPdfSource = singleOriginalPdf?.first
         return LibraryResult.Success(
             OpenedLibraryDocument(
                 session = DocumentSession(
                     pages = pages,
-                    directPdfSource = directPdfSource?.first,
-                    directPdfPageIds = if (directPdfSource?.second == true) {
+                    directPdfSource = directPdfSource,
+                    originalPdfSources = originalPdfResources.map { it.first },
+                    directPdfPageIds = if (singleOriginalPdf?.second?.matchesCurrentRevision == true) {
                         pages.map(DocumentPage::id)
                     } else {
                         emptyList()
@@ -321,7 +328,12 @@ class LibraryRepository internal constructor(
             if (parentFolderId != null && dao.folder(parentFolderId) == null) {
                 return LibraryResult.Failure(LibraryError.FOLDER_NOT_FOUND)
             }
-            if (dao.folderByNormalizedName(normalizedKey) != null) {
+            if (
+                dao.folderByNormalizedName(
+                    normalizedName = normalizedKey,
+                    parentScope = libraryFolderParentScope(parentFolderId),
+                ) != null
+            ) {
                 LibraryResult.Failure(LibraryError.DUPLICATE_FOLDER)
             } else {
                 val now = nowMillis()
@@ -359,7 +371,10 @@ class LibraryRepository internal constructor(
         return try {
             val folder = dao.folder(folderId)
                 ?: return LibraryResult.Failure(LibraryError.FOLDER_NOT_FOUND)
-            val duplicate = dao.folderByNormalizedName(normalized.lowercase(Locale.ROOT))
+            val duplicate = dao.folderByNormalizedName(
+                normalizedName = normalized.lowercase(Locale.ROOT),
+                parentScope = folder.parentScope,
+            )
             if (duplicate != null && duplicate.folderId != folderId) {
                 return LibraryResult.Failure(LibraryError.DUPLICATE_FOLDER)
             }
@@ -401,9 +416,17 @@ class LibraryRepository internal constructor(
                 }
             }
             if (folder.parentFolderId != parentFolderId) {
+                val duplicate = dao.folderByNormalizedName(
+                    normalizedName = folder.normalizedName,
+                    parentScope = libraryFolderParentScope(parentFolderId),
+                )
+                if (duplicate != null && duplicate.folderId != folderId) {
+                    return LibraryResult.Failure(LibraryError.DUPLICATE_FOLDER)
+                }
                 dao.updateFolder(
                     folder.copy(
                         parentFolderId = parentFolderId,
+                        parentScope = libraryFolderParentScope(parentFolderId),
                         modifiedAtMillis = nowMillis(),
                     ),
                 )
@@ -420,16 +443,28 @@ class LibraryRepository internal constructor(
         deleteFolderUnlocked(folderId)
     }
 
-    private suspend fun deleteFolderUnlocked(folderId: String): LibraryResult<Unit> = try {
-        if (dao.deleteFolder(folderId, nowMillis())) {
-            LibraryResult.Success(Unit)
-        } else {
-            LibraryResult.Failure(LibraryError.FOLDER_NOT_FOUND)
+    private suspend fun deleteFolderUnlocked(folderId: String): LibraryResult<Unit> {
+        return try {
+            val folder = dao.folder(folderId)
+                ?: return LibraryResult.Failure(LibraryError.FOLDER_NOT_FOUND)
+            if (
+                dao.folderDeletionWouldConflict(
+                    folderId = folderId,
+                    targetParentScope = libraryFolderParentScope(folder.parentFolderId),
+                )
+            ) {
+                return LibraryResult.Failure(LibraryError.DUPLICATE_FOLDER)
+            }
+            if (dao.deleteFolder(folderId, nowMillis())) {
+                LibraryResult.Success(Unit)
+            } else {
+                LibraryResult.Failure(LibraryError.FOLDER_NOT_FOUND)
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            LibraryResult.Failure(LibraryError.DATABASE_UNAVAILABLE)
         }
-    } catch (error: CancellationException) {
-        throw error
-    } catch (_: Exception) {
-        LibraryResult.Failure(LibraryError.DATABASE_UNAVAILABLE)
     }
 
     suspend fun moveDocument(documentId: String, folderId: String?): LibraryResult<Unit> {

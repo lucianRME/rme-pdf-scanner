@@ -34,9 +34,29 @@ import org.synapseworks.pageharbor.image.DocumentFilter
 import org.synapseworks.pageharbor.ocr.OcrUiState
 import org.synapseworks.pageharbor.library.LibrarySortOrder
 import org.synapseworks.pageharbor.library.LibraryUiState
+import org.synapseworks.pageharbor.security.AppLockAuthenticatedChangeResult
+import org.synapseworks.pageharbor.security.AppLockBiometricAvailability
+import org.synapseworks.pageharbor.security.AppLockSetupResult
+import org.synapseworks.pageharbor.security.AppLockState
+import org.synapseworks.pageharbor.security.AutoLockTimeout
 import org.synapseworks.pageharbor.ui.home.LibraryHomeScreen
 import org.synapseworks.pageharbor.ui.home.OcrResultScreen
 import org.synapseworks.pageharbor.ui.home.ScanResultScreen
+import org.synapseworks.pageharbor.ui.portability.BackupEncryptionUiState
+import org.synapseworks.pageharbor.ui.portability.BackupReminderScreen
+import org.synapseworks.pageharbor.ui.portability.BackupRestoreScreen
+import org.synapseworks.pageharbor.ui.portability.MigrationCompletionScreen
+import org.synapseworks.pageharbor.ui.portability.MigrationIssuesScreen
+import org.synapseworks.pageharbor.ui.portability.MigrationPreviewScreen
+import org.synapseworks.pageharbor.ui.portability.MigrationProgressScreen
+import org.synapseworks.pageharbor.ui.portability.MoveFromScannerScreen
+import org.synapseworks.pageharbor.ui.portability.MoveToNewPhoneScreen
+import org.synapseworks.pageharbor.ui.portability.PortabilityCallbacks
+import org.synapseworks.pageharbor.ui.portability.PortabilityOperationScreen
+import org.synapseworks.pageharbor.ui.portability.PortabilityWorkflowState
+import org.synapseworks.pageharbor.ui.portability.RestorePasswordScreen
+import org.synapseworks.pageharbor.ui.portability.RestorePreviewScreen
+import org.synapseworks.pageharbor.ui.security.AppLockSettingsScreen
 import org.synapseworks.pageharbor.ui.theme.PageHarborTheme
 
 @Composable
@@ -90,6 +110,26 @@ fun PageHarborApp(
     onRateRme: () -> Unit = {},
     onSuggestFeature: () -> Unit = {},
     onShareRme: () -> Unit = {},
+    appLockState: AppLockState? = null,
+    appLockBiometricAvailability: AppLockBiometricAvailability =
+        AppLockBiometricAvailability.UNSUPPORTED,
+    onSetupAppLock: (CharArray, CharArray, AutoLockTimeout) -> AppLockSetupResult =
+        { _, _, _ -> AppLockSetupResult.StorageUnavailable },
+    onReplaceAppLockPin: (CharArray, CharArray) -> AppLockAuthenticatedChangeResult =
+        { _, _ -> AppLockAuthenticatedChangeResult.STORAGE_UNAVAILABLE },
+    onAppLockTimeoutChange: (AutoLockTimeout) -> AppLockAuthenticatedChangeResult =
+        { AppLockAuthenticatedChangeResult.STORAGE_UNAVAILABLE },
+    onEnableAppLockBiometric: () -> AppLockAuthenticatedChangeResult =
+        { AppLockAuthenticatedChangeResult.BIOMETRIC_UNAVAILABLE },
+    onDisableAppLockBiometric: () -> AppLockAuthenticatedChangeResult =
+        { AppLockAuthenticatedChangeResult.STORAGE_UNAVAILABLE },
+    onDisableAppLock: () -> AppLockAuthenticatedChangeResult =
+        { AppLockAuthenticatedChangeResult.STORAGE_UNAVAILABLE },
+    onLockAppNow: () -> Unit = {},
+    portabilityState: PortabilityWorkflowState = PortabilityWorkflowState.Hidden,
+    portabilityCallbacks: PortabilityCallbacks = PortabilityCallbacks(),
+    onReviewUiBusyChanged: (Boolean) -> Unit = {},
+    documentsDestinationRequestId: Long = 0L,
     onClearScanResult: () -> Unit = {},
     onExitApp: () -> Unit = {},
     exitBackClock: () -> Long = SystemClock::elapsedRealtime,
@@ -104,6 +144,9 @@ fun PageHarborApp(
         val copiedMessage = stringResource(R.string.ocr_copied_message)
         var showPrivacyInfo by remember { mutableStateOf(false) }
         var showAbout by remember { mutableStateOf(false) }
+        var showAppLockSettings by remember { mutableStateOf(false) }
+        var libraryTransientUiBusy by remember { mutableStateOf(false) }
+        var backupEncryption by remember { mutableStateOf(BackupEncryptionUiState()) }
         val scanCancelledMessage = stringResource(R.string.home_scan_cancelled)
         val scannerErrorMessage = stringResource(R.string.home_scanner_error)
         val pdfSourceMissingMessage = stringResource(R.string.pdf_save_source_missing)
@@ -171,8 +214,27 @@ fun PageHarborApp(
             currentScreen = screen
         }
 
-        LaunchedEffect(showPrivacyInfo, showAbout) {
-            if (showPrivacyInfo || showAbout) exitController.reset()
+        LaunchedEffect(
+            showPrivacyInfo,
+            showAbout,
+            showAppLockSettings,
+            libraryTransientUiBusy,
+        ) {
+            val isBusy = showPrivacyInfo || showAbout || showAppLockSettings ||
+                libraryTransientUiBusy
+            onReviewUiBusyChanged(isBusy)
+            if (isBusy) exitController.reset()
+        }
+
+        LaunchedEffect(portabilityState) {
+            if (portabilityState !is PortabilityWorkflowState.BackupRestore) {
+                backupEncryption = BackupEncryptionUiState()
+            }
+        }
+
+        BackHandler(enabled = showAppLockSettings) { showAppLockSettings = false }
+        BackHandler(enabled = portabilityState !is PortabilityWorkflowState.Hidden) {
+            portabilityCallbacks.onBack()
         }
 
         BackHandler(
@@ -190,6 +252,130 @@ fun PageHarborApp(
         }
 
         when {
+        portabilityState is PortabilityWorkflowState.MigrationSource -> MoveFromScannerScreen(
+            selectedSource = portabilityState.selectedSource,
+            actionsEnabled = portabilityState.actionsEnabled,
+            onSourceSelected = portabilityCallbacks.onMigrationSourceSelected,
+            onSelectFiles = portabilityCallbacks.onSelectMigrationFiles,
+            onSelectFolder = portabilityCallbacks.onSelectMigrationFolder,
+            onBack = portabilityCallbacks.onBack,
+        )
+        portabilityState is PortabilityWorkflowState.MigrationPreview -> MigrationPreviewScreen(
+            preview = portabilityState.preview,
+            importEnabled = portabilityState.importEnabled,
+            showAllReviewItems = portabilityState.showAllReviewItems,
+            onReview = portabilityCallbacks.onReviewMigration,
+            onDuplicateDecision = portabilityCallbacks.onMigrationDuplicateDecision,
+            onImport = portabilityCallbacks.onImportMigration,
+            onCancel = portabilityCallbacks.onCancelMigration,
+            onBack = portabilityCallbacks.onBack,
+        )
+        portabilityState is PortabilityWorkflowState.MigrationProgress -> MigrationProgressScreen(
+            progress = portabilityState.progress,
+            onCancelSafely = portabilityCallbacks.onCancelMigration,
+            onBack = portabilityCallbacks.onBack,
+        )
+        portabilityState is PortabilityWorkflowState.MigrationComplete -> {
+            if (portabilityState.showIssues) {
+                MigrationIssuesScreen(
+                    issues = portabilityState.report.issues,
+                    onRetryFailedItems = portabilityCallbacks.onRetryMigration,
+                    onDone = portabilityCallbacks.onBack,
+                    onBack = portabilityCallbacks.onViewMigrationIssues,
+                )
+            } else {
+                MigrationCompletionScreen(
+                    report = portabilityState.report,
+                    onViewDocuments = portabilityCallbacks.onViewMigratedDocuments,
+                    onViewIssues = portabilityCallbacks.onViewMigrationIssues,
+                    onRetryFailedItems = portabilityCallbacks.onRetryMigration,
+                    onDone = portabilityCallbacks.onBack,
+                    onBack = portabilityCallbacks.onBack,
+                )
+            }
+        }
+        portabilityState is PortabilityWorkflowState.BackupRestore -> BackupRestoreScreen(
+            status = portabilityState.status,
+            encryption = backupEncryption,
+            actionsEnabled = portabilityState.actionsEnabled,
+            onEncryptionEnabledChange = { enabled ->
+                backupEncryption = if (enabled) {
+                    backupEncryption.copy(enabled = true, validationMessage = null)
+                } else {
+                    BackupEncryptionUiState()
+                }
+            },
+            onPasswordChange = { value ->
+                backupEncryption = backupEncryption.copy(password = value, validationMessage = null)
+            },
+            onConfirmationChange = { value ->
+                backupEncryption = backupEncryption.copy(
+                    confirmation = value,
+                    validationMessage = null,
+                )
+            },
+            onBackupNow = {
+                val password = backupEncryption.password.takeIf { backupEncryption.enabled }
+                    ?.toCharArray()
+                try {
+                    portabilityCallbacks.onCreateBackup(backupEncryption.enabled, password)
+                } finally {
+                    password?.fill('\u0000')
+                    backupEncryption = BackupEncryptionUiState()
+                }
+            },
+            onRestoreBackup = portabilityCallbacks.onSelectRestoreBackup,
+            onExportLibrary = portabilityCallbacks.onExportLibrary,
+            onBack = portabilityCallbacks.onBack,
+        )
+        portabilityState is PortabilityWorkflowState.BackupReminder -> BackupReminderScreen(
+            documentCount = portabilityState.documentCount,
+            pageCount = portabilityState.pageCount,
+            onBackupNow = portabilityCallbacks.onBackupReminderNow,
+            onNotNow = portabilityCallbacks.onBackupReminderNotNow,
+            onBack = portabilityCallbacks.onBack,
+        )
+        portabilityState is PortabilityWorkflowState.RestorePassword -> RestorePasswordScreen(
+            validationMessage = portabilityState.validationMessage,
+            actionsEnabled = portabilityState.actionsEnabled,
+            onSubmit = portabilityCallbacks.onRestorePassword,
+            onCancel = portabilityCallbacks.onCancelRestore,
+            onBack = portabilityCallbacks.onBack,
+        )
+        portabilityState is PortabilityWorkflowState.RestorePreview -> RestorePreviewScreen(
+            preview = portabilityState.preview,
+            duplicateChoice = portabilityState.duplicateChoice,
+            onDuplicateChoiceChange = portabilityCallbacks.onRestoreDuplicateChoice,
+            onRestore = portabilityCallbacks.onRestore,
+            onCancel = portabilityCallbacks.onCancelRestore,
+            onBack = portabilityCallbacks.onBack,
+        )
+        portabilityState is PortabilityWorkflowState.NewPhone -> MoveToNewPhoneScreen(
+            actionsEnabled = portabilityState.actionsEnabled,
+            onCreateBackup = portabilityCallbacks.onOpenBackupRestore,
+            onRestoreBackup = portabilityCallbacks.onSelectRestoreBackup,
+            onBack = portabilityCallbacks.onBack,
+        )
+        portabilityState is PortabilityWorkflowState.Operation -> PortabilityOperationScreen(
+            state = portabilityState,
+            onBack = portabilityCallbacks.onBack,
+            onPrimaryAction = portabilityCallbacks.onOperationPrimaryAction,
+        )
+        showAppLockSettings && appLockState != null -> AppLockSettingsScreen(
+            state = appLockState,
+            biometricAvailability = appLockBiometricAvailability,
+            onBack = { showAppLockSettings = false },
+            onSetup = onSetupAppLock,
+            onReplacePin = onReplaceAppLockPin,
+            onTimeoutChange = onAppLockTimeoutChange,
+            onEnableBiometric = onEnableAppLockBiometric,
+            onDisableBiometric = onDisableAppLockBiometric,
+            onDisable = onDisableAppLock,
+            onLockNow = {
+                showAppLockSettings = false
+                onLockAppNow()
+            },
+        )
         currentScreen == PageHarborScreen.OcrResult && ocrUiState is OcrUiState.Success -> {
             OcrResultScreen(
                 result = ocrUiState.result,
@@ -308,8 +494,14 @@ fun PageHarborApp(
             onRateRme = onRateRme,
             onSuggestFeature = onSuggestFeature,
             onShareRme = onShareRme,
+            onAppLock = { showAppLockSettings = true },
+            onMoveFromScanner = portabilityCallbacks.onOpenMigration,
+            onBackupRestore = portabilityCallbacks.onOpenBackupRestore,
+            onMoveToNewPhone = portabilityCallbacks.onOpenNewPhone,
             onTopLevelBack = ::handleTopLevelBack,
             onTopLevelBackSequenceReset = exitController::reset,
+            onTransientUiBusyChange = { libraryTransientUiBusy = it },
+            documentsDestinationRequestId = documentsDestinationRequestId,
         )
         }
 

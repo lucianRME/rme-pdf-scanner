@@ -2,6 +2,7 @@ package org.synapseworks.pageharbor
 
 import android.net.Uri
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
@@ -20,6 +21,7 @@ import org.synapseworks.pageharbor.document.importing.DocumentImportUiState
 import org.synapseworks.pageharbor.document.session.AcquiredDocumentPage
 import org.synapseworks.pageharbor.document.session.AcquiredResource
 import org.synapseworks.pageharbor.document.session.DEFAULT_MAX_DOCUMENT_PAGES
+import org.synapseworks.pageharbor.document.session.DEFAULT_MAX_IMPORTED_DOCUMENT_PAGES
 import org.synapseworks.pageharbor.document.session.DocumentAcquisitionCoordinator
 import org.synapseworks.pageharbor.document.session.DocumentAcquisitionError
 import org.synapseworks.pageharbor.document.session.DocumentAcquisitionInput
@@ -94,7 +96,7 @@ class PageHarborSessionViewModel internal constructor(
     var pdfShareState: PdfShareState by mutableStateOf(PdfShareState.Idle)
     var pageExportState: PageExportState by mutableStateOf(PageExportState.Idle)
     var ocrUiState: OcrUiState by mutableStateOf(OcrUiState.Idle)
-    var ocrSelectedPageIndex: Int by mutableStateOf(0)
+    var ocrSelectedPageIndex: Int by mutableIntStateOf(0)
     var searchablePdfSaveState: SearchablePdfSaveState by mutableStateOf(SearchablePdfSaveState.Idle)
     var lastAcquisitionError: DocumentAcquisitionError? by mutableStateOf(null)
         private set
@@ -135,6 +137,9 @@ class PageHarborSessionViewModel internal constructor(
 
     internal fun remainingPageCapacity(): Int =
         (acquisitionCoordinator.limits.maxPages - activePageCount()).coerceAtLeast(0)
+
+    internal fun remainingImportPageCapacity(): Int =
+        (DEFAULT_MAX_IMPORTED_DOCUMENT_PAGES - activePageCount()).coerceAtLeast(0)
 
     fun cancelScannerRequest() {
         val request = activeAcquisition?.takeIf { it.kind == DocumentAcquisitionKind.SCANNER }
@@ -223,7 +228,7 @@ class PageHarborSessionViewModel internal constructor(
             }
             return false
         }
-        if (remainingPageCapacity() == 0) {
+        if (remainingImportPageCapacity() == 0) {
             importUiState = DocumentImportUiState.Error(DocumentImportError.PAGE_LIMIT_EXCEEDED)
             return false
         }
@@ -232,7 +237,10 @@ class PageHarborSessionViewModel internal constructor(
         } else {
             DocumentAcquisitionMode.APPEND
         }
-        val token = acquisitionCoordinator.begin(mode) ?: run {
+        val token = acquisitionCoordinator.begin(
+            mode = mode,
+            maximumPageCount = DEFAULT_MAX_IMPORTED_DOCUMENT_PAGES,
+        ) ?: run {
             importUiState = DocumentImportUiState.Error(DocumentImportError.BUSY)
             return false
         }

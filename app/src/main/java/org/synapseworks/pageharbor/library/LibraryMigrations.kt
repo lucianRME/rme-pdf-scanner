@@ -65,6 +65,19 @@ internal val MIGRATION_1_2 = object : Migration(1, 2) {
         )
         database.execSQL(
             """
+            ALTER TABLE `library_folders`
+            ADD COLUMN `parent_scope` TEXT NOT NULL DEFAULT ''
+            """.trimIndent(),
+        )
+        database.execSQL("DROP INDEX IF EXISTS `index_library_folders_normalized_name`")
+        database.execSQL(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS `index_library_folders_parent_scope_normalized_name`
+            ON `library_folders` (`parent_scope`, `normalized_name`)
+            """.trimIndent(),
+        )
+        database.execSQL(
+            """
             CREATE INDEX IF NOT EXISTS `index_library_folders_parent_folder_id`
             ON `library_folders` (`parent_folder_id`)
             """.trimIndent(),
@@ -137,7 +150,7 @@ internal val MIGRATION_1_2 = object : Migration(1, 2) {
         )
         database.execSQL(
             """
-            CREATE UNIQUE INDEX IF NOT EXISTS `index_library_source_assets_document_id_role`
+            CREATE INDEX IF NOT EXISTS `index_library_source_assets_document_id_role`
             ON `library_source_assets` (`document_id`, `role`)
             """.trimIndent(),
         )

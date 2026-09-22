@@ -6,6 +6,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -208,6 +209,31 @@ class LibraryRestoreEngineTest {
         }
 
     @Test
+    fun cancellationObservedAfterActivationCommitPreservesActiveDocumentsAndReportsSuccess() =
+        runBlocking {
+            val fixture = BackupFormatTestFixture(pageCount = 3)
+            val store = FakeRestoreStore(throwCancellationAfterActivationCommit = true)
+            val workspace = MemoryRestoreWorkspace()
+            val restoreEngine = engine(store, workspace)
+            val prepared = (
+                restoreEngine.prepare(fixture.writeArchive().source()) as
+                    RestorePreparationResult.Ready
+                ).prepared
+
+            val result = restoreEngine.restore(
+                prepared,
+                RestoreMergePolicy.MERGE_IMPORT_ANYWAY,
+            )
+
+            result as RestoreResult.Completed
+            assertEquals(1, result.importedDocumentCount)
+            assertEquals(1, store.visibleDocumentCount)
+            assertFalse(store.terminated)
+            assertNotNull(store.activation)
+            assertTrue(workspace.operationIds().isEmpty())
+        }
+
+    @Test
     fun storagePreflightAndJournalRecoveryAreSchedulerIndependent() = runBlocking {
         val fixture = BackupFormatTestFixture()
         val rejectedWorkspace = MemoryRestoreWorkspace()
@@ -265,6 +291,7 @@ private class FakeRestoreStore(
     private val candidates: MutableList<DuplicateCandidate> = mutableListOf(),
     private val initialVisibleDocumentCount: Int = 0,
     private val failActivation: Boolean = false,
+    private val throwCancellationAfterActivationCommit: Boolean = false,
     private val recoverable: MutableList<RestoreRecoveryOperation> = mutableListOf(),
 ) : RestoreLibraryStore {
     var gate: LibraryOperationGate? = null
@@ -277,6 +304,7 @@ private class FakeRestoreStore(
     var visibleDocumentCount = initialVisibleDocumentCount
     val pending = mutableListOf<RestoreDocumentToPrepare>()
     val terminatedOperationIds = mutableListOf<String>()
+    private val completedOperationIds = mutableSetOf<String>()
 
     override suspend fun duplicateCandidates(): List<DuplicateCandidate> = candidates.toList()
 
@@ -306,7 +334,14 @@ private class FakeRestoreStore(
         activation = plan
         visibleDocumentCount += pending.size
         pending.clear()
+        completedOperationIds += plan.operationId
+        if (throwCancellationAfterActivationCommit) {
+            throw CancellationException("synthetic post-commit cancellation")
+        }
     }
+
+    override suspend fun isOperationCompleted(operationId: String): Boolean =
+        operationId in completedOperationIds
 
     override suspend fun terminate(
         operationId: String,

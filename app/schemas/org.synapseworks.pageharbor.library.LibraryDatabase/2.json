@@ -2,11 +2,11 @@
   "formatVersion": 1,
   "database": {
     "version": 2,
-    "identityHash": "b379cc3be07ac5dffd5503a70fccbdd5",
+    "identityHash": "5a70565e87cff03309a46ac3ab34decf",
     "entities": [
       {
         "tableName": "library_folders",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`folder_id` TEXT NOT NULL, `name` TEXT NOT NULL, `normalized_name` TEXT NOT NULL, `created_at` INTEGER NOT NULL, `modified_at` INTEGER NOT NULL, `parent_folder_id` TEXT, PRIMARY KEY(`folder_id`), FOREIGN KEY(`parent_folder_id`) REFERENCES `library_folders`(`folder_id`) ON UPDATE NO ACTION ON DELETE SET NULL )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`folder_id` TEXT NOT NULL, `name` TEXT NOT NULL, `normalized_name` TEXT NOT NULL, `created_at` INTEGER NOT NULL, `modified_at` INTEGER NOT NULL, `parent_folder_id` TEXT, `parent_scope` TEXT NOT NULL DEFAULT '', PRIMARY KEY(`folder_id`), FOREIGN KEY(`parent_folder_id`) REFERENCES `library_folders`(`folder_id`) ON UPDATE NO ACTION ON DELETE SET NULL )",
         "fields": [
           {
             "fieldPath": "folderId",
@@ -42,6 +42,13 @@
             "fieldPath": "parentFolderId",
             "columnName": "parent_folder_id",
             "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "parentScope",
+            "columnName": "parent_scope",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
           }
         ],
         "primaryKey": {
@@ -52,13 +59,14 @@
         },
         "indices": [
           {
-            "name": "index_library_folders_normalized_name",
+            "name": "index_library_folders_parent_scope_normalized_name",
             "unique": true,
             "columnNames": [
+              "parent_scope",
               "normalized_name"
             ],
             "orders": [],
-            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_library_folders_normalized_name` ON `${TABLE_NAME}` (`normalized_name`)"
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_library_folders_parent_scope_normalized_name` ON `${TABLE_NAME}` (`parent_scope`, `normalized_name`)"
           },
           {
             "name": "index_library_folders_parent_folder_id",
@@ -635,13 +643,13 @@
         "indices": [
           {
             "name": "index_library_source_assets_document_id_role",
-            "unique": true,
+            "unique": false,
             "columnNames": [
               "document_id",
               "role"
             ],
             "orders": [],
-            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_library_source_assets_document_id_role` ON `${TABLE_NAME}` (`document_id`, `role`)"
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_library_source_assets_document_id_role` ON `${TABLE_NAME}` (`document_id`, `role`)"
           },
           {
             "name": "index_library_source_assets_sha256_byte_count",
@@ -963,7 +971,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'b379cc3be07ac5dffd5503a70fccbdd5')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '5a70565e87cff03309a46ac3ab34decf')"
     ]
   }
 }

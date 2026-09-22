@@ -138,6 +138,57 @@ class LibraryRepositoryInstrumentedTest {
 
         repository.deleteFolder(child.id).successValue()
         assertEquals(root.id, database.libraryDao().folder(grandchild.id)?.parentFolderId)
+        assertEquals(root.id, database.libraryDao().folder(grandchild.id)?.parentScope)
+    }
+
+    @Test
+    fun duplicateFolderNamesAreScopedToSiblings() = runBlocking {
+        val work = repository.createFolder("Work").successValue()
+        val personal = repository.createFolder("Personal").successValue()
+        val workYear = repository.createFolder("2024", work.id).successValue()
+        val personalYear = repository.createFolder("2024", personal.id).successValue()
+        repository.createFolder("2024").successValue()
+
+        val duplicateSibling = repository.createFolder("  2024  ", work.id)
+        assertEquals(
+            LibraryError.DUPLICATE_FOLDER,
+            (duplicateSibling as LibraryResult.Failure).reason,
+        )
+
+        val conflictingMove = repository.moveFolder(workYear.id, personal.id)
+        assertEquals(
+            LibraryError.DUPLICATE_FOLDER,
+            (conflictingMove as LibraryResult.Failure).reason,
+        )
+        assertEquals(work.id, database.libraryDao().folder(workYear.id)?.parentFolderId)
+        assertEquals(work.id, database.libraryDao().folder(workYear.id)?.parentScope)
+
+        val receipts = repository.createFolder("Receipts", work.id).successValue()
+        repository.moveFolder(receipts.id, personal.id).successValue()
+        assertEquals(personal.id, database.libraryDao().folder(receipts.id)?.parentFolderId)
+        assertEquals(personal.id, database.libraryDao().folder(receipts.id)?.parentScope)
+        assertEquals(personal.id, database.libraryDao().folder(personalYear.id)?.parentScope)
+    }
+
+    @Test
+    fun deletingFolderReparentsNamesSafelyOrReportsSiblingCollision() = runBlocking {
+        val archive = repository.createFolder("Archive").successValue()
+        val nestedArchive = repository.createFolder("Archive", archive.id).successValue()
+
+        repository.deleteFolder(archive.id).successValue()
+        assertEquals(null, database.libraryDao().folder(nestedArchive.id)?.parentFolderId)
+        assertEquals("", database.libraryDao().folder(nestedArchive.id)?.parentScope)
+
+        val existingYear = repository.createFolder("2024").successValue()
+        val work = repository.createFolder("Work").successValue()
+        val workYear = repository.createFolder("2024", work.id).successValue()
+
+        val conflict = repository.deleteFolder(work.id)
+
+        assertEquals(LibraryError.DUPLICATE_FOLDER, (conflict as LibraryResult.Failure).reason)
+        assertEquals(work.id, database.libraryDao().folder(workYear.id)?.parentFolderId)
+        assertEquals(work.id, database.libraryDao().folder(workYear.id)?.parentScope)
+        assertEquals(null, database.libraryDao().folder(existingYear.id)?.parentFolderId)
     }
 
     @Test
@@ -182,6 +233,37 @@ class LibraryRepositoryInstrumentedTest {
         assertNotNull(reopened.session.directPdfSource)
         assertFalse(reopened.session.canUseDirectPdf)
         assertFalse(database.libraryDao().sourceAssets(saved.id).single().matchesCurrentRevision)
+    }
+
+    @Test
+    fun multiPdfImportPersistsAndReopensEveryOriginalSource() = runBlocking {
+        val originals = (1..2).map { index ->
+            val pdf = File(sourceDirectory, "source-$index.pdf").apply {
+                FileOutputStream(this).use { output ->
+                    output.write("%PDF-1.4\nsynthetic source $index\n%%EOF".encodeToByteArray())
+                }
+            }
+            DocumentResource(
+                reference = Uri.fromFile(pdf).toString(),
+                ownership = DocumentResourceOwnership.USER_OR_EXTERNAL,
+            )
+        }
+        val saved = repository.saveSession(
+            session = DocumentSession(
+                pages = listOf(page(31, "multi-source.jpg", 0xff556677.toInt())),
+                originalPdfSources = originals,
+            ),
+            title = "Multiple originals",
+        ).successValue()
+
+        val stored = database.libraryDao().sourceAssets(saved.id)
+        assertEquals(2, stored.size)
+        assertTrue(stored.all { it.role == "ORIGINAL_DOCUMENT" })
+        assertTrue(stored.none { it.matchesCurrentRevision })
+
+        val reopened = repository.openDocument(saved.id).successValue().session
+        assertEquals(2, reopened.originalPdfSources.size)
+        assertEquals(null, reopened.directPdfSource)
     }
 
     @Test

@@ -296,12 +296,18 @@ internal class RoomRestoreLibraryStore(
         }
     }
 
+    override suspend fun isOperationCompleted(operationId: String): Boolean =
+        dao.operation(operationId)?.phase == PHASE_COMPLETED
+
     override suspend fun terminate(
         operationId: String,
         cancelled: Boolean,
         failure: RestoreFailure?,
     ): Boolean {
         val operation = dao.operation(operationId) ?: return true
+        // Activation is one Room transaction. A completed journal means every referenced document
+        // is ACTIVE, so rollback cleanup must never delete its durable assets.
+        if (operation.phase == PHASE_COMPLETED) return true
         val targetIds = dao.operationItems(operationId)
             .filterNot { it.itemState == ITEM_DUPLICATE_SKIPPED }
             .map { it.targetDocumentId }

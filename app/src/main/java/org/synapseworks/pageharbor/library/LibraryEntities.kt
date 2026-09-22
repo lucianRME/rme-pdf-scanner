@@ -18,7 +18,7 @@ import androidx.room.PrimaryKey
         ),
     ],
     indices = [
-        Index(value = ["normalized_name"], unique = true),
+        Index(value = ["parent_scope", "normalized_name"], unique = true),
         Index(value = ["parent_folder_id"]),
     ],
 )
@@ -35,7 +35,11 @@ data class LibraryFolderEntity(
     val modifiedAtMillis: Long,
     @ColumnInfo(name = "parent_folder_id")
     val parentFolderId: String? = null,
+    @ColumnInfo(name = "parent_scope", defaultValue = "''")
+    val parentScope: String = libraryFolderParentScope(parentFolderId),
 )
+
+internal fun libraryFolderParentScope(parentFolderId: String?): String = parentFolderId.orEmpty()
 
 @Entity(
     tableName = "library_documents",
@@ -164,7 +168,7 @@ data class LibraryMetadataEntity(
         ),
     ],
     indices = [
-        Index(value = ["document_id", "role"], unique = true),
+        Index(value = ["document_id", "role"]),
         Index(value = ["sha256", "byte_count"]),
     ],
 )

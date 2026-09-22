@@ -198,10 +198,74 @@ class LibrarySchemaTest {
                 assertFalse(cursor.moveToNext())
             }
             database.query(
-                "SELECT parent_folder_id FROM library_folders WHERE folder_id = 'folder-1'",
+                "SELECT parent_folder_id, parent_scope FROM library_folders WHERE folder_id = 'folder-1'",
             ).use { cursor ->
                 assertTrue(cursor.moveToFirst())
                 assertTrue(cursor.isNull(0))
+                assertEquals("", cursor.getString(1))
+            }
+            database.execSQL(
+                """
+                INSERT INTO library_folders
+                    (folder_id, name, normalized_name, created_at, modified_at,
+                     parent_folder_id, parent_scope)
+                VALUES ('folder-2', 'Personal', 'personal', 100, 200, NULL, '')
+                """.trimIndent(),
+            )
+            database.execSQL(
+                """
+                INSERT INTO library_folders
+                    (folder_id, name, normalized_name, created_at, modified_at,
+                     parent_folder_id, parent_scope)
+                VALUES ('folder-1-year', '2024', '2024', 100, 200,
+                        'folder-1', 'folder-1')
+                """.trimIndent(),
+            )
+            database.execSQL(
+                """
+                INSERT INTO library_folders
+                    (folder_id, name, normalized_name, created_at, modified_at,
+                     parent_folder_id, parent_scope)
+                VALUES ('folder-2-year', '2024', '2024', 100, 200,
+                        'folder-2', 'folder-2')
+                """.trimIndent(),
+            )
+            database.query(
+                "SELECT count(*) FROM library_folders WHERE normalized_name = '2024'",
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(2, cursor.getInt(0))
+            }
+            database.execSQL(
+                """
+                INSERT INTO library_source_assets
+                    (asset_id, document_id, role, relative_path, content_type,
+                     byte_count, sha256, source_modified_at, created_at,
+                     matches_current_revision)
+                VALUES ('asset-1', 'document-1', 'ORIGINAL_DOCUMENT',
+                        'sources/first.pdf', 'application/pdf', 10, 'hash-1',
+                        100, 500, 1)
+                """.trimIndent(),
+            )
+            database.execSQL(
+                """
+                INSERT INTO library_source_assets
+                    (asset_id, document_id, role, relative_path, content_type,
+                     byte_count, sha256, source_modified_at, created_at,
+                     matches_current_revision)
+                VALUES ('asset-2', 'document-1', 'ORIGINAL_DOCUMENT',
+                        'sources/second.pdf', 'application/pdf', 20, 'hash-2',
+                        200, 600, 0)
+                """.trimIndent(),
+            )
+            database.query(
+                """
+                SELECT count(*) FROM library_source_assets
+                WHERE document_id = 'document-1' AND role = 'ORIGINAL_DOCUMENT'
+                """.trimIndent(),
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(2, cursor.getInt(0))
             }
             database.query(
                 """

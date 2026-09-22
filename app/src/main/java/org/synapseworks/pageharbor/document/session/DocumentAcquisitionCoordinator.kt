@@ -1,6 +1,10 @@
 package org.synapseworks.pageharbor.document.session
 
+import java.util.Locale
+
 const val DEFAULT_MAX_DOCUMENT_PAGES = 20
+/** High safety ceiling for user-selected files; the 20-page limit belongs only to ML Kit scanning. */
+const val DEFAULT_MAX_IMPORTED_DOCUMENT_PAGES = 10_000
 const val DEFAULT_MAX_IMAGE_SOURCE_BYTES = 64L * 1024L * 1024L
 const val DEFAULT_MAX_IMAGE_PIXEL_COUNT = 12_500_000L
 const val DEFAULT_MAX_IMAGE_DIMENSION = 6_000
@@ -55,12 +59,14 @@ data class AcquiredDocumentPage(
 )
 
 /**
- * A normalized acquisition result. [transientResources] are staging artifacts that are never
- * transferred into the active session and are deleted on every terminal path, including success.
+ * A normalized acquisition result. [originalPdfSources] are durable provenance transferred into
+ * the active session. [transientResources] are staging artifacts that are never transferred and
+ * are deleted on every terminal path, including success.
  */
 data class DocumentAcquisitionInput(
     val pages: List<AcquiredDocumentPage>,
     val directPdfSource: AcquiredResource? = null,
+    val originalPdfSources: List<AcquiredResource> = directPdfSource?.let(::listOf).orEmpty(),
     val transientResources: List<AcquiredResource> = emptyList(),
 )
 
@@ -156,15 +162,24 @@ class DocumentAcquisitionCoordinator(
     private data class ActiveOperation(
         val token: DocumentAcquisitionToken,
         val mode: DocumentAcquisitionMode,
+        val maximumPageCount: Int,
         val pendingResources: MutableList<AcquiredResource> = mutableListOf(),
     )
 
     private var activeOperation: ActiveOperation? = null
 
-    fun begin(mode: DocumentAcquisitionMode): DocumentAcquisitionToken? {
+    fun begin(
+        mode: DocumentAcquisitionMode,
+        maximumPageCount: Int = limits.maxPages,
+    ): DocumentAcquisitionToken? {
+        require(maximumPageCount > 0) { "maximumPageCount must be positive." }
         if (activeOperation != null) return null
         return DocumentAcquisitionToken(nextOperationId++).also { token ->
-            activeOperation = ActiveOperation(token = token, mode = mode)
+            activeOperation = ActiveOperation(
+                token = token,
+                mode = mode,
+                maximumPageCount = maximumPageCount,
+            )
         }
     }
 
@@ -207,7 +222,12 @@ class DocumentAcquisitionCoordinator(
         }
         activeOperation = null
 
-        val error = validate(operation.mode, currentSession, input)
+        val error = validate(
+            mode = operation.mode,
+            maximumPageCount = operation.maximumPageCount,
+            currentSession = currentSession,
+            input = input,
+        )
         if (error != null) {
             cleanupInput(
                 input,
@@ -222,17 +242,21 @@ class DocumentAcquisitionCoordinator(
                 id = DocumentPageId(nextPageId++),
                 source = acquired.resource.toDocumentResource(),
                 sourceCategory = acquired.sourceCategory,
-                contentType = acquired.contentType.lowercase(),
+                contentType = acquired.contentType.lowercase(Locale.ROOT),
                 imageMetadata = acquired.imageMetadata,
             )
         }
         val incomingPdf = input.directPdfSource?.toDocumentResource()
+        val incomingOriginalPdfs = input.originalPdfSources
+            .map { resource -> resource.toDocumentResource() }
+            .distinctBy { resource -> resource.stableResourceIdentity() }
         val canAdoptIncomingPdf = operation.mode == DocumentAcquisitionMode.REPLACE ||
             (currentSession.pages.isEmpty() && currentSession.directPdfSource == null)
         val session = when (operation.mode) {
             DocumentAcquisitionMode.REPLACE -> DocumentSession(
                 pages = acquiredPages,
                 directPdfSource = incomingPdf,
+                originalPdfSources = incomingOriginalPdfs,
                 directPdfPageIds = if (incomingPdf == null) {
                     emptyList()
                 } else {
@@ -244,6 +268,9 @@ class DocumentAcquisitionCoordinator(
                 currentSession.copy(
                     pages = currentSession.pages + acquiredPages,
                     directPdfSource = if (canAdoptIncomingPdf) incomingPdf else currentSession.directPdfSource,
+                    originalPdfSources = (
+                        currentSession.originalPdfSources + incomingOriginalPdfs
+                    ).distinctBy { resource -> resource.stableResourceIdentity() },
                     directPdfPageIds = if (canAdoptIncomingPdf) {
                         acquiredPages.map(DocumentPage::id)
                     } else {
@@ -259,7 +286,6 @@ class DocumentAcquisitionCoordinator(
                     addAll(currentSession.ownedResources())
                 }
                 addAll(cleanupCandidates(operation.pendingResources + input.transientResources))
-                if (!canAdoptIncomingPdf && incomingPdf != null) add(incomingPdf)
             },
             preserving = session.ownedResources(),
         )
@@ -352,6 +378,7 @@ class DocumentAcquisitionCoordinator(
 
     private fun validate(
         mode: DocumentAcquisitionMode,
+        maximumPageCount: Int,
         currentSession: DocumentSession,
         input: DocumentAcquisitionInput,
     ): DocumentAcquisitionError? {
@@ -360,12 +387,12 @@ class DocumentAcquisitionCoordinator(
         }
         val requestedPageCount = input.pages.size +
             if (mode == DocumentAcquisitionMode.APPEND) currentSession.pages.size else 0
-        if (requestedPageCount > limits.maxPages) {
+        if (requestedPageCount > maximumPageCount) {
             return DocumentAcquisitionError.PAGE_LIMIT_EXCEEDED
         }
         input.pages.forEach { page ->
             validateResource(page.resource)?.let { return it }
-            if (page.contentType.lowercase() !in limits.supportedPageContentTypes) {
+            if (page.contentType.lowercase(Locale.ROOT) !in limits.supportedPageContentTypes) {
                 return DocumentAcquisitionError.UNSUPPORTED_CONTENT_TYPE
             }
             limits.imageConstraintViolation(page.imageMetadata)?.let { violation ->
@@ -374,6 +401,12 @@ class DocumentAcquisitionCoordinator(
         }
         input.directPdfSource?.let { resource ->
             validateResource(resource)?.let { return it }
+        }
+        input.originalPdfSources.forEach { resource ->
+            validateResource(resource)?.let { return it }
+        }
+        if (input.directPdfSource != null && input.directPdfSource !in input.originalPdfSources) {
+            return DocumentAcquisitionError.INVALID_REFERENCE
         }
         input.transientResources.forEach { resource ->
             validateResource(resource)?.let { return it }
@@ -453,6 +486,7 @@ class DocumentAcquisitionCoordinator(
         val resources = buildList {
             input.pages.mapTo(this) { page -> page.resource }
             input.directPdfSource?.let(::add)
+            addAll(input.originalPdfSources)
             addAll(input.transientResources)
             addAll(additionalResources)
         }
@@ -515,4 +549,7 @@ class DocumentAcquisitionCoordinator(
             DocumentImageConstraintViolation.DIMENSIONS_EXCEEDED ->
                 DocumentAcquisitionError.IMAGE_DIMENSIONS_EXCEEDED
         }
+
+    private fun DocumentResource.stableResourceIdentity(): String =
+        ownedTemporaryFile?.canonicalIdentityOrNull()?.path ?: reference
 }

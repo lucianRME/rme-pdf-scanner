@@ -49,6 +49,55 @@ class BackupReminderCoordinatorTest {
     }
 
     @Test
+    fun presentationGatePersistsShownStateOnlyAfterUiAcknowledgement() {
+        val store = InMemoryBackupReminderStateStore(eligibleFirstReminderState())
+        val coordinator = BackupReminderCoordinator(store, nowMillis = { NOW })
+        val gate = BackupReminderPresentationGate(coordinator)
+        val library = snapshot(revision = 7L)
+
+        assertEquals(BackupReminderPresentationDecision.SHOW, gate.evaluate(library))
+        assertEquals(0L, store.read().lastReminderShownTimestampMillis)
+        assertTrue(gate.markPresented())
+        assertEquals(NOW, store.read().lastReminderShownTimestampMillis)
+        assertEquals(7L, store.read().libraryRevisionAtLastReminder)
+        assertEquals(BackupReminderPresentationDecision.KEEP, gate.evaluate(library))
+
+        gate.dismiss()
+        assertEquals(BackupReminderPresentationDecision.HIDE, gate.evaluate(library))
+    }
+
+    @Test
+    fun unpresentedCandidateCanBeRevokedWithoutCreatingReminderHistory() {
+        val store = InMemoryBackupReminderStateStore(eligibleFirstReminderState())
+        val coordinator = BackupReminderCoordinator(store, nowMillis = { NOW })
+        val gate = BackupReminderPresentationGate(coordinator)
+        val library = snapshot(revision = 7L)
+
+        assertEquals(BackupReminderPresentationDecision.SHOW, gate.evaluate(library))
+        coordinator.recordVerifiedBackup(library)
+
+        assertEquals(BackupReminderPresentationDecision.HIDE, gate.evaluate(library))
+        assertFalse(gate.markPresented())
+        assertEquals(0L, store.read().lastReminderShownTimestampMillis)
+    }
+
+    @Test
+    fun refreshOrderRejectsOlderRequestsAndRevisionRollback() {
+        val order = BackupReminderRefreshOrder()
+
+        assertTrue(order.shouldStart(requestId = 2L))
+        assertTrue(order.shouldApply(requestId = 2L, revision = 4L))
+        assertFalse(order.shouldStart(requestId = 1L))
+        assertFalse(order.shouldApply(requestId = 1L, revision = 5L))
+        assertTrue(order.shouldStart(requestId = 3L))
+        assertFalse(order.shouldApply(requestId = 3L, revision = 3L))
+        assertTrue(order.shouldStart(requestId = 4L))
+        assertTrue(order.shouldApply(requestId = 4L, revision = 5L))
+        assertTrue(order.shouldStart(requestId = 6L))
+        assertFalse(order.shouldStart(requestId = 5L))
+    }
+
+    @Test
     fun notNowSuppressesAndRequiresAChangedLibraryBeforeLaterReminder() {
         var now = NOW
         val store = InMemoryBackupReminderStateStore(eligibleFirstReminderState())

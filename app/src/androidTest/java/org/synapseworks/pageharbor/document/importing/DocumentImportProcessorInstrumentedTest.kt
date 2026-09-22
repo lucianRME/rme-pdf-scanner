@@ -111,6 +111,7 @@ class DocumentImportProcessorInstrumentedTest {
             assertTrue(result is DocumentImportPreparationResult.Success)
             result as DocumentImportPreparationResult.Success
             assertEquals(2, result.input.pages.size)
+            assertTrue(result.input.directPdfSource != null)
             result.input.pages.forEach { page ->
                 assertEquals(DocumentSourceCategory.RENDERED_PDF_PAGE, page.sourceCategory)
                 assertEquals("image/jpeg", page.contentType)
@@ -124,7 +125,7 @@ class DocumentImportProcessorInstrumentedTest {
 
             session.completeImportRequest(result)
             assertEquals(2, session.documentPages.size)
-            assertTrue(newImportSourceFiles(before).isEmpty())
+            assertEquals(1, newImportSourceFiles(before).size)
             assertEquals(2, newImportPageFiles(before).size)
 
             session.clearScan()
@@ -134,6 +135,33 @@ class DocumentImportProcessorInstrumentedTest {
             session.clearScan()
             (importTemporaryFiles() - before).forEach(File::delete)
             pdf.delete()
+        }
+    }
+
+    @Test
+    fun multiplePdfsRemainDurableSessionSourcesUntilTheSessionIsReleased() = runBlocking {
+        val first = pdfFixture("first-original", listOf(300 to 400))
+        val second = pdfFixture("second-original", listOf(300 to 400))
+        val before = importTemporaryFiles()
+        val session = PageHarborSessionViewModel()
+        try {
+            val result = prepare(session, listOf(uri(first), uri(second)))
+            assertTrue(result is DocumentImportPreparationResult.Success)
+            result as DocumentImportPreparationResult.Success
+            assertEquals(2, result.input.originalPdfSources.size)
+            assertEquals(null, result.input.directPdfSource)
+
+            session.completeImportRequest(result)
+
+            assertEquals(2, session.documentSession.originalPdfSources.size)
+            assertEquals(2, newImportSourceFiles(before).size)
+            session.clearScan()
+            assertTrue(newImportSourceFiles(before).isEmpty())
+        } finally {
+            session.clearScan()
+            (importTemporaryFiles() - before).forEach(File::delete)
+            first.delete()
+            second.delete()
         }
     }
 

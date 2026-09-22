@@ -103,8 +103,17 @@ abstract class LibraryDao {
     @Query("SELECT * FROM library_folders WHERE folder_id = :folderId LIMIT 1")
     abstract suspend fun folder(folderId: String): LibraryFolderEntity?
 
-    @Query("SELECT * FROM library_folders WHERE normalized_name = :normalizedName LIMIT 1")
-    abstract suspend fun folderByNormalizedName(normalizedName: String): LibraryFolderEntity?
+    @Query(
+        """
+        SELECT * FROM library_folders
+        WHERE parent_scope = :parentScope AND normalized_name = :normalizedName
+        LIMIT 1
+        """,
+    )
+    abstract suspend fun folderByNormalizedName(
+        normalizedName: String,
+        parentScope: String,
+    ): LibraryFolderEntity?
 
     @Query("SELECT * FROM library_folders ORDER BY folder_id LIMIT :limit OFFSET :offset")
     abstract suspend fun foldersPage(offset: Int, limit: Int): List<LibraryFolderEntity>
@@ -200,13 +209,17 @@ abstract class LibraryDao {
 
     @Transaction
     open suspend fun insertFolder(entity: LibraryFolderEntity) {
-        insertFolderInternal(entity)
+        insertFolderInternal(
+            entity.copy(parentScope = libraryFolderParentScope(entity.parentFolderId)),
+        )
         bumpLibraryRevision(entity.modifiedAtMillis)
     }
 
     @Transaction
     open suspend fun updateFolder(entity: LibraryFolderEntity) {
-        updateFolderInternal(entity)
+        updateFolderInternal(
+            entity.copy(parentScope = libraryFolderParentScope(entity.parentFolderId)),
+        )
         bumpLibraryRevision(entity.modifiedAtMillis)
     }
 
@@ -238,18 +251,39 @@ abstract class LibraryDao {
     @Query(
         """
         UPDATE library_folders
-        SET parent_folder_id = :parentFolderId, modified_at = :modifiedAt
-        WHERE parent_folder_id = :folderId
+        SET parent_folder_id = :parentFolderId,
+            parent_scope = :parentScope,
+            modified_at = :modifiedAt
+        WHERE parent_scope = :folderId
         """,
     )
     protected abstract suspend fun reparentChildFolders(
         folderId: String,
         parentFolderId: String?,
+        parentScope: String,
         modifiedAt: Long,
     )
 
     @Query("DELETE FROM library_folders WHERE folder_id = :folderId")
     protected abstract suspend fun deleteFolderRow(folderId: String)
+
+    @Query(
+        """
+        SELECT EXISTS(
+            SELECT 1
+            FROM library_folders AS child
+            JOIN library_folders AS sibling
+              ON sibling.parent_scope = :targetParentScope
+             AND sibling.normalized_name = child.normalized_name
+             AND sibling.folder_id != :folderId
+            WHERE child.parent_folder_id = :folderId
+        )
+        """,
+    )
+    abstract suspend fun folderDeletionWouldConflict(
+        folderId: String,
+        targetParentScope: String,
+    ): Boolean
 
     @Query(
         """
@@ -354,8 +388,13 @@ abstract class LibraryDao {
     open suspend fun deleteFolder(folderId: String, modifiedAt: Long): Boolean {
         val existing = folder(folderId) ?: return false
         moveFolderDocumentsToParent(folderId, existing.parentFolderId, modifiedAt)
-        reparentChildFolders(folderId, existing.parentFolderId, modifiedAt)
         deleteFolderRow(folderId)
+        reparentChildFolders(
+            folderId = folderId,
+            parentFolderId = existing.parentFolderId,
+            parentScope = libraryFolderParentScope(existing.parentFolderId),
+            modifiedAt = modifiedAt,
+        )
         bumpLibraryRevision(modifiedAt)
         return true
     }
@@ -516,7 +555,9 @@ abstract class LibraryDao {
 
         folders.forEach { folder ->
             check(this.folder(folder.folderId) == null)
-            insertFolderInternal(folder)
+            insertFolderInternal(
+                folder.copy(parentScope = libraryFolderParentScope(folder.parentFolderId)),
+            )
         }
         pending.forEach { document ->
             val pages = pagesAnyState(document.documentId)

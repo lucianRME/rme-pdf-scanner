@@ -11,6 +11,7 @@ import org.synapseworks.pageharbor.backup.format.BackupFormatLimits
 import org.synapseworks.pageharbor.backup.format.BackupPageRecord
 import org.synapseworks.pageharbor.library.LibraryOperationCoordinator
 import org.synapseworks.pageharbor.library.LibraryOperationGate
+import org.synapseworks.pageharbor.library.completeAtomicActivation
 import org.synapseworks.pageharbor.library.duplicate.DocumentFingerprintV1
 import org.synapseworks.pageharbor.library.duplicate.DuplicateDetector
 import org.synapseworks.pageharbor.library.duplicate.DuplicateKind
@@ -267,13 +268,18 @@ internal class LibraryRestoreEngine(
                 val cleaned = cleanupAfterFailure(prepared, cancelled = true, failure = null)
                 return RestoreResult.Cancelled(cleaned)
             }
-            store.activate(
-                RestoreActivationPlan(
-                    operationId = operationId,
-                    folders = folderPlan.foldersToCreate,
-                    documents = documentsToImport,
-                    activatedAtEpochMillis = clock.nowEpochMillis(),
-                ),
+            completeAtomicActivation(
+                activate = {
+                    store.activate(
+                        RestoreActivationPlan(
+                            operationId = operationId,
+                            folders = folderPlan.foldersToCreate,
+                            documents = documentsToImport,
+                            activatedAtEpochMillis = clock.nowEpochMillis(),
+                        ),
+                    )
+                },
+                isCommitted = { store.isOperationCompleted(operationId) },
             )
         } catch (cancelled: CancellationException) {
             throw cancelled

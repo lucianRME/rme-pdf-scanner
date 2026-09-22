@@ -20,18 +20,23 @@ internal object RestoreFolderPlanner {
         val byId = backupFolders.associateBy(BackupFolderRecord::folderId)
         require(requiredFolderIds.all(byId::containsKey))
         val ordered = topologicalOrder(byId, requiredFolderIds)
-        val usedNames = existingFolders.mapTo(linkedSetOf()) { normalize(it.name) }
+        val usedNamesByParent = mutableMapOf<String?, MutableSet<String>>()
+        existingFolders.forEach { folder ->
+            usedNamesByParent.getOrPut(folder.parentFolderId) { linkedSetOf() } += normalize(folder.name)
+        }
         val targetIds = linkedMapOf<String, String>()
         val result = ordered.map { original ->
             val targetId = idSource.newId()
             targetIds[original.folderId] = targetId
-            val uniqueName = uniqueName(original.name, usedNames)
+            val targetParentId = original.parentFolderId?.let(targetIds::get)
+            val siblingNames = usedNamesByParent.getOrPut(targetParentId) { linkedSetOf() }
+            val uniqueName = uniqueName(original.name, siblingNames)
             RestoreFolderToCreate(
                 folderId = targetId,
                 originalFolderId = original.folderId,
                 name = uniqueName,
                 normalizedName = normalize(uniqueName),
-                parentFolderId = original.parentFolderId?.let(targetIds::get),
+                parentFolderId = targetParentId,
                 createdAtEpochMillis = original.createdAtEpochMillis,
                 modifiedAtEpochMillis = original.modifiedAtEpochMillis,
             )

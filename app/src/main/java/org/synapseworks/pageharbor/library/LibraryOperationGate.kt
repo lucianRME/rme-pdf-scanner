@@ -1,5 +1,6 @@
 package org.synapseworks.pageharbor.library
 
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -42,4 +43,28 @@ class LibraryOperationGate internal constructor(
 /** Process-local gate shared by repositories and portability engines. */
 object LibraryOperationCoordinator {
     val gate: LibraryOperationGate = LibraryOperationGate()
+}
+
+/**
+ * Resolves the narrow cancellation/error window after an atomic database activation. Room may have
+ * committed the transaction before a suspending caller observes a failure. Once the durable journal
+ * says COMPLETED, that commit is authoritative and callers must continue as success rather than
+ * deleting assets now referenced by ACTIVE rows.
+ */
+internal suspend fun completeAtomicActivation(
+    activate: suspend () -> Unit,
+    isCommitted: suspend () -> Boolean,
+) {
+    try {
+        activate()
+    } catch (failure: Exception) {
+        val committed = withContext(NonCancellable) {
+            try {
+                isCommitted()
+            } catch (_: Exception) {
+                false
+            }
+        }
+        if (!committed) throw failure
+    }
 }
