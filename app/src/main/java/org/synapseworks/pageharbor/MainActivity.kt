@@ -170,6 +170,9 @@ private const val STATE_MIGRATION_REVIEW_EXPANDED = "migration_review_expanded"
 private const val STATE_MIGRATION_SHOW_ISSUES = "migration_show_issues"
 private const val STATE_RESTORE_DUPLICATE_CHOICE = "restore_duplicate_choice"
 private const val STATE_NEW_PHONE_WORKFLOW_ARMED = "new_phone_workflow_armed"
+private const val STATE_INBOUND_MIGRATION_FLOW = "inbound_migration_flow"
+private const val STATE_INBOUND_MIGRATION_RESTORE_EXISTING_TASK =
+    "inbound_migration_restore_existing_task"
 
 class MainActivity : FragmentActivity() {
     private val session: PageHarborSessionViewModel by viewModels()
@@ -193,6 +196,9 @@ class MainActivity : FragmentActivity() {
     private var migrationShowIssues by mutableStateOf(false)
     private var restoreDuplicateChoice by mutableStateOf(RestoreDuplicateChoice.SKIP_EXACT)
     private var newPhoneWorkflowArmed = false
+    private var inboundMigrationFlow by mutableStateOf(false)
+    private var inboundMigrationRestoreExistingTask = false
+    private var inboundIntentArrivedViaNewIntent = false
     private var composeUiBusy = false
     private var documentsDestinationRequestId by mutableLongStateOf(0L)
     private var scannerSpikeState: ScannerSpikeState
@@ -525,6 +531,13 @@ class MainActivity : FragmentActivity() {
                         backupReminder.markPresented()
                     }
                 }
+                LaunchedEffect(migrationEngineState.operation, inboundMigrationFlow) {
+                    if (migrationEngineState.operation is MigrationOperationStatus.Cancelled) {
+                        if (inboundMigrationFlow) {
+                            finishOrRestoreInboundMigration()
+                        }
+                    }
+                }
                 PageHarborApp(
                     screen = session.screen,
                     onScreenChange = { target ->
@@ -616,6 +629,11 @@ class MainActivity : FragmentActivity() {
         outState.putBoolean(STATE_MIGRATION_SHOW_ISSUES, migrationShowIssues)
         outState.putString(STATE_RESTORE_DUPLICATE_CHOICE, restoreDuplicateChoice.name)
         outState.putBoolean(STATE_NEW_PHONE_WORKFLOW_ARMED, newPhoneWorkflowArmed)
+        outState.putBoolean(STATE_INBOUND_MIGRATION_FLOW, inboundMigrationFlow)
+        outState.putBoolean(
+            STATE_INBOUND_MIGRATION_RESTORE_EXISTING_TASK,
+            inboundMigrationRestoreExistingTask,
+        )
         super.onSaveInstanceState(outState)
     }
 
@@ -633,6 +651,10 @@ class MainActivity : FragmentActivity() {
             ?.let { value -> enumValues<RestoreDuplicateChoice>().firstOrNull { it.name == value } }
             ?: RestoreDuplicateChoice.SKIP_EXACT
         newPhoneWorkflowArmed = savedState.getBoolean(STATE_NEW_PHONE_WORKFLOW_ARMED)
+        inboundMigrationFlow = savedState.getBoolean(STATE_INBOUND_MIGRATION_FLOW)
+        inboundMigrationRestoreExistingTask = savedState.getBoolean(
+            STATE_INBOUND_MIGRATION_RESTORE_EXISTING_TASK,
+        )
     }
 
     override fun onStart() {
@@ -936,12 +958,8 @@ class MainActivity : FragmentActivity() {
             report = operation.completion.toUiMigrationCompletion(),
             showIssues = migrationShowIssues,
         )
-        is MigrationOperationStatus.Cancelled -> UiPortabilityWorkflowState.Operation(
-            title = "Move to RME",
-            heading = "Migration cancelled safely",
-            detail = "Completed documents remain available and no half-published document was left behind.",
-            inProgress = false,
-            primaryActionLabel = "Done",
+        is MigrationOperationStatus.Cancelled -> UiPortabilityWorkflowState.MigrationSource(
+            selectedSource = operation.source.app.toUiMigrationSource(),
         )
         is MigrationOperationStatus.Failed -> UiPortabilityWorkflowState.Operation(
             title = "Move to RME",
@@ -1068,6 +1086,8 @@ class MainActivity : FragmentActivity() {
 
     private fun portabilityCallbacks(): PortabilityCallbacks = PortabilityCallbacks(
         onOpenMigration = {
+            inboundMigrationFlow = false
+            inboundMigrationRestoreExistingTask = false
             portability.dismissResult()
             portabilityRoute = PortabilityRoute.MIGRATION
             migrationReviewExpanded = false
@@ -1100,10 +1120,17 @@ class MainActivity : FragmentActivity() {
         },
         onImportMigration = migration::importDocuments,
         onCancelMigration = {
-            if (!migration.cancelCurrentOperation()) closePortabilitySurface()
+            if (!migration.cancelCurrentOperation() &&
+                migration.state.value.operation is MigrationOperationStatus.PreviewReady
+            ) {
+                migration.dismissResult()
+                if (inboundMigrationFlow) finishOrRestoreInboundMigration()
+            }
         },
         onViewMigratedDocuments = {
             migration.dismissResult()
+            inboundMigrationFlow = false
+            inboundMigrationRestoreExistingTask = false
             portabilityRoute = PortabilityRoute.NONE
             library.selectFolder(null)
             documentsDestinationRequestId++
@@ -1212,12 +1239,37 @@ class MainActivity : FragmentActivity() {
             when (status) {
                 MigrationOperationStatus.Idle,
                 is MigrationOperationStatus.SourceSelected,
-                is MigrationOperationStatus.PreviewReady,
-                is MigrationOperationStatus.Completed,
+                -> {
+                    migration.dismissResult()
+                    portabilityRoute = PortabilityRoute.NONE
+                }
+                is MigrationOperationStatus.PreviewReady -> {
+                    migration.dismissResult()
+                    if (inboundMigrationFlow) finishOrRestoreInboundMigration()
+                    return
+                }
                 is MigrationOperationStatus.Cancelled,
                 is MigrationOperationStatus.Failed,
-                -> migration.dismissResult()
-                else -> migration.cancelCurrentOperation()
+                -> {
+                    migration.dismissResult()
+                    if (inboundMigrationFlow) finishOrRestoreInboundMigration()
+                    return
+                }
+                is MigrationOperationStatus.Completed -> {
+                    migration.dismissResult()
+                    inboundMigrationFlow = false
+                    inboundMigrationRestoreExistingTask = false
+                    portabilityRoute = PortabilityRoute.NONE
+                }
+                is MigrationOperationStatus.Preparing,
+                is MigrationOperationStatus.AwaitingMultipleFiles,
+                is MigrationOperationStatus.AwaitingDocumentTree,
+                is MigrationOperationStatus.Importing,
+                is MigrationOperationStatus.Cancelling,
+                -> {
+                    migration.cancelCurrentOperation()
+                    return
+                }
             }
             migrationReviewExpanded = false
             migrationShowIssues = false
@@ -1469,6 +1521,7 @@ class MainActivity : FragmentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        inboundIntentArrivedViaNewIntent = true
         handleInboundIntent(intent)
     }
 
@@ -1608,10 +1661,14 @@ class MainActivity : FragmentActivity() {
             InboundShareInput.NotShareIntent -> Unit
             is InboundShareInput.Failure -> {
                 consumeInboundActivityIntent()
+                inboundIntentArrivedViaNewIntent = false
                 session.failImportRequest(input.reason)
             }
             is InboundShareInput.Ready -> {
                 consumeInboundActivityIntent()
+                inboundMigrationFlow = true
+                inboundMigrationRestoreExistingTask = inboundIntentArrivedViaNewIntent
+                inboundIntentArrivedViaNewIntent = false
                 portability.dismissResult()
                 portabilityRoute = PortabilityRoute.MIGRATION
                 selectedMigrationSource = ScannerMigrationSource.OTHER
@@ -1621,6 +1678,16 @@ class MainActivity : FragmentActivity() {
                 migration.startInboundShare(input.resources, MigrationSourceApp.OTHER)
             }
         }
+    }
+
+    private fun finishOrRestoreInboundMigration() {
+        val restoreExistingTask = inboundMigrationRestoreExistingTask
+        inboundMigrationFlow = false
+        inboundMigrationRestoreExistingTask = false
+        portabilityRoute = PortabilityRoute.NONE
+        migrationReviewExpanded = false
+        migrationShowIssues = false
+        if (!restoreExistingTask) finish()
     }
 
     private fun Intent.inboundShareFingerprint(): String = when (

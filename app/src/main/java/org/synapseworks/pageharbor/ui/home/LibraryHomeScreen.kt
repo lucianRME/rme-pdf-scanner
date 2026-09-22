@@ -179,6 +179,8 @@ fun LibraryHomeScreen(
     onTopLevelBackSequenceReset: () -> Unit,
     onTransientUiBusyChange: (Boolean) -> Unit = {},
     documentsDestinationRequestId: Long = 0L,
+    selectedDestination: LibraryDestination = LibraryDestination.Home,
+    onDestinationSelected: (LibraryDestination) -> Unit = {},
 ) {
     var namingDialog by remember { mutableStateOf<NamingDialog?>(null) }
     var movingDocument by remember { mutableStateOf<LibraryDocumentSummary?>(null) }
@@ -186,8 +188,7 @@ fun LibraryHomeScreen(
     var mergeSelection by remember { mutableStateOf<List<String>>(emptyList()) }
     var confirmFolderDelete by remember { mutableStateOf(false) }
     var toolsQuery by rememberSaveable { mutableStateOf("") }
-    var destinationIndex by rememberSaveable { mutableIntStateOf(LibraryDestination.Home.ordinal) }
-    val destination = LibraryDestination.entries[destinationIndex]
+    val destination = selectedDestination
     val coroutineScope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     val selectedFolder = libraryUiState.folders.firstOrNull {
@@ -220,7 +221,7 @@ fun LibraryHomeScreen(
     }
     LaunchedEffect(documentsDestinationRequestId) {
         if (documentsDestinationRequestId > 0L) {
-            destinationIndex = LibraryDestination.Documents.ordinal
+            onDestinationSelected(LibraryDestination.Documents)
         }
     }
     DisposableEffect(Unit) {
@@ -272,7 +273,7 @@ fun LibraryHomeScreen(
                 selectedDestination = destination,
                 onDestinationSelected = { selected ->
                     if (selected != destination) onTopLevelBackSequenceReset()
-                    destinationIndex = selected.ordinal
+                    onDestinationSelected(selected)
                 },
             )
         },
@@ -313,15 +314,15 @@ fun LibraryHomeScreen(
                 onImportFiles = onImportFiles,
                 onCancelImport = onCancelImport,
                 onViewScanResult = onViewScanResult,
-                onViewAllDocuments = { destinationIndex = LibraryDestination.Documents.ordinal },
+                onViewAllDocuments = { onDestinationSelected(LibraryDestination.Documents) },
                 onOpenDocument = onOpenDocument,
                 onRenameDocument = { namingDialog = NamingDialog.RenameDocument(it) },
                 onMoveDocument = { movingDocument = it },
                 onDeleteDocument = { deletingDocument = it },
                 mergeSelection = mergeSelection,
                 onToggleMerge = { document ->
-                    mergeSelection = mergeSelection.toggle(document.id)
-                    destinationIndex = LibraryDestination.Documents.ordinal
+                mergeSelection = mergeSelection.toggle(document.id)
+                    onDestinationSelected(LibraryDestination.Documents)
                 },
             )
 
@@ -363,7 +364,7 @@ fun LibraryHomeScreen(
                 onCancelImport = onCancelImport,
                 onViewScanResult = onViewScanResult,
                 onOpenDocuments = { message ->
-                    destinationIndex = LibraryDestination.Documents.ordinal
+                    onDestinationSelected(LibraryDestination.Documents)
                     coroutineScope.launch {
                         snackbarHostState.currentSnackbarData?.dismiss()
                         snackbarHostState.showSnackbar(message)
@@ -1308,7 +1309,7 @@ private data class ToolLauncherItemModel(
     val onClick: () -> Unit,
 )
 
-private enum class LibraryDestination(
+enum class LibraryDestination(
     val titleResource: Int,
     val labelResource: Int,
 ) {

@@ -7,7 +7,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
@@ -40,6 +42,7 @@ import org.synapseworks.pageharbor.security.AppLockSetupResult
 import org.synapseworks.pageharbor.security.AppLockState
 import org.synapseworks.pageharbor.security.AutoLockTimeout
 import org.synapseworks.pageharbor.ui.home.LibraryHomeScreen
+import org.synapseworks.pageharbor.ui.home.LibraryDestination
 import org.synapseworks.pageharbor.ui.home.OcrResultScreen
 import org.synapseworks.pageharbor.ui.home.ScanResultScreen
 import org.synapseworks.pageharbor.ui.portability.BackupEncryptionUiState
@@ -141,6 +144,10 @@ fun PageHarborApp(
         var showAbout by remember { mutableStateOf(false) }
         var showAppLockSettings by remember { mutableStateOf(false) }
         var libraryTransientUiBusy by remember { mutableStateOf(false) }
+        var libraryDestinationIndex by rememberSaveable {
+            mutableIntStateOf(LibraryDestination.Home.ordinal)
+        }
+        val libraryDestination = LibraryDestination.entries[libraryDestinationIndex]
         var backupEncryption by remember { mutableStateOf(BackupEncryptionUiState()) }
         val scanCancelledMessage = stringResource(R.string.home_scan_cancelled)
         val scannerErrorMessage = stringResource(R.string.home_scanner_error)
@@ -495,6 +502,8 @@ fun PageHarborApp(
             onTopLevelBackSequenceReset = exitController::reset,
             onTransientUiBusyChange = { libraryTransientUiBusy = it },
             documentsDestinationRequestId = documentsDestinationRequestId,
+            selectedDestination = libraryDestination,
+            onDestinationSelected = { libraryDestinationIndex = it.ordinal },
         )
         }
 
