@@ -59,6 +59,8 @@ RME was formerly **PageHarbor**. The Android application ID remains `org.synapse
 
 RME PDF Scanner is licensed under the [Apache License 2.0](LICENSE).
 
+The Apache License 2.0 applies to the RME source code. The RME, RME PDF Scanner, and SynapseWorks names and associated logos, icons, and brand identity are not granted for use as branding for derivative applications under that license. Forks may accurately describe their origin but should use their own product identity. See [TRADEMARKS.md](TRADEMARKS.md).
+
 <a href="https://alternativeto.net/software/rme-pdf-scanner/about/?utm_source=badge&amp;utm_medium=referral">
   <img
     src="https://alternativeto.net/static/badges/badge-compact-light.svg"
