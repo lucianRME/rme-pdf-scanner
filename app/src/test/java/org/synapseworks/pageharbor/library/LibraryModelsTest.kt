@@ -6,8 +6,8 @@ import org.junit.Test
 
 class LibraryModelsTest {
     @Test
-    fun searchQueryUsesBoundedQuotedUnicodePrefixes() {
-        assertEquals("factura* AND 2026*", " Factura, 2026! ".toFtsPrefixQuery())
+    fun searchQueryUsesBoundedUnicodePrefixesAndPortableImplicitAnd() {
+        assertEquals("factura* 2026*", " Factura, 2026! ".toFtsPrefixQuery())
         assertEquals("café*", "café".toFtsPrefixQuery())
         assertNull("---".toFtsPrefixQuery())
     }

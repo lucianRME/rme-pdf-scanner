@@ -150,6 +150,8 @@ data class LibraryDocumentReference(
 data class DocumentSession(
     val pages: List<DocumentPage> = emptyList(),
     val directPdfSource: DocumentResource? = null,
+    /** Durable imported PDF provenance. A multi-PDF edit may retain several originals. */
+    val originalPdfSources: List<DocumentResource> = directPdfSource?.let(::listOf).orEmpty(),
     internal val directPdfPageIds: List<DocumentPageId> = emptyList(),
     val libraryDocument: LibraryDocumentReference? = null,
 ) {
@@ -159,6 +161,9 @@ data class DocumentSession(
         }
         require(directPdfSource != null || directPdfPageIds.isEmpty()) {
             "A direct PDF page snapshot requires a direct PDF source."
+        }
+        require(directPdfSource == null || directPdfSource in originalPdfSources) {
+            "A direct PDF source must also be retained as original provenance."
         }
     }
 
@@ -207,6 +212,7 @@ data class DocumentSession(
     internal fun ownedResources(): List<DocumentResource> = buildList {
         pages.mapTo(this, DocumentPage::source)
         directPdfSource?.let(::add)
+        addAll(originalPdfSources)
     }.filter { resource ->
         resource.ownership == DocumentResourceOwnership.RME_OWNED_TEMPORARY
     }.distinctBy { resource ->

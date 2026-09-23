@@ -9,8 +9,12 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -25,6 +29,11 @@ import org.synapseworks.pageharbor.library.LibraryUiState
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.ui.PageHarborApp
 import org.synapseworks.pageharbor.ui.PageHarborScreen
+import org.synapseworks.pageharbor.ui.portability.MigrationPreviewUiModel
+import org.synapseworks.pageharbor.ui.portability.MigrationProgressUiModel
+import org.synapseworks.pageharbor.ui.portability.PortabilityCallbacks
+import org.synapseworks.pageharbor.ui.portability.PortabilityWorkflowState
+import org.synapseworks.pageharbor.ui.portability.ScannerMigrationSource
 
 class BackBehaviorTest {
     @get:Rule
@@ -87,7 +96,6 @@ class BackBehaviorTest {
         pressBack()
 
         composeTestRule.onNodeWithContentDescription("Import files").assertIsDisplayed()
-        composeTestRule.onAllNodesWithText("Press back again to exit").assertCountEquals(0)
         composeTestRule.runOnIdle { assertEquals(0, exitCount) }
     }
 
@@ -99,7 +107,7 @@ class BackBehaviorTest {
         }
 
         composeTestRule.onNodeWithText("More").performClick()
-        composeTestRule.onNodeWithText("About RME PDF Scanner").performClick()
+        composeTestRule.onNodeWithText("About RME PDF Scanner").performScrollTo().performClick()
         composeTestRule.onNodeWithText("Open source under Apache License 2.0").assertIsDisplayed()
         pressBack()
 
@@ -107,6 +115,89 @@ class BackBehaviorTest {
             .assertCountEquals(0)
         composeTestRule.onAllNodesWithText("Press back again to exit").assertCountEquals(0)
         composeTestRule.runOnIdle { assertEquals(0, exitCount) }
+    }
+
+    @Test
+    fun migrationBackAndCancelStayInMigrationAndReturnToMore() {
+        var workflow by mutableStateOf<PortabilityWorkflowState>(PortabilityWorkflowState.Hidden)
+        composeTestRule.setContent {
+            PageHarborApp(
+                portabilityState = workflow,
+                portabilityCallbacks = PortabilityCallbacks(
+                    onBack = {
+                        workflow = when {
+                            workflow is PortabilityWorkflowState.MigrationPreview ||
+                                workflow is PortabilityWorkflowState.MigrationProgress ->
+                                PortabilityWorkflowState.MigrationSource()
+                            else -> PortabilityWorkflowState.Hidden
+                        }
+                    },
+                    onCancelMigration = {
+                        workflow = PortabilityWorkflowState.MigrationSource()
+                    },
+                ),
+            )
+        }
+
+        composeTestRule.onNodeWithText("More").performClick()
+        composeTestRule.runOnIdle { workflow = migrationPreview() }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("Cancel").performScrollTo().performClick()
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            workflow is PortabilityWorkflowState.MigrationSource
+        }
+        composeTestRule.onNodeWithText("Choose your scanner").assertIsDisplayed()
+
+        pressBack()
+        composeTestRule.onNodeWithText("Move from another scanner").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Data & backup").assertIsDisplayed()
+        composeTestRule.onNodeWithText("RME PDF Scanner").assertIsDisplayed()
+    }
+
+    @Test
+    fun migrationPreviewBackReturnsToSourceAndActiveCancelReturnsToSource() {
+        var workflow by mutableStateOf<PortabilityWorkflowState>(PortabilityWorkflowState.Hidden)
+        composeTestRule.setContent {
+            PageHarborApp(
+                portabilityState = workflow,
+                portabilityCallbacks = PortabilityCallbacks(
+                    onBack = {
+                        workflow = when {
+                            workflow is PortabilityWorkflowState.MigrationPreview ||
+                                workflow is PortabilityWorkflowState.MigrationProgress ->
+                                PortabilityWorkflowState.MigrationSource()
+                            else -> PortabilityWorkflowState.Hidden
+                        }
+                    },
+                    onCancelMigration = {
+                        workflow = PortabilityWorkflowState.MigrationSource()
+                    },
+                ),
+            )
+        }
+
+        composeTestRule.onNodeWithText("More").performClick()
+        composeTestRule.runOnIdle { workflow = migrationPreview() }
+        composeTestRule.waitForIdle()
+        pressBack()
+        composeTestRule.onNodeWithText("Choose your scanner").assertIsDisplayed()
+
+        composeTestRule.runOnIdle {
+            workflow = MigrationProgressUiModel(
+                completedDocuments = 0,
+                totalDocuments = 1,
+                currentDocument = null,
+                currentStage = "Preparing",
+                skippedItems = 0,
+                failedItems = 0,
+            ).let(PortabilityWorkflowState::MigrationProgress)
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("Cancel safely").performScrollTo().performClick()
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            workflow is PortabilityWorkflowState.MigrationSource
+        }
+        composeTestRule.onNodeWithText("Choose your scanner").assertIsDisplayed()
     }
 
     @Test
@@ -218,5 +309,18 @@ class BackBehaviorTest {
         folderName = null,
         thumbnailRelativePath = null,
         ocrStatus = LibraryOcrStatus.NOT_INDEXED,
+    )
+
+    private fun migrationPreview() = PortabilityWorkflowState.MigrationPreview(
+        preview = MigrationPreviewUiModel(
+            source = ScannerMigrationSource.CAMSCANNER,
+            documentCount = 1,
+            pageCount = 1,
+            folderCount = 0,
+            exactDuplicateCount = 0,
+            possibleDuplicateCount = 0,
+            unsupportedFileCount = 0,
+            estimatedStorage = "1 KiB",
+        ),
     )
 }

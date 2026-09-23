@@ -68,8 +68,8 @@ android {
         applicationId = "org.synapseworks.pageharbor"
         minSdk = 26
         targetSdk = 36
-        versionCode = 15
-        versionName = "1.4.0"
+        versionCode = 16
+        versionName = "1.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "GIT_REVISION", "\"unknown\"")
@@ -198,6 +198,7 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     implementation(libs.play.review)
+    implementation(libs.androidx.biometric)
     ksp(libs.androidx.room.compiler)
 
     testImplementation(libs.junit)

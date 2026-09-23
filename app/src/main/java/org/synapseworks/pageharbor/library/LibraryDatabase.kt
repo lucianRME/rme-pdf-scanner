@@ -8,11 +8,16 @@ import androidx.room.RoomDatabase
 @Database(
     entities = [
         LibraryFolderEntity::class,
+        LibraryMetadataEntity::class,
+        LibraryDataOperationEntity::class,
         LibraryDocumentEntity::class,
         LibraryPageEntity::class,
+        LibrarySourceAssetEntity::class,
+        LibraryDataOperationItemEntity::class,
+        LibraryDataOperationSourceEntity::class,
         LibraryDocumentSearchEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class LibraryDatabase : RoomDatabase() {
@@ -27,7 +32,9 @@ abstract class LibraryDatabase : RoomDatabase() {
                 context.applicationContext,
                 LibraryDatabase::class.java,
                 LIBRARY_DATABASE_NAME,
-            ).build().also { database -> instance = database }
+            ).addMigrations(MIGRATION_1_2)
+                .build()
+                .also { database -> instance = database }
         }
     }
 }

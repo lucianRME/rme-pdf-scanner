@@ -16,7 +16,8 @@ abstract class LibraryDao {
                d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status
         FROM library_documents AS d
         LEFT JOIN library_folders AS f ON f.folder_id = d.folder_id
-        WHERE (:folderId IS NULL OR d.folder_id = :folderId)
+        WHERE d.library_state = 'ACTIVE'
+          AND (:folderId IS NULL OR d.folder_id = :folderId)
         ORDER BY d.modified_at DESC, d.title COLLATE NOCASE ASC
         """,
     )
@@ -28,7 +29,8 @@ abstract class LibraryDao {
                d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status
         FROM library_documents AS d
         LEFT JOIN library_folders AS f ON f.folder_id = d.folder_id
-        WHERE (:folderId IS NULL OR d.folder_id = :folderId)
+        WHERE d.library_state = 'ACTIVE'
+          AND (:folderId IS NULL OR d.folder_id = :folderId)
         ORDER BY d.created_at DESC, d.title COLLATE NOCASE ASC
         """,
     )
@@ -40,7 +42,8 @@ abstract class LibraryDao {
                d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status
         FROM library_documents AS d
         LEFT JOIN library_folders AS f ON f.folder_id = d.folder_id
-        WHERE (:folderId IS NULL OR d.folder_id = :folderId)
+        WHERE d.library_state = 'ACTIVE'
+          AND (:folderId IS NULL OR d.folder_id = :folderId)
         ORDER BY d.title COLLATE NOCASE ASC, d.modified_at DESC
         """,
     )
@@ -55,7 +58,8 @@ abstract class LibraryDao {
         FROM library_document_search AS s
         JOIN library_documents AS d ON d.row_id = s.rowid
         LEFT JOIN library_folders AS f ON f.folder_id = d.folder_id
-        WHERE library_document_search MATCH :ftsQuery
+        WHERE d.library_state = 'ACTIVE'
+          AND library_document_search MATCH :ftsQuery
         ORDER BY title_match DESC, d.modified_at DESC, d.title COLLATE NOCASE ASC
         """,
     )
@@ -63,26 +67,124 @@ abstract class LibraryDao {
 
     @Query(
         """
-        SELECT f.folder_id, f.name, COUNT(d.document_id) AS document_count
+        SELECT f.folder_id, f.name, f.parent_folder_id,
+               COUNT(d.document_id) AS document_count
         FROM library_folders AS f
-        LEFT JOIN library_documents AS d ON d.folder_id = f.folder_id
+        LEFT JOIN library_documents AS d
+          ON d.folder_id = f.folder_id AND d.library_state = 'ACTIVE'
         GROUP BY f.folder_id
         ORDER BY f.name COLLATE NOCASE ASC
         """,
     )
     abstract fun observeFolders(): Flow<List<LibraryFolderRow>>
 
-    @Query("SELECT * FROM library_documents WHERE document_id = :documentId LIMIT 1")
+    @Query("SELECT * FROM library_documents WHERE document_id = :documentId AND library_state = 'ACTIVE' LIMIT 1")
     abstract suspend fun document(documentId: String): LibraryDocumentEntity?
 
-    @Query("SELECT * FROM library_pages WHERE document_id = :documentId ORDER BY page_position ASC")
+    @Query("SELECT * FROM library_documents WHERE document_id = :documentId LIMIT 1")
+    abstract suspend fun documentAnyState(documentId: String): LibraryDocumentEntity?
+
+    @Query(
+        """
+        SELECT p.* FROM library_pages AS p
+        JOIN library_documents AS d ON d.document_id = p.document_id
+        WHERE p.document_id = :documentId AND d.library_state = 'ACTIVE'
+        ORDER BY p.page_position ASC
+        """,
+    )
     abstract suspend fun pages(documentId: String): List<LibraryPageEntity>
+
+    @Query("SELECT * FROM library_pages WHERE document_id = :documentId ORDER BY page_position ASC")
+    abstract suspend fun pagesAnyState(documentId: String): List<LibraryPageEntity>
+
+    @Query("SELECT * FROM library_source_assets WHERE document_id = :documentId ORDER BY created_at, asset_id")
+    abstract suspend fun sourceAssets(documentId: String): List<LibrarySourceAssetEntity>
 
     @Query("SELECT * FROM library_folders WHERE folder_id = :folderId LIMIT 1")
     abstract suspend fun folder(folderId: String): LibraryFolderEntity?
 
-    @Query("SELECT * FROM library_folders WHERE normalized_name = :normalizedName LIMIT 1")
-    abstract suspend fun folderByNormalizedName(normalizedName: String): LibraryFolderEntity?
+    @Query(
+        """
+        SELECT * FROM library_folders
+        WHERE parent_scope = :parentScope AND normalized_name = :normalizedName
+        LIMIT 1
+        """,
+    )
+    abstract suspend fun folderByNormalizedName(
+        normalizedName: String,
+        parentScope: String,
+    ): LibraryFolderEntity?
+
+    @Query("SELECT * FROM library_folders ORDER BY folder_id LIMIT :limit OFFSET :offset")
+    abstract suspend fun foldersPage(offset: Int, limit: Int): List<LibraryFolderEntity>
+
+    @Query("SELECT * FROM library_folders WHERE parent_folder_id IS :parentFolderId ORDER BY name COLLATE NOCASE")
+    abstract suspend fun childFolders(parentFolderId: String?): List<LibraryFolderEntity>
+
+    @Query(
+        """
+        SELECT * FROM library_documents
+        WHERE library_state = 'ACTIVE' AND row_id > :afterRowId
+        ORDER BY row_id ASC
+        LIMIT :limit
+        """,
+    )
+    abstract suspend fun activeDocumentsPage(
+        afterRowId: Long,
+        limit: Int,
+    ): List<LibraryDocumentEntity>
+
+    @Query(
+        """
+        SELECT * FROM library_pages
+        WHERE document_id = :documentId AND page_position > :afterPosition
+        ORDER BY page_position ASC
+        LIMIT :limit
+        """,
+    )
+    abstract suspend fun pagesPage(
+        documentId: String,
+        afterPosition: Int,
+        limit: Int,
+    ): List<LibraryPageEntity>
+
+    @Query(
+        """
+        SELECT * FROM library_documents
+        WHERE library_state = 'ACTIVE'
+          AND content_hash_version = :hashVersion
+          AND content_sha256 = :sha256
+        ORDER BY row_id ASC
+        """,
+    )
+    abstract suspend fun exactDuplicateCandidates(
+        hashVersion: Int,
+        sha256: String,
+    ): List<LibraryDocumentEntity>
+
+    @Query("SELECT * FROM library_metadata WHERE metadata_id = :metadataId LIMIT 1")
+    abstract suspend fun metadata(metadataId: String = LIBRARY_METADATA_ID): LibraryMetadataEntity?
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    protected abstract suspend fun insertMetadata(entity: LibraryMetadataEntity): Long
+
+    @Query(
+        """
+        UPDATE library_metadata
+        SET library_revision = library_revision + 1, modified_at = :modifiedAt
+        WHERE metadata_id = :metadataId
+        """,
+    )
+    protected abstract suspend fun incrementLibraryRevision(
+        modifiedAt: Long,
+        metadataId: String = LIBRARY_METADATA_ID,
+    ): Int
+
+    @Transaction
+    open suspend fun bumpLibraryRevision(modifiedAt: Long) {
+        insertMetadata(LibraryMetadataEntity(modifiedAtMillis = modifiedAt))
+        check(incrementLibraryRevision(modifiedAt) == 1)
+    }
 
     @Insert
     protected abstract suspend fun insertDocument(entity: LibraryDocumentEntity): Long
@@ -93,34 +195,123 @@ abstract class LibraryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     protected abstract suspend fun insertPages(entities: List<LibraryPageEntity>)
 
+    @Insert
+    protected abstract suspend fun insertSourceAssetsInternal(entities: List<LibrarySourceAssetEntity>)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     protected abstract suspend fun insertSearch(entity: LibraryDocumentSearchEntity)
 
     @Insert
-    abstract suspend fun insertFolder(entity: LibraryFolderEntity)
+    protected abstract suspend fun insertFolderInternal(entity: LibraryFolderEntity)
 
     @Update
-    abstract suspend fun updateFolder(entity: LibraryFolderEntity)
+    protected abstract suspend fun updateFolderInternal(entity: LibraryFolderEntity)
+
+    @Transaction
+    open suspend fun insertFolder(entity: LibraryFolderEntity) {
+        insertFolderInternal(
+            entity.copy(parentScope = libraryFolderParentScope(entity.parentFolderId)),
+        )
+        bumpLibraryRevision(entity.modifiedAtMillis)
+    }
+
+    @Transaction
+    open suspend fun updateFolder(entity: LibraryFolderEntity) {
+        updateFolderInternal(
+            entity.copy(parentScope = libraryFolderParentScope(entity.parentFolderId)),
+        )
+        bumpLibraryRevision(entity.modifiedAtMillis)
+    }
 
     @Query("DELETE FROM library_pages WHERE document_id = :documentId")
     protected abstract suspend fun deletePages(documentId: String)
 
+    @Query("DELETE FROM library_source_assets WHERE document_id = :documentId")
+    protected abstract suspend fun deleteSourceAssets(documentId: String)
+
     @Query("DELETE FROM library_document_search WHERE rowid = :rowId")
     protected abstract suspend fun deleteSearch(rowId: Long)
 
-    @Query("DELETE FROM library_documents WHERE document_id = :documentId")
-    protected abstract suspend fun deleteDocumentRow(documentId: String)
+    @Query("DELETE FROM library_documents WHERE document_id = :documentId AND library_state = 'ACTIVE'")
+    protected abstract suspend fun deleteDocumentRow(documentId: String): Int
 
-    @Query("UPDATE library_documents SET folder_id = NULL, modified_at = :modifiedAt WHERE folder_id = :folderId")
-    protected abstract suspend fun moveFolderDocumentsToRoot(folderId: String, modifiedAt: Long)
+    @Query(
+        """
+        UPDATE library_documents
+        SET folder_id = :parentFolderId, modified_at = :modifiedAt
+        WHERE folder_id = :folderId AND library_state = 'ACTIVE'
+        """,
+    )
+    protected abstract suspend fun moveFolderDocumentsToParent(
+        folderId: String,
+        parentFolderId: String?,
+        modifiedAt: Long,
+    )
+
+    @Query(
+        """
+        UPDATE library_folders
+        SET parent_folder_id = :parentFolderId,
+            parent_scope = :parentScope,
+            modified_at = :modifiedAt
+        WHERE parent_scope = :folderId
+        """,
+    )
+    protected abstract suspend fun reparentChildFolders(
+        folderId: String,
+        parentFolderId: String?,
+        parentScope: String,
+        modifiedAt: Long,
+    )
 
     @Query("DELETE FROM library_folders WHERE folder_id = :folderId")
     protected abstract suspend fun deleteFolderRow(folderId: String)
 
-    @Query("UPDATE library_documents SET folder_id = :folderId, modified_at = :modifiedAt WHERE document_id = :documentId")
-    abstract suspend fun moveDocument(documentId: String, folderId: String?, modifiedAt: Long): Int
+    @Query(
+        """
+        SELECT EXISTS(
+            SELECT 1
+            FROM library_folders AS child
+            JOIN library_folders AS sibling
+              ON sibling.parent_scope = :targetParentScope
+             AND sibling.normalized_name = child.normalized_name
+             AND sibling.folder_id != :folderId
+            WHERE child.parent_folder_id = :folderId
+        )
+        """,
+    )
+    abstract suspend fun folderDeletionWouldConflict(
+        folderId: String,
+        targetParentScope: String,
+    ): Boolean
 
-    @Query("UPDATE library_documents SET title = :title, modified_at = :modifiedAt WHERE document_id = :documentId")
+    @Query(
+        """
+        UPDATE library_documents
+        SET folder_id = :folderId, modified_at = :modifiedAt
+        WHERE document_id = :documentId AND library_state = 'ACTIVE'
+        """,
+    )
+    protected abstract suspend fun moveDocumentRow(
+        documentId: String,
+        folderId: String?,
+        modifiedAt: Long,
+    ): Int
+
+    @Transaction
+    open suspend fun moveDocument(documentId: String, folderId: String?, modifiedAt: Long): Int {
+        val changed = moveDocumentRow(documentId, folderId, modifiedAt)
+        if (changed == 1) bumpLibraryRevision(modifiedAt)
+        return changed
+    }
+
+    @Query(
+        """
+        UPDATE library_documents
+        SET title = :title, modified_at = :modifiedAt
+        WHERE document_id = :documentId AND library_state = 'ACTIVE'
+        """,
+    )
     protected abstract suspend fun updateDocumentTitle(
         documentId: String,
         title: String,
@@ -148,22 +339,26 @@ abstract class LibraryDao {
         """
         UPDATE library_documents
         SET ocr_status = :ocrStatus, modified_at = :modifiedAt
-        WHERE document_id = :documentId
+        WHERE document_id = :documentId AND library_state = 'ACTIVE'
         """,
     )
     protected abstract suspend fun updateDocumentOcrStatus(
         documentId: String,
         ocrStatus: String,
         modifiedAt: Long,
-    )
+    ): Int
 
     @Transaction
     open suspend fun replaceDocument(
         document: LibraryDocumentEntity,
         pages: List<LibraryPageEntity>,
         ocrText: String,
+        sourceAssets: List<LibrarySourceAssetEntity> = emptyList(),
     ): LibraryDocumentEntity {
-        val stored = document(document.documentId)
+        require(document.libraryState == LibraryDocumentState.ACTIVE.name)
+        require(document.pendingOperationId == null)
+        val stored = documentAnyState(document.documentId)
+        check(stored == null || stored.libraryState == LibraryDocumentState.ACTIVE.name)
         val rowId = if (stored == null) {
             insertDocument(document)
         } else {
@@ -171,15 +366,12 @@ abstract class LibraryDao {
             stored.rowId
         }
         deletePages(document.documentId)
+        deleteSourceAssets(document.documentId)
         insertPages(pages)
+        if (sourceAssets.isNotEmpty()) insertSourceAssetsInternal(sourceAssets)
         deleteSearch(rowId)
-        insertSearch(
-            LibraryDocumentSearchEntity(
-                rowId = rowId,
-                title = document.title,
-                ocrText = ocrText,
-            ),
-        )
+        insertSearch(LibraryDocumentSearchEntity(rowId, document.title, ocrText))
+        bumpLibraryRevision(document.modifiedAtMillis)
         return document.copy(rowId = rowId)
     }
 
@@ -187,15 +379,23 @@ abstract class LibraryDao {
     open suspend fun deleteDocument(documentId: String): LibraryDocumentEntity? {
         val existing = document(documentId) ?: return null
         deleteSearch(existing.rowId)
-        deleteDocumentRow(documentId)
+        if (deleteDocumentRow(documentId) != 1) return null
+        bumpLibraryRevision(existing.modifiedAtMillis)
         return existing
     }
 
     @Transaction
     open suspend fun deleteFolder(folderId: String, modifiedAt: Long): Boolean {
-        if (folder(folderId) == null) return false
-        moveFolderDocumentsToRoot(folderId, modifiedAt)
+        val existing = folder(folderId) ?: return false
+        moveFolderDocumentsToParent(folderId, existing.parentFolderId, modifiedAt)
         deleteFolderRow(folderId)
+        reparentChildFolders(
+            folderId = folderId,
+            parentFolderId = existing.parentFolderId,
+            parentScope = libraryFolderParentScope(existing.parentFolderId),
+            modifiedAt = modifiedAt,
+        )
+        bumpLibraryRevision(modifiedAt)
         return true
     }
 
@@ -204,6 +404,7 @@ abstract class LibraryDao {
         val existing = document(documentId) ?: return false
         if (updateDocumentTitle(documentId, title, modifiedAt) != 1) return false
         updateSearchTitle(existing.rowId, title)
+        bumpLibraryRevision(modifiedAt)
         return true
     }
 
@@ -220,7 +421,7 @@ abstract class LibraryDao {
         pages.forEach { (pageId, values) ->
             if (updatePageOcr(documentId, pageId, values.first, values.second) != 1) return false
         }
-        updateDocumentOcrStatus(documentId, ocrStatus, modifiedAt)
+        if (updateDocumentOcrStatus(documentId, ocrStatus, modifiedAt) != 1) return false
         deleteSearch(existing.rowId)
         insertSearch(
             LibraryDocumentSearchEntity(
@@ -229,6 +430,167 @@ abstract class LibraryDao {
                 ocrText = pages.joinToString("\n\n") { (_, values) -> values.first.orEmpty() },
             ),
         )
+        bumpLibraryRevision(modifiedAt)
         return true
     }
+
+    @Insert
+    abstract suspend fun insertOperation(entity: LibraryDataOperationEntity)
+
+    @Update
+    abstract suspend fun updateOperation(entity: LibraryDataOperationEntity)
+
+    @Query("SELECT * FROM library_data_operations WHERE operation_id = :operationId LIMIT 1")
+    abstract suspend fun operation(operationId: String): LibraryDataOperationEntity?
+
+    @Query("SELECT * FROM library_data_operations WHERE operation_id = :operationId LIMIT 1")
+    abstract fun observeOperation(operationId: String): Flow<LibraryDataOperationEntity?>
+
+    @Query(
+        """
+        SELECT * FROM library_data_operations
+        WHERE phase NOT IN ('COMPLETED', 'CANCELLED', 'FAILED')
+        ORDER BY updated_at ASC
+        """,
+    )
+    abstract suspend fun recoverableOperations(): List<LibraryDataOperationEntity>
+
+    @Query("UPDATE library_data_operations SET cancel_requested = 1, updated_at = :updatedAt WHERE operation_id = :operationId")
+    abstract suspend fun requestOperationCancellation(operationId: String, updatedAt: Long): Int
+
+    @Insert
+    abstract suspend fun insertOperationItems(entities: List<LibraryDataOperationItemEntity>)
+
+    @Insert
+    abstract suspend fun insertOperationSources(entities: List<LibraryDataOperationSourceEntity>)
+
+    @Query("SELECT * FROM library_data_operation_items WHERE operation_id = :operationId ORDER BY ordinal")
+    abstract suspend fun operationItems(operationId: String): List<LibraryDataOperationItemEntity>
+
+    @Query("SELECT * FROM library_data_operation_sources WHERE item_id = :itemId ORDER BY source_position")
+    abstract suspend fun operationSources(itemId: String): List<LibraryDataOperationSourceEntity>
+
+    @Query("SELECT * FROM library_documents WHERE pending_operation_id = :operationId ORDER BY row_id")
+    abstract suspend fun pendingDocuments(operationId: String): List<LibraryDocumentEntity>
+
+    @Query("DELETE FROM library_documents WHERE pending_operation_id = :operationId AND library_state = 'PENDING'")
+    protected abstract suspend fun deletePendingDocuments(operationId: String)
+
+    @Query("DELETE FROM library_data_operations WHERE operation_id = :operationId")
+    protected abstract suspend fun deleteOperationRow(operationId: String)
+
+    @Transaction
+    open suspend fun deleteCleanedPendingOperation(operationId: String) {
+        deletePendingDocuments(operationId)
+        deleteOperationRow(operationId)
+    }
+
+    @Insert
+    protected abstract suspend fun insertRestorePages(entities: List<LibraryPageEntity>)
+
+    @Insert
+    protected abstract suspend fun insertRestoreSourceAssets(entities: List<LibrarySourceAssetEntity>)
+
+    @Update
+    protected abstract suspend fun updateOperationItemInternal(entity: LibraryDataOperationItemEntity)
+
+    @Query(
+        """
+        UPDATE library_data_operation_items
+        SET item_state = 'ACTIVE'
+        WHERE operation_id = :operationId AND item_state = 'PREPARED'
+        """,
+    )
+    protected abstract suspend fun activatePreparedRestoreItems(operationId: String)
+
+    @Transaction
+    open suspend fun insertRestoreOperation(
+        operation: LibraryDataOperationEntity,
+        items: List<LibraryDataOperationItemEntity>,
+    ) {
+        require(items.all { it.operationId == operation.operationId })
+        insertOperation(operation)
+        if (items.isNotEmpty()) insertOperationItems(items)
+    }
+
+    @Transaction
+    open suspend fun insertPendingRestoreDocument(
+        document: LibraryDocumentEntity,
+        pages: List<LibraryPageEntity>,
+        sourceAssets: List<LibrarySourceAssetEntity>,
+        updatedItem: LibraryDataOperationItemEntity,
+        updatedOperation: LibraryDataOperationEntity,
+    ) {
+        require(document.libraryState == LibraryDocumentState.PENDING.name)
+        val operationId = requireNotNull(document.pendingOperationId)
+        require(updatedOperation.operationId == operationId)
+        require(updatedItem.operationId == operationId)
+        require(updatedItem.targetDocumentId == document.documentId)
+        require(pages.isNotEmpty() && pages.all { it.documentId == document.documentId })
+        require(sourceAssets.all { it.documentId == document.documentId })
+        check(documentAnyState(document.documentId) == null)
+        insertDocument(document)
+        insertRestorePages(pages)
+        if (sourceAssets.isNotEmpty()) insertRestoreSourceAssets(sourceAssets)
+        updateOperationItemInternal(updatedItem)
+        updateOperation(updatedOperation)
+    }
+
+    @Transaction
+    open suspend fun activateRestoreOperation(
+        operationId: String,
+        folders: List<LibraryFolderEntity>,
+        assignments: List<LibraryRestoreDocumentActivation>,
+        completedOperation: LibraryDataOperationEntity,
+        modifiedAt: Long,
+    ) {
+        val storedOperation = requireNotNull(operation(operationId))
+        require(completedOperation.operationId == operationId)
+        require(completedOperation.phase == "COMPLETED")
+        require(storedOperation.phase !in setOf("COMPLETED", "CANCELLED", "FAILED"))
+        val pending = pendingDocuments(operationId)
+        val assignmentByDocument = assignments.associateBy(LibraryRestoreDocumentActivation::documentId)
+        require(assignmentByDocument.size == assignments.size)
+        require(assignmentByDocument.keys == pending.mapTo(linkedSetOf()) { it.documentId })
+
+        folders.forEach { folder ->
+            check(this.folder(folder.folderId) == null)
+            insertFolderInternal(
+                folder.copy(parentScope = libraryFolderParentScope(folder.parentFolderId)),
+            )
+        }
+        pending.forEach { document ->
+            val pages = pagesAnyState(document.documentId)
+            check(pages.isNotEmpty() && pages.size == document.pageCount)
+            val assignment = requireNotNull(assignmentByDocument[document.documentId])
+            updateDocument(
+                document.copy(
+                    folderId = assignment.folderId,
+                    libraryState = LibraryDocumentState.ACTIVE.name,
+                    pendingOperationId = null,
+                ),
+            )
+            deleteSearch(document.rowId)
+            insertSearch(
+                LibraryDocumentSearchEntity(
+                    rowId = document.rowId,
+                    title = document.title,
+                    ocrText = pages.joinToString("\n\n") { it.ocrText.orEmpty() },
+                ),
+            )
+        }
+        activatePreparedRestoreItems(operationId)
+        if (pending.isNotEmpty() || folders.isNotEmpty()) bumpLibraryRevision(modifiedAt)
+        updateOperation(completedOperation)
+    }
+
+    @Transaction
+    open suspend fun discardPendingRestoreDocuments(operationId: String) {
+        deletePendingDocuments(operationId)
+    }
 }
+
+data class LibraryRestoreDocumentActivation(
+    val documentId: String,
+    val folderId: String?,
+)

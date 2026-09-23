@@ -1,0 +1,5 @@
+{
+  "formatVersion": 1,
+  "minimumReaderVersion": 1,
+  "requiredFeatures": ["future.private-feature"]
+}

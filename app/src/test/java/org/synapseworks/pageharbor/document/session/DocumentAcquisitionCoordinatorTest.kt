@@ -50,6 +50,56 @@ class DocumentAcquisitionCoordinatorTest {
     }
 
     @Test
+    fun appendingImportedPdfsRetainsEveryOriginalWhileInvalidatingDirectExport() {
+        val cleaner = RecordingCleaner()
+        val coordinator = DocumentAcquisitionCoordinator(resourceCleaner = cleaner)
+        val firstPdf = owned("first-original-pdf")
+        val secondPdf = owned("second-original-pdf")
+
+        val first = coordinator.acquire(
+            mode = DocumentAcquisitionMode.REPLACE,
+            currentSession = DocumentSession(),
+            input = DocumentAcquisitionInput(
+                pages = listOf(
+                    AcquiredDocumentPage(
+                        owned("first-page"),
+                        DocumentSourceCategory.RENDERED_PDF_PAGE,
+                        "image/jpeg",
+                    ),
+                ),
+                directPdfSource = firstPdf,
+            ),
+        ).successSession()
+        assertTrue(first.canUseDirectPdf)
+
+        val combined = coordinator.acquire(
+            mode = DocumentAcquisitionMode.APPEND,
+            currentSession = first,
+            input = DocumentAcquisitionInput(
+                pages = listOf(
+                    AcquiredDocumentPage(
+                        owned("second-page"),
+                        DocumentSourceCategory.RENDERED_PDF_PAGE,
+                        "image/jpeg",
+                    ),
+                ),
+                directPdfSource = secondPdf,
+            ),
+        ).successSession()
+
+        assertEquals(
+            listOf("first-original-pdf", "second-original-pdf"),
+            combined.originalPdfSources.map(DocumentResource::reference),
+        )
+        assertFalse(combined.canUseDirectPdf)
+        assertTrue(cleaner.deletedReferences.isEmpty())
+
+        coordinator.release(combined)
+        assertTrue("first-original-pdf" in cleaner.deletedReferences)
+        assertTrue("second-original-pdf" in cleaner.deletedReferences)
+    }
+
+    @Test
     fun invalidAndUnsupportedInputsReturnTypedErrors() {
         val coordinator = DocumentAcquisitionCoordinator()
 

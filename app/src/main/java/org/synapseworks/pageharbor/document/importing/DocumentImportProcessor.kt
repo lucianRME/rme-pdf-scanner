@@ -72,6 +72,7 @@ class DocumentImportProcessor(
         }
 
         val preparedPages = mutableListOf<AcquiredDocumentPage>()
+        val preparedPdfSources = mutableListOf<AcquiredResource>()
         var skippedItems = 0
         var firstFailure: DocumentImportError? = null
         uris.forEachIndexed { index, uri ->
@@ -96,7 +97,10 @@ class DocumentImportProcessor(
                     },
                 )
             ) {
-                is PreparedItem.Success -> preparedPages += item.pages
+                is PreparedItem.Success -> {
+                    preparedPages += item.pages
+                    item.directPdfSource?.let(preparedPdfSources::add)
+                }
                 is PreparedItem.Failure -> {
                     if (item.reason == DocumentImportError.PAGE_LIMIT_EXCEEDED) {
                         return@withContext DocumentImportPreparationResult.Failure(item.reason)
@@ -112,8 +116,14 @@ class DocumentImportProcessor(
                 firstFailure ?: DocumentImportError.UNREADABLE_SOURCE,
             )
         } else {
+            val directPdfSource = preparedPdfSources.singleOrNull()
+                ?.takeIf { uris.size == 1 && skippedItems == 0 }
             DocumentImportPreparationResult.Success(
-                input = DocumentAcquisitionInput(pages = preparedPages),
+                input = DocumentAcquisitionInput(
+                    pages = preparedPages,
+                    directPdfSource = directPdfSource,
+                    originalPdfSources = preparedPdfSources,
+                ),
                 skippedItems = skippedItems,
             )
         }
@@ -223,7 +233,10 @@ class DocumentImportProcessor(
                         pages += rendered
                         onPreparedPages(pages.size)
                     }
-                    PreparedItem.Success(pages)
+                    PreparedItem.Success(
+                        pages = pages,
+                        directPdfSource = pdfResource,
+                    )
                 }
             }
         } catch (_: CancellationException) {
@@ -343,7 +356,10 @@ class DocumentImportProcessor(
     }
 
     private sealed interface PreparedItem {
-        data class Success(val pages: List<AcquiredDocumentPage>) : PreparedItem
+        data class Success(
+            val pages: List<AcquiredDocumentPage>,
+            val directPdfSource: AcquiredResource? = null,
+        ) : PreparedItem
         data class Failure(val reason: DocumentImportError) : PreparedItem
     }
 

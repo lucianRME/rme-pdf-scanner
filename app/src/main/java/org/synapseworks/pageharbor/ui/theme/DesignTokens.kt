@@ -26,6 +26,7 @@ object PageHarborLayout {
     val homeContentMaxWidth = 520.dp
     val homeCenteredContentMinHeight = 640.dp
     val expandedContentMaxWidth = 840.dp
+    val portabilityContentMaxWidth = 1120.dp
     val readingContentMaxWidth = 720.dp
     val libraryContentMaxWidth = 1184.dp
     val libraryGridMinimumCellWidth = 260.dp

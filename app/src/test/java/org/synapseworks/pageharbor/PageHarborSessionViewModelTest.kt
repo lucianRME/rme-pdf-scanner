@@ -82,6 +82,26 @@ class PageHarborSessionViewModelTest {
     }
 
     @Test
+    fun fileImportMayExceedTheScannerTwentyPageLimitWithoutTruncation() {
+        val session = PageHarborSessionViewModel()
+        val references = pageTokens(MAX_DOCUMENT_PAGES + 5)
+
+        assertEquals(true, session.beginImportRequest(DocumentImportOrigin.PICKER))
+        session.completeImportRequest(importSuccess(*references.toTypedArray()))
+
+        assertEquals(references, session.pageReferences())
+        assertEquals(MAX_DOCUMENT_PAGES + 5, session.documentPages.size)
+        assertEquals(
+            DocumentImportUiState.Completed(
+                importedPages = MAX_DOCUMENT_PAGES + 5,
+                skippedItems = 0,
+                appended = false,
+            ),
+            session.importUiState,
+        )
+    }
+
+    @Test
     fun cancelledImportKeepsAnActiveDocumentUnchanged() {
         val session = completedSession("scan-1", "scan-2")
 

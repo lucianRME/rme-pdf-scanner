@@ -1,0 +1,977 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 2,
+    "identityHash": "5a70565e87cff03309a46ac3ab34decf",
+    "entities": [
+      {
+        "tableName": "library_folders",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`folder_id` TEXT NOT NULL, `name` TEXT NOT NULL, `normalized_name` TEXT NOT NULL, `created_at` INTEGER NOT NULL, `modified_at` INTEGER NOT NULL, `parent_folder_id` TEXT, `parent_scope` TEXT NOT NULL DEFAULT '', PRIMARY KEY(`folder_id`), FOREIGN KEY(`parent_folder_id`) REFERENCES `library_folders`(`folder_id`) ON UPDATE NO ACTION ON DELETE SET NULL )",
+        "fields": [
+          {
+            "fieldPath": "folderId",
+            "columnName": "folder_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "normalizedName",
+            "columnName": "normalized_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtMillis",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "modifiedAtMillis",
+            "columnName": "modified_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parentFolderId",
+            "columnName": "parent_folder_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "parentScope",
+            "columnName": "parent_scope",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "folder_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_library_folders_parent_scope_normalized_name",
+            "unique": true,
+            "columnNames": [
+              "parent_scope",
+              "normalized_name"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_library_folders_parent_scope_normalized_name` ON `${TABLE_NAME}` (`parent_scope`, `normalized_name`)"
+          },
+          {
+            "name": "index_library_folders_parent_folder_id",
+            "unique": false,
+            "columnNames": [
+              "parent_folder_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_library_folders_parent_folder_id` ON `${TABLE_NAME}` (`parent_folder_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "library_folders",
+            "onDelete": "SET NULL",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "parent_folder_id"
+            ],
+            "referencedColumns": [
+              "folder_id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "library_metadata",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`metadata_id` TEXT NOT NULL, `library_revision` INTEGER NOT NULL, `modified_at` INTEGER NOT NULL, PRIMARY KEY(`metadata_id`))",
+        "fields": [
+          {
+            "fieldPath": "metadataId",
+            "columnName": "metadata_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "libraryRevision",
+            "columnName": "library_revision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "modifiedAtMillis",
+            "columnName": "modified_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "metadata_id"
+          ]
+        }
+      },
+      {
+        "tableName": "library_data_operations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`operation_id` TEXT NOT NULL, `operation_type` TEXT NOT NULL, `phase` TEXT NOT NULL, `source_kind` TEXT NOT NULL, `source_root_uri` TEXT, `source_grant_flags` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, `discovered_item_count` INTEGER NOT NULL, `planned_document_count` INTEGER NOT NULL, `prepared_document_count` INTEGER NOT NULL, `imported_document_count` INTEGER NOT NULL, `skipped_duplicate_count` INTEGER NOT NULL, `failed_item_count` INTEGER NOT NULL, `total_source_bytes` INTEGER, `processed_source_bytes` INTEGER NOT NULL, `cancel_requested` INTEGER NOT NULL, `terminal_error_code` TEXT, PRIMARY KEY(`operation_id`))",
+        "fields": [
+          {
+            "fieldPath": "operationId",
+            "columnName": "operation_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "operationType",
+            "columnName": "operation_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "phase",
+            "columnName": "phase",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceKind",
+            "columnName": "source_kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceRootUri",
+            "columnName": "source_root_uri",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceGrantFlags",
+            "columnName": "source_grant_flags",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtMillis",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtMillis",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "discoveredItemCount",
+            "columnName": "discovered_item_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "plannedDocumentCount",
+            "columnName": "planned_document_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "preparedDocumentCount",
+            "columnName": "prepared_document_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "importedDocumentCount",
+            "columnName": "imported_document_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "skippedDuplicateCount",
+            "columnName": "skipped_duplicate_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "failedItemCount",
+            "columnName": "failed_item_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalSourceBytes",
+            "columnName": "total_source_bytes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "processedSourceBytes",
+            "columnName": "processed_source_bytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cancelRequested",
+            "columnName": "cancel_requested",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "terminalErrorCode",
+            "columnName": "terminal_error_code",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "operation_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_library_data_operations_phase_updated_at",
+            "unique": false,
+            "columnNames": [
+              "phase",
+              "updated_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_library_data_operations_phase_updated_at` ON `${TABLE_NAME}` (`phase`, `updated_at`)"
+          }
+        ]
+      },
+      {
+        "tableName": "library_documents",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`row_id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `document_id` TEXT NOT NULL, `title` TEXT NOT NULL, `created_at` INTEGER NOT NULL, `modified_at` INTEGER NOT NULL, `page_count` INTEGER NOT NULL, `folder_id` TEXT, `thumbnail_path` TEXT, `ocr_status` TEXT NOT NULL, `library_state` TEXT NOT NULL DEFAULT 'ACTIVE', `pending_operation_id` TEXT, `content_hash_version` INTEGER, `content_sha256` TEXT, `content_byte_count` INTEGER, `source_modified_at` INTEGER, `imported_at` INTEGER, FOREIGN KEY(`folder_id`) REFERENCES `library_folders`(`folder_id`) ON UPDATE NO ACTION ON DELETE SET NULL , FOREIGN KEY(`pending_operation_id`) REFERENCES `library_data_operations`(`operation_id`) ON UPDATE NO ACTION ON DELETE NO ACTION )",
+        "fields": [
+          {
+            "fieldPath": "rowId",
+            "columnName": "row_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "documentId",
+            "columnName": "document_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtMillis",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "modifiedAtMillis",
+            "columnName": "modified_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pageCount",
+            "columnName": "page_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "folderId",
+            "columnName": "folder_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "thumbnailRelativePath",
+            "columnName": "thumbnail_path",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "ocrStatus",
+            "columnName": "ocr_status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "libraryState",
+            "columnName": "library_state",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'ACTIVE'"
+          },
+          {
+            "fieldPath": "pendingOperationId",
+            "columnName": "pending_operation_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "contentHashVersion",
+            "columnName": "content_hash_version",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "contentSha256",
+            "columnName": "content_sha256",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "contentByteCount",
+            "columnName": "content_byte_count",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "sourceModifiedAtMillis",
+            "columnName": "source_modified_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "importedAtMillis",
+            "columnName": "imported_at",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "row_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_library_documents_document_id",
+            "unique": true,
+            "columnNames": [
+              "document_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_library_documents_document_id` ON `${TABLE_NAME}` (`document_id`)"
+          },
+          {
+            "name": "index_library_documents_folder_id",
+            "unique": false,
+            "columnNames": [
+              "folder_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_library_documents_folder_id` ON `${TABLE_NAME}` (`folder_id`)"
+          },
+          {
+            "name": "index_library_documents_modified_at",
+            "unique": false,
+            "columnNames": [
+              "modified_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_library_documents_modified_at` ON `${TABLE_NAME}` (`modified_at`)"
+          },
+          {
+            "name": "index_library_documents_pending_operation_id",
+            "unique": false,
+            "columnNames": [
+              "pending_operation_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_library_documents_pending_operation_id` ON `${TABLE_NAME}` (`pending_operation_id`)"
+          },
+          {
+            "name": "index_library_documents_library_state_modified_at",
+            "unique": false,
+            "columnNames": [
+              "library_state",
+              "modified_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_library_documents_library_state_modified_at` ON `${TABLE_NAME}` (`library_state`, `modified_at`)"
+          },
+          {
+            "name": "index_library_documents_library_state_folder_id_modified_at",
+            "unique": false,
+            "columnNames": [
+              "library_state",
+              "folder_id",
+              "modified_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_library_documents_library_state_folder_id_modified_at` ON `${TABLE_NAME}` (`library_state`, `folder_id`, `modified_at`)"
+          },
+          {
+            "name": "index_library_documents_library_state_content_hash_version_content_sha256",
+            "unique": false,
+            "columnNames": [
+              "library_state",
+              "content_hash_version",
+              "content_sha256"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_library_documents_library_state_content_hash_version_content_sha256` ON `${TABLE_NAME}` (`library_state`, `content_hash_version`, `content_sha256`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "library_folders",
+            "onDelete": "SET NULL",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "folder_id"
+            ],
+            "referencedColumns": [
+              "folder_id"
+            ]
+          },
+          {
+            "table": "library_data_operations",
+            "onDelete": "NO ACTION",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "pending_operation_id"
+            ],
+            "referencedColumns": [
+              "operation_id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "library_pages",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`page_id` TEXT NOT NULL, `document_id` TEXT NOT NULL, `page_position` INTEGER NOT NULL, `relative_path` TEXT NOT NULL, `content_type` TEXT NOT NULL, `source_category` TEXT NOT NULL, `width` INTEGER, `height` INTEGER, `source_byte_count` INTEGER, `rotation_degrees` INTEGER NOT NULL, `filter_name` TEXT NOT NULL, `ocr_text` TEXT, `ocr_error` TEXT, `content_sha256` TEXT, PRIMARY KEY(`page_id`), FOREIGN KEY(`document_id`) REFERENCES `library_documents`(`document_id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "pageId",
+            "columnName": "page_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "documentId",
+            "columnName": "document_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "position",
+            "columnName": "page_position",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "relativePath",
+            "columnName": "relative_path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contentType",
+            "columnName": "content_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceCategory",
+            "columnName": "source_category",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "width",
+            "columnName": "width",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "height",
+            "columnName": "height",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "sourceByteCount",
+            "columnName": "source_byte_count",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "rotationDegrees",
+            "columnName": "rotation_degrees",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "filterName",
+            "columnName": "filter_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ocrText",
+            "columnName": "ocr_text",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "ocrError",
+            "columnName": "ocr_error",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "contentSha256",
+            "columnName": "content_sha256",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "page_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_library_pages_document_id",
+            "unique": false,
+            "columnNames": [
+              "document_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_library_pages_document_id` ON `${TABLE_NAME}` (`document_id`)"
+          },
+          {
+            "name": "index_library_pages_document_id_page_position",
+            "unique": true,
+            "columnNames": [
+              "document_id",
+              "page_position"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_library_pages_document_id_page_position` ON `${TABLE_NAME}` (`document_id`, `page_position`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "library_documents",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "document_id"
+            ],
+            "referencedColumns": [
+              "document_id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "library_source_assets",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`asset_id` TEXT NOT NULL, `document_id` TEXT NOT NULL, `role` TEXT NOT NULL, `relative_path` TEXT NOT NULL, `content_type` TEXT NOT NULL, `byte_count` INTEGER NOT NULL, `sha256` TEXT NOT NULL, `source_modified_at` INTEGER, `created_at` INTEGER NOT NULL, `matches_current_revision` INTEGER NOT NULL, PRIMARY KEY(`asset_id`), FOREIGN KEY(`document_id`) REFERENCES `library_documents`(`document_id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "assetId",
+            "columnName": "asset_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "documentId",
+            "columnName": "document_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "role",
+            "columnName": "role",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "relativePath",
+            "columnName": "relative_path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contentType",
+            "columnName": "content_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "byteCount",
+            "columnName": "byte_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sha256",
+            "columnName": "sha256",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceModifiedAtMillis",
+            "columnName": "source_modified_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "createdAtMillis",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "matchesCurrentRevision",
+            "columnName": "matches_current_revision",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "asset_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_library_source_assets_document_id_role",
+            "unique": false,
+            "columnNames": [
+              "document_id",
+              "role"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_library_source_assets_document_id_role` ON `${TABLE_NAME}` (`document_id`, `role`)"
+          },
+          {
+            "name": "index_library_source_assets_sha256_byte_count",
+            "unique": false,
+            "columnNames": [
+              "sha256",
+              "byte_count"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_library_source_assets_sha256_byte_count` ON `${TABLE_NAME}` (`sha256`, `byte_count`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "library_documents",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "document_id"
+            ],
+            "referencedColumns": [
+              "document_id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "library_data_operation_items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`item_id` TEXT NOT NULL, `operation_id` TEXT NOT NULL, `ordinal` INTEGER NOT NULL, `item_state` TEXT NOT NULL, `target_document_id` TEXT NOT NULL, `target_revision_id` TEXT, `proposed_title` TEXT NOT NULL, `proposed_folder_path` TEXT, `source_modified_at` INTEGER, `source_byte_count` INTEGER, `source_page_count` INTEGER, `logical_hash_version` INTEGER, `logical_sha256` TEXT, `duplicate_kind` TEXT NOT NULL, `duplicate_document_id` TEXT, `duplicate_decision` TEXT NOT NULL, `failure_code` TEXT, PRIMARY KEY(`item_id`), FOREIGN KEY(`operation_id`) REFERENCES `library_data_operations`(`operation_id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "itemId",
+            "columnName": "item_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "operationId",
+            "columnName": "operation_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ordinal",
+            "columnName": "ordinal",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemState",
+            "columnName": "item_state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetDocumentId",
+            "columnName": "target_document_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetRevisionId",
+            "columnName": "target_revision_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "proposedTitle",
+            "columnName": "proposed_title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "proposedFolderPath",
+            "columnName": "proposed_folder_path",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceModifiedAtMillis",
+            "columnName": "source_modified_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "sourceByteCount",
+            "columnName": "source_byte_count",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "sourcePageCount",
+            "columnName": "source_page_count",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "logicalHashVersion",
+            "columnName": "logical_hash_version",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "logicalSha256",
+            "columnName": "logical_sha256",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "duplicateKind",
+            "columnName": "duplicate_kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "duplicateDocumentId",
+            "columnName": "duplicate_document_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "duplicateDecision",
+            "columnName": "duplicate_decision",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "failureCode",
+            "columnName": "failure_code",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "item_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_library_data_operation_items_operation_id_ordinal",
+            "unique": true,
+            "columnNames": [
+              "operation_id",
+              "ordinal"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_library_data_operation_items_operation_id_ordinal` ON `${TABLE_NAME}` (`operation_id`, `ordinal`)"
+          },
+          {
+            "name": "index_library_data_operation_items_operation_id_target_document_id",
+            "unique": true,
+            "columnNames": [
+              "operation_id",
+              "target_document_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_library_data_operation_items_operation_id_target_document_id` ON `${TABLE_NAME}` (`operation_id`, `target_document_id`)"
+          },
+          {
+            "name": "index_library_data_operation_items_operation_id_item_state",
+            "unique": false,
+            "columnNames": [
+              "operation_id",
+              "item_state"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_library_data_operation_items_operation_id_item_state` ON `${TABLE_NAME}` (`operation_id`, `item_state`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "library_data_operations",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "operation_id"
+            ],
+            "referencedColumns": [
+              "operation_id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "library_data_operation_sources",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`source_id` TEXT NOT NULL, `item_id` TEXT NOT NULL, `source_position` INTEGER NOT NULL, `source_uri` TEXT, `relative_source_path` TEXT, `display_name` TEXT, `declared_mime_type` TEXT, `detected_mime_type` TEXT, `source_byte_count` INTEGER, `source_modified_at` INTEGER, `source_sha256` TEXT, `source_state` TEXT NOT NULL, `failure_code` TEXT, PRIMARY KEY(`source_id`), FOREIGN KEY(`item_id`) REFERENCES `library_data_operation_items`(`item_id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "sourceId",
+            "columnName": "source_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemId",
+            "columnName": "item_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourcePosition",
+            "columnName": "source_position",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceUri",
+            "columnName": "source_uri",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "relativeSourcePath",
+            "columnName": "relative_source_path",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "displayName",
+            "columnName": "display_name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "declaredMimeType",
+            "columnName": "declared_mime_type",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "detectedMimeType",
+            "columnName": "detected_mime_type",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceByteCount",
+            "columnName": "source_byte_count",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "sourceModifiedAtMillis",
+            "columnName": "source_modified_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "sourceSha256",
+            "columnName": "source_sha256",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceState",
+            "columnName": "source_state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "failureCode",
+            "columnName": "failure_code",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "source_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_library_data_operation_sources_item_id_source_position",
+            "unique": true,
+            "columnNames": [
+              "item_id",
+              "source_position"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_library_data_operation_sources_item_id_source_position` ON `${TABLE_NAME}` (`item_id`, `source_position`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "library_data_operation_items",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "item_id"
+            ],
+            "referencedColumns": [
+              "item_id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "library_document_search",
+        "createSql": "CREATE VIRTUAL TABLE IF NOT EXISTS `${TABLE_NAME}` USING FTS4(`title` TEXT NOT NULL, `ocr_text` TEXT NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ocrText",
+            "columnName": "ocr_text",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "rowid"
+          ]
+        },
+        "ftsVersion": "FTS4",
+        "ftsOptions": {
+          "tokenizer": "simple",
+          "tokenizerArgs": [],
+          "contentTable": "",
+          "languageIdColumnName": "",
+          "matchInfo": "FTS4",
+          "notIndexedColumns": [],
+          "prefixSizes": [],
+          "preferredOrder": "ASC"
+        },
+        "contentSyncTriggers": []
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '5a70565e87cff03309a46ac3ab34decf')"
+    ]
+  }
+}

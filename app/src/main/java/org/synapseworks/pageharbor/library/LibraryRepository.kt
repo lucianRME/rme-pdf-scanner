@@ -3,6 +3,7 @@ package org.synapseworks.pageharbor.library
 import android.content.Context
 import android.net.Uri
 import androidx.core.content.FileProvider
+import java.io.File
 import java.io.FileInputStream
 import java.io.FileNotFoundException
 import java.util.UUID
@@ -21,6 +22,8 @@ import org.synapseworks.pageharbor.document.session.LibraryDocumentReference
 import org.synapseworks.pageharbor.document.session.createLibraryDocumentResource
 import org.synapseworks.pageharbor.document.session.toAndroidUri
 import org.synapseworks.pageharbor.image.DocumentFilter
+import org.synapseworks.pageharbor.library.duplicate.DocumentFingerprintV1
+import org.synapseworks.pageharbor.library.duplicate.FingerprintPage
 import org.synapseworks.pageharbor.ocr.OcrResult
 
 data class SavedLibraryDocument(
@@ -39,6 +42,7 @@ class LibraryRepository internal constructor(
     private val dao: LibraryDao = LibraryDatabase.get(context).libraryDao(),
     private val fileStore: LibraryFileStore = LibraryFileStore(context),
     private val nowMillis: () -> Long = System::currentTimeMillis,
+    private val operationGate: LibraryOperationGate = LibraryOperationCoordinator.gate,
 ) {
     constructor(context: Context) : this(
         context = context,
@@ -60,7 +64,14 @@ class LibraryRepository internal constructor(
     }.map { rows -> rows.map(LibraryDocumentListingRow::toSummary) }
 
     fun observeFolders(): Flow<List<LibraryFolder>> = dao.observeFolders().map { rows ->
-        rows.map { row -> LibraryFolder(row.folderId, row.name, row.documentCount) }
+        rows.map { row ->
+            LibraryFolder(
+                id = row.folderId,
+                name = row.name,
+                documentCount = row.documentCount,
+                parentFolderId = row.parentFolderId,
+            )
+        }
     }
 
     fun observeSearch(query: String): Flow<List<LibraryDocumentSummary>>? {
@@ -74,11 +85,17 @@ class LibraryRepository internal constructor(
         title: String,
         folderId: String? = session.libraryDocument?.folderId,
         ocrResult: OcrResult? = null,
+    ): LibraryResult<SavedLibraryDocument> = operationGate.withMutation {
+        saveSessionUnlocked(session, title, folderId, ocrResult)
+    }
+
+    private suspend fun saveSessionUnlocked(
+        session: DocumentSession,
+        title: String,
+        folderId: String?,
+        ocrResult: OcrResult?,
     ): LibraryResult<SavedLibraryDocument> {
         if (session.pages.isEmpty()) return LibraryResult.Failure(LibraryError.EMPTY_DOCUMENT)
-        if (session.pages.size > org.synapseworks.pageharbor.MAX_DOCUMENT_PAGES) {
-            return LibraryResult.Failure(LibraryError.PAGE_LIMIT_EXCEEDED)
-        }
         val normalizedTitle = normalizeLibraryTitle(title)
         if (normalizedTitle.isBlank()) return LibraryResult.Failure(LibraryError.TITLE_REQUIRED)
         if (folderId != null && runDatabase { dao.folder(folderId) } == null) {
@@ -112,6 +129,19 @@ class LibraryRepository internal constructor(
             title = normalizedTitle,
             folderId = folderId,
             sources = sources,
+            sourceAssets = session.originalPdfSources.map { originalPdf ->
+                LibrarySourceAssetSource(
+                    role = ORIGINAL_DOCUMENT_ASSET_ROLE,
+                    contentType = "application/pdf",
+                    sourceModifiedAtMillis = null,
+                    matchesCurrentRevision = session.canUseDirectPdf &&
+                        originalPdf == session.directPdfSource,
+                    openStream = {
+                        applicationContext.contentResolver.openInputStream(originalPdf.toAndroidUri())
+                            ?: throw FileNotFoundException()
+                    },
+                )
+            },
         )
     }
 
@@ -166,10 +196,44 @@ class LibraryRepository internal constructor(
         val summary = entity.toSummary(folderName = entity.folderId?.let { id ->
             runDatabase { dao.folder(id) }?.name
         })
+        val storedOriginalPdfs = runDatabase { dao.sourceAssets(documentId) }
+            ?.filter { asset ->
+                asset.role == ORIGINAL_DOCUMENT_ASSET_ROLE &&
+                    asset.contentType.equals("application/pdf", ignoreCase = true)
+            }
+            ?: return LibraryResult.Failure(LibraryError.DATABASE_UNAVAILABLE)
+        val originalPdfResources = storedOriginalPdfs.map { asset ->
+            val file = fileStore.resolve(asset.relativePath)?.takeIf(File::isFile)
+                ?: return LibraryResult.Failure(LibraryError.SOURCE_MISSING)
+            val uri = try {
+                FileProvider.getUriForFile(
+                    applicationContext,
+                    "${applicationContext.packageName}.fileprovider",
+                    file,
+                )
+            } catch (_: IllegalArgumentException) {
+                return LibraryResult.Failure(LibraryError.CORRUPTED_RECORD)
+            }
+            val resource = createLibraryDocumentResource(
+                reference = uri.toString(),
+                path = file.path,
+                rootPath = fileStore.root.path,
+            ) ?: return LibraryResult.Failure(LibraryError.CORRUPTED_RECORD)
+            resource to asset
+        }
+        val singleOriginalPdf = originalPdfResources.singleOrNull()
+        val directPdfSource = singleOriginalPdf?.first
         return LibraryResult.Success(
             OpenedLibraryDocument(
                 session = DocumentSession(
                     pages = pages,
+                    directPdfSource = directPdfSource,
+                    originalPdfSources = originalPdfResources.map { it.first },
+                    directPdfPageIds = if (singleOriginalPdf?.second?.matchesCurrentRevision == true) {
+                        pages.map(DocumentPage::id)
+                    } else {
+                        emptyList()
+                    },
                     libraryDocument = LibraryDocumentReference(
                         documentId = entity.documentId,
                         title = entity.title,
@@ -182,6 +246,10 @@ class LibraryRepository internal constructor(
     }
 
     suspend fun renameDocument(documentId: String, title: String): LibraryResult<Unit> {
+        return operationGate.withMutation { renameDocumentUnlocked(documentId, title) }
+    }
+
+    private suspend fun renameDocumentUnlocked(documentId: String, title: String): LibraryResult<Unit> {
         val normalized = normalizeLibraryTitle(title)
         if (normalized.isBlank()) return LibraryResult.Failure(LibraryError.TITLE_REQUIRED)
         return try {
@@ -198,6 +266,14 @@ class LibraryRepository internal constructor(
     }
 
     suspend fun indexOcr(
+        documentId: String,
+        pageIds: List<String?>,
+        result: OcrResult,
+    ): LibraryResult<Unit> = operationGate.withMutation {
+        indexOcrUnlocked(documentId, pageIds, result)
+    }
+
+    private suspend fun indexOcrUnlocked(
         documentId: String,
         pageIds: List<String?>,
         result: OcrResult,
@@ -234,12 +310,30 @@ class LibraryRepository internal constructor(
         }
     }
 
-    suspend fun createFolder(name: String): LibraryResult<LibraryFolder> {
+    suspend fun createFolder(
+        name: String,
+        parentFolderId: String? = null,
+    ): LibraryResult<LibraryFolder> = operationGate.withMutation {
+        createFolderUnlocked(name, parentFolderId)
+    }
+
+    private suspend fun createFolderUnlocked(
+        name: String,
+        parentFolderId: String?,
+    ): LibraryResult<LibraryFolder> {
         val normalized = normalizeFolderName(name)
         if (normalized.isBlank()) return LibraryResult.Failure(LibraryError.TITLE_REQUIRED)
         val normalizedKey = normalized.lowercase(Locale.ROOT)
         return try {
-            if (dao.folderByNormalizedName(normalizedKey) != null) {
+            if (parentFolderId != null && dao.folder(parentFolderId) == null) {
+                return LibraryResult.Failure(LibraryError.FOLDER_NOT_FOUND)
+            }
+            if (
+                dao.folderByNormalizedName(
+                    normalizedName = normalizedKey,
+                    parentScope = libraryFolderParentScope(parentFolderId),
+                ) != null
+            ) {
                 LibraryResult.Failure(LibraryError.DUPLICATE_FOLDER)
             } else {
                 val now = nowMillis()
@@ -249,9 +343,16 @@ class LibraryRepository internal constructor(
                     normalizedName = normalizedKey,
                     createdAtMillis = now,
                     modifiedAtMillis = now,
+                    parentFolderId = parentFolderId,
                 )
                 dao.insertFolder(folder)
-                LibraryResult.Success(LibraryFolder(folder.folderId, folder.name))
+                LibraryResult.Success(
+                    LibraryFolder(
+                        id = folder.folderId,
+                        name = folder.name,
+                        parentFolderId = folder.parentFolderId,
+                    ),
+                )
             }
         } catch (error: CancellationException) {
             throw error
@@ -261,12 +362,19 @@ class LibraryRepository internal constructor(
     }
 
     suspend fun renameFolder(folderId: String, name: String): LibraryResult<Unit> {
+        return operationGate.withMutation { renameFolderUnlocked(folderId, name) }
+    }
+
+    private suspend fun renameFolderUnlocked(folderId: String, name: String): LibraryResult<Unit> {
         val normalized = normalizeFolderName(name)
         if (normalized.isBlank()) return LibraryResult.Failure(LibraryError.TITLE_REQUIRED)
         return try {
             val folder = dao.folder(folderId)
                 ?: return LibraryResult.Failure(LibraryError.FOLDER_NOT_FOUND)
-            val duplicate = dao.folderByNormalizedName(normalized.lowercase(Locale.ROOT))
+            val duplicate = dao.folderByNormalizedName(
+                normalizedName = normalized.lowercase(Locale.ROOT),
+                parentScope = folder.parentScope,
+            )
             if (duplicate != null && duplicate.folderId != folderId) {
                 return LibraryResult.Failure(LibraryError.DUPLICATE_FOLDER)
             }
@@ -285,19 +393,88 @@ class LibraryRepository internal constructor(
         }
     }
 
-    suspend fun deleteFolder(folderId: String): LibraryResult<Unit> = try {
-        if (dao.deleteFolder(folderId, nowMillis())) {
+    suspend fun moveFolder(folderId: String, parentFolderId: String?): LibraryResult<Unit> {
+        return operationGate.withMutation { moveFolderUnlocked(folderId, parentFolderId) }
+    }
+
+    private suspend fun moveFolderUnlocked(
+        folderId: String,
+        parentFolderId: String?,
+    ): LibraryResult<Unit> {
+        return try {
+            val folder = dao.folder(folderId)
+                ?: return LibraryResult.Failure(LibraryError.FOLDER_NOT_FOUND)
+            if (folderId == parentFolderId) {
+                return LibraryResult.Failure(LibraryError.INVALID_SELECTION)
+            }
+            if (parentFolderId != null) {
+                if (dao.folder(parentFolderId) == null) {
+                    return LibraryResult.Failure(LibraryError.FOLDER_NOT_FOUND)
+                }
+                if (wouldCreateFolderCycle(folderId, parentFolderId)) {
+                    return LibraryResult.Failure(LibraryError.INVALID_SELECTION)
+                }
+            }
+            if (folder.parentFolderId != parentFolderId) {
+                val duplicate = dao.folderByNormalizedName(
+                    normalizedName = folder.normalizedName,
+                    parentScope = libraryFolderParentScope(parentFolderId),
+                )
+                if (duplicate != null && duplicate.folderId != folderId) {
+                    return LibraryResult.Failure(LibraryError.DUPLICATE_FOLDER)
+                }
+                dao.updateFolder(
+                    folder.copy(
+                        parentFolderId = parentFolderId,
+                        parentScope = libraryFolderParentScope(parentFolderId),
+                        modifiedAtMillis = nowMillis(),
+                    ),
+                )
+            }
             LibraryResult.Success(Unit)
-        } else {
-            LibraryResult.Failure(LibraryError.FOLDER_NOT_FOUND)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            LibraryResult.Failure(LibraryError.DATABASE_UNAVAILABLE)
         }
-    } catch (error: CancellationException) {
-        throw error
-    } catch (_: Exception) {
-        LibraryResult.Failure(LibraryError.DATABASE_UNAVAILABLE)
+    }
+
+    suspend fun deleteFolder(folderId: String): LibraryResult<Unit> = operationGate.withMutation {
+        deleteFolderUnlocked(folderId)
+    }
+
+    private suspend fun deleteFolderUnlocked(folderId: String): LibraryResult<Unit> {
+        return try {
+            val folder = dao.folder(folderId)
+                ?: return LibraryResult.Failure(LibraryError.FOLDER_NOT_FOUND)
+            if (
+                dao.folderDeletionWouldConflict(
+                    folderId = folderId,
+                    targetParentScope = libraryFolderParentScope(folder.parentFolderId),
+                )
+            ) {
+                return LibraryResult.Failure(LibraryError.DUPLICATE_FOLDER)
+            }
+            if (dao.deleteFolder(folderId, nowMillis())) {
+                LibraryResult.Success(Unit)
+            } else {
+                LibraryResult.Failure(LibraryError.FOLDER_NOT_FOUND)
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            LibraryResult.Failure(LibraryError.DATABASE_UNAVAILABLE)
+        }
     }
 
     suspend fun moveDocument(documentId: String, folderId: String?): LibraryResult<Unit> {
+        return operationGate.withMutation { moveDocumentUnlocked(documentId, folderId) }
+    }
+
+    private suspend fun moveDocumentUnlocked(
+        documentId: String,
+        folderId: String?,
+    ): LibraryResult<Unit> {
         if (folderId != null && runDatabase { dao.folder(folderId) } == null) {
             return LibraryResult.Failure(LibraryError.FOLDER_NOT_FOUND)
         }
@@ -314,7 +491,11 @@ class LibraryRepository internal constructor(
         }
     }
 
-    suspend fun deleteDocument(documentId: String): LibraryResult<Unit> = try {
+    suspend fun deleteDocument(documentId: String): LibraryResult<Unit> = operationGate.withMutation {
+        deleteDocumentUnlocked(documentId)
+    }
+
+    private suspend fun deleteDocumentUnlocked(documentId: String): LibraryResult<Unit> = try {
         if (dao.deleteDocument(documentId) == null) {
             LibraryResult.Failure(LibraryError.DOCUMENT_NOT_FOUND)
         } else {
@@ -328,6 +509,13 @@ class LibraryRepository internal constructor(
     }
 
     suspend fun mergeDocuments(
+        documentIds: List<String>,
+        title: String,
+    ): LibraryResult<SavedLibraryDocument> = operationGate.withMutation {
+        mergeDocumentsUnlocked(documentIds, title)
+    }
+
+    private suspend fun mergeDocumentsUnlocked(
         documentIds: List<String>,
         title: String,
     ): LibraryResult<SavedLibraryDocument> {
@@ -345,13 +533,19 @@ class LibraryRepository internal constructor(
             }
             sources += pages.map { it.toSource() }
         }
-        if (sources.size > org.synapseworks.pageharbor.MAX_DOCUMENT_PAGES) {
-            return LibraryResult.Failure(LibraryError.PAGE_LIMIT_EXCEEDED)
-        }
         return saveSources(null, normalizeLibraryTitle(title), null, sources)
     }
 
     suspend fun extractPages(
+        documentId: String,
+        pageIds: Set<String>,
+        title: String,
+        removeFromOriginal: Boolean,
+    ): LibraryResult<SavedLibraryDocument> = operationGate.withMutation {
+        extractPagesUnlocked(documentId, pageIds, title, removeFromOriginal)
+    }
+
+    private suspend fun extractPagesUnlocked(
         documentId: String,
         pageIds: Set<String>,
         title: String,
@@ -413,18 +607,37 @@ class LibraryRepository internal constructor(
         folderId: String?,
         sources: List<LibraryPageSource>,
         createdAtOverride: Long? = null,
+        sourceAssets: List<LibrarySourceAssetSource> = emptyList(),
     ): LibraryResult<SavedLibraryDocument> {
         if (title.isBlank()) return LibraryResult.Failure(LibraryError.TITLE_REQUIRED)
         if (sources.isEmpty()) return LibraryResult.Failure(LibraryError.EMPTY_DOCUMENT)
-        if (sources.size > org.synapseworks.pageharbor.MAX_DOCUMENT_PAGES) {
-            return LibraryResult.Failure(LibraryError.PAGE_LIMIT_EXCEEDED)
-        }
         val documentId = existingDocumentId ?: UUID.randomUUID().toString()
         val existing = existingDocumentId?.let { runDatabase { dao.document(it) } }
         if (existingDocumentId != null && existing == null) {
             return LibraryResult.Failure(LibraryError.DOCUMENT_NOT_FOUND)
         }
-        val prepared = when (val result = fileStore.prepareRevision(documentId, sources)) {
+        val retainedSourceAssets = if (sourceAssets.isNotEmpty() || existing == null) {
+            sourceAssets
+        } else {
+            runDatabase { dao.sourceAssets(documentId) }.orEmpty().mapNotNull { asset ->
+                val file = fileStore.resolve(asset.relativePath)?.takeIf(File::isFile)
+                    ?: return@mapNotNull null
+                LibrarySourceAssetSource(
+                    role = asset.role,
+                    contentType = asset.contentType,
+                    sourceModifiedAtMillis = asset.sourceModifiedAtMillis,
+                    matchesCurrentRevision = false,
+                    openStream = { FileInputStream(file) },
+                )
+            }
+        }
+        val prepared = when (
+            val result = fileStore.prepareRevision(
+                documentId = documentId,
+                sources = sources,
+                sourceAssets = retainedSourceAssets,
+            )
+        ) {
             is LibraryResult.Success -> result
             is LibraryResult.Failure -> return result
         }
@@ -444,8 +657,24 @@ class LibraryRepository internal constructor(
                 filterName = page.filter.name,
                 ocrText = page.ocrText,
                 ocrError = page.ocrError,
+                contentSha256 = page.contentSha256,
             )
         }
+        val sourceAssetEntities = prepared.value.sourceAssets.map { asset ->
+            LibrarySourceAssetEntity(
+                assetId = asset.assetId,
+                documentId = documentId,
+                role = asset.role,
+                relativePath = asset.relativePath,
+                contentType = asset.contentType,
+                byteCount = asset.byteCount,
+                sha256 = asset.sha256,
+                sourceModifiedAtMillis = asset.sourceModifiedAtMillis,
+                createdAtMillis = now,
+                matchesCurrentRevision = asset.matchesCurrentRevision,
+            )
+        }
+        val contentByteCount = pages.sumOf { page -> page.sourceByteCount ?: 0L }
         val document = LibraryDocumentEntity(
             rowId = existing?.rowId ?: 0,
             documentId = documentId,
@@ -456,12 +685,19 @@ class LibraryRepository internal constructor(
             folderId = folderId,
             thumbnailRelativePath = prepared.value.thumbnailRelativePath,
             ocrStatus = ocrStatusFor(pages.map { it.ocrText to it.ocrError }).name,
+            libraryState = LibraryDocumentState.ACTIVE.name,
+            contentHashVersion = DocumentFingerprintV1.VERSION,
+            contentSha256 = logicalDocumentSha256(pages),
+            contentByteCount = contentByteCount,
+            sourceModifiedAtMillis = sourceAssetEntities.firstOrNull()?.sourceModifiedAtMillis,
+            importedAtMillis = existing?.importedAtMillis ?: now,
         )
         try {
             dao.replaceDocument(
                 document = document,
                 pages = pages,
                 ocrText = pages.joinToString("\n\n") { it.ocrText.orEmpty() },
+                sourceAssets = sourceAssetEntities,
             )
         } catch (error: CancellationException) {
             fileStore.discardRevision(prepared.value.revisionDirectory)
@@ -476,7 +712,11 @@ class LibraryRepository internal constructor(
         )
     }
 
-    suspend fun cleanupDocumentRevisions(documentId: String) {
+    suspend fun cleanupDocumentRevisions(documentId: String) = operationGate.withMutation {
+        cleanupDocumentRevisionsUnlocked(documentId)
+    }
+
+    private suspend fun cleanupDocumentRevisionsUnlocked(documentId: String) {
         val pages = runDatabase { dao.pages(documentId) } ?: return
         val keepDirectory = pages.firstOrNull()?.relativePath
             ?.let(fileStore::resolve)
@@ -501,6 +741,19 @@ class LibraryRepository internal constructor(
             ocrError = ocrError,
             openStream = { FileInputStream(file ?: throw FileNotFoundException()) },
         )
+    }
+
+    private suspend fun wouldCreateFolderCycle(
+        folderId: String,
+        candidateParentId: String,
+    ): Boolean {
+        val visited = mutableSetOf<String>()
+        var currentId: String? = candidateParentId
+        while (currentId != null && visited.add(currentId)) {
+            if (currentId == folderId) return true
+            currentId = dao.folder(currentId)?.parentFolderId
+        }
+        return currentId != null
     }
 
     private suspend fun <T> runDatabase(block: suspend () -> T): T? = try {
@@ -562,3 +815,18 @@ private fun ocrStatusFor(values: List<Pair<String?, String?>>): LibraryOcrStatus
     if (values.any { (_, error) -> error != null }) return LibraryOcrStatus.PARTIAL
     return LibraryOcrStatus.INDEXED
 }
+
+private fun logicalDocumentSha256(pages: List<LibraryPageEntity>): String {
+    return DocumentFingerprintV1.calculate(
+        pages.sortedBy(LibraryPageEntity::position).map { page ->
+            FingerprintPage(
+                assetSha256 = requireNotNull(page.contentSha256),
+                mimeType = page.contentType,
+                byteLength = requireNotNull(page.sourceByteCount),
+                rotationDegrees = page.rotationDegrees,
+                filterName = page.filterName,
+            )
+        },
+    ).sha256
+}
+private const val ORIGINAL_DOCUMENT_ASSET_ROLE = "ORIGINAL_DOCUMENT"

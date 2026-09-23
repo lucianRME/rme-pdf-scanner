@@ -9,6 +9,11 @@ enum class LibraryOcrStatus {
     FAILED,
 }
 
+enum class LibraryDocumentState {
+    ACTIVE,
+    PENDING,
+}
+
 enum class LibrarySortOrder {
     MODIFIED_DESC,
     CREATED_DESC,
@@ -24,6 +29,7 @@ data class LibraryFolder(
     val id: String,
     val name: String,
     val documentCount: Int = 0,
+    val parentFolderId: String? = null,
 )
 
 data class LibraryDocumentSummary(
@@ -53,6 +59,7 @@ data class LibraryPageRecord(
     val filterName: String,
     val ocrText: String?,
     val ocrError: String?,
+    val contentSha256: String? = null,
 )
 
 data class LibraryDocumentRecord(
@@ -99,8 +106,9 @@ internal fun String.toFtsPrefixQuery(): String? {
         .take(MAX_SEARCH_TOKENS)
         .toList()
     if (tokens.isEmpty()) return null
-    // Tokens contain only letters and numbers, so FTS4's unquoted prefix form is safe here.
-    return tokens.joinToString(" AND ") { token -> "$token*" }
+    // Tokens contain only letters and numbers. Whitespace is FTS4's portable implicit-AND
+    // syntax; the explicit AND operator is not enabled by every Android SQLite build.
+    return tokens.joinToString(" ") { token -> "$token*" }
 }
 
 const val MAX_LIBRARY_TITLE_LENGTH = 120

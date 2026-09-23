@@ -26,6 +26,7 @@ enum class LibraryActionSuccess {
     DELETED,
     FOLDER_CREATED,
     FOLDER_RENAMED,
+    FOLDER_MOVED,
     FOLDER_DELETED,
     MERGED,
     EXTRACTED,
@@ -49,6 +50,7 @@ data class LibraryUiState(
     val documents: List<LibraryDocumentSummary> = emptyList(),
     val recentDocuments: List<LibraryDocumentSummary> = emptyList(),
     val folders: List<LibraryFolder> = emptyList(),
+    val folderBreadcrumb: List<LibraryFolder> = emptyList(),
     val query: String = "",
     val selectedFolderId: String? = null,
     val sortOrder: LibrarySortOrder = LibrarySortOrder.MODIFIED_DESC,
@@ -103,6 +105,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             documents = content.documents,
             recentDocuments = content.recentDocuments,
             folders = content.folders,
+            folderBreadcrumb = content.folders.breadcrumbTo(controls.folderId),
             query = controls.query,
             selectedFolderId = controls.folderId,
             sortOrder = controls.sortOrder,
@@ -225,13 +228,17 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         LibraryActionSuccess.DELETED,
     ) { repository.deleteDocument(documentId) }
 
-    fun createFolder(name: String) = launchAction(
+    fun createFolder(name: String, parentFolderId: String? = selectedFolderId.value) = launchAction(
         LibraryActionSuccess.FOLDER_CREATED,
-    ) { repository.createFolder(name) }
+    ) { repository.createFolder(name, parentFolderId) }
 
     fun renameFolder(folderId: String, name: String) = launchAction(
         LibraryActionSuccess.FOLDER_RENAMED,
     ) { repository.renameFolder(folderId, name) }
+
+    fun moveFolder(folderId: String, parentFolderId: String?) = launchAction(
+        LibraryActionSuccess.FOLDER_MOVED,
+    ) { repository.moveFolder(folderId, parentFolderId) }
 
     fun deleteFolder(folderId: String) = launchAction(
         LibraryActionSuccess.FOLDER_DELETED,
@@ -290,4 +297,18 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         }
         return result
     }
+}
+
+internal fun List<LibraryFolder>.breadcrumbTo(folderId: String?): List<LibraryFolder> {
+    if (folderId == null) return emptyList()
+    val foldersById = associateBy(LibraryFolder::id)
+    val reversed = mutableListOf<LibraryFolder>()
+    val visited = mutableSetOf<String>()
+    var currentId: String? = folderId
+    while (currentId != null && visited.add(currentId)) {
+        val folder = foldersById[currentId] ?: break
+        reversed += folder
+        currentId = folder.parentFolderId
+    }
+    return reversed.asReversed()
 }
