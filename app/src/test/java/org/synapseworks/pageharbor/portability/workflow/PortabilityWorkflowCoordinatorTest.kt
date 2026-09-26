@@ -413,16 +413,8 @@ class PortabilityWorkflowCoordinatorTest {
             pageCount = 21,
             sourceAssetCount = 1,
             contentByteLength = 12_000L,
-            documents = listOf(
-                RestorePreviewDocument(
-                    backupDocumentId = "document-1",
-                    title = "Synthetic document",
-                    pageCount = 21,
-                    sourceAssetCount = 1,
-                    duplicateKind = DuplicateKind.DIFFERENT,
-                    duplicateDocumentId = null,
-                ),
-            ),
+            exactDuplicateCount = 0,
+            possibleDuplicateCount = 0,
         )
     }
 }

@@ -45,10 +45,21 @@ data class SearchablePdfExportRequest(
     },
     val ocrResult: OcrResult? = null,
     val progressListener: SearchablePdfExportProgressListener = SearchablePdfExportProgressListener {},
+    val effectiveOcrPageProvider: EffectiveOcrPageProvider? = null,
+    val effectiveOcrPageRequests: List<EffectiveOcrPageRequest> = emptyList(),
 ) {
     init {
         require(visualPages.map(SearchablePdfVisualPage::originalUri) == pageUris) {
             "Visual pages must retain the ordered original OCR sources."
+        }
+        require(effectiveOcrPageProvider == null || ocrResult == null) {
+            "Use either an effective OCR provider or a transient OCR result, not both."
+        }
+        require(
+            (effectiveOcrPageProvider == null && effectiveOcrPageRequests.isEmpty()) ||
+                (effectiveOcrPageProvider != null && effectiveOcrPageRequests.size == visualPages.size),
+        ) {
+            "An effective OCR provider requires one ordered stable-page request per visual page."
         }
     }
 }
@@ -135,8 +146,20 @@ class LocalSearchablePdfExportCoordinator(
             }
         }
 
-        val ocrResult = request.ocrResult ?: recognize(request)
-            ?: return SearchablePdfPreparedExport.Failure(SearchablePdfPreparationError.OCR_FAILED)
+        val ocrResult = when (val resolution = resolveOcrResult(request)) {
+            is SearchablePdfOcrInputResolution.Available -> resolution.result
+            SearchablePdfOcrInputResolution.Unavailable ->
+                return SearchablePdfPreparedExport.Failure(SearchablePdfPreparationError.OCR_FAILED)
+
+            SearchablePdfOcrInputResolution.StaleOrMismatched ->
+                return SearchablePdfPreparedExport.Failure(
+                    SearchablePdfPreparationError.OCR_RESULT_MISMATCH,
+                )
+
+            SearchablePdfOcrInputResolution.NeedsRecognition -> error(
+                "OCR resolution must be complete before PDF preparation",
+            )
+        }
         val orderedOcrPages = orderOcrPages(ocrResult, request.visualPages.size)
             ?: return SearchablePdfPreparedExport.Failure(SearchablePdfPreparationError.OCR_RESULT_MISMATCH)
         val filenameSuggestion = filenameSuggestionEngine.suggest(
@@ -287,6 +310,26 @@ class LocalSearchablePdfExportCoordinator(
         } catch (_: Exception) {
             null
         }
+    }
+
+    private suspend fun resolveOcrResult(
+        request: SearchablePdfExportRequest,
+    ): SearchablePdfOcrInputResolution {
+        val initial = try {
+            resolveSearchablePdfOcrInput(
+                provider = request.effectiveOcrPageProvider,
+                pageRequests = request.effectiveOcrPageRequests,
+                transientResult = request.ocrResult,
+            )
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            return SearchablePdfOcrInputResolution.Unavailable
+        }
+        if (initial != SearchablePdfOcrInputResolution.NeedsRecognition) return initial
+
+        return recognize(request)?.let(SearchablePdfOcrInputResolution::Available)
+            ?: SearchablePdfOcrInputResolution.Unavailable
     }
 
     private fun orderOcrPages(ocrResult: OcrResult, pageCount: Int) =

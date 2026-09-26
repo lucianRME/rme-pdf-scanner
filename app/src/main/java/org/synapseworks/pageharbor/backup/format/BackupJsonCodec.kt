@@ -11,9 +11,63 @@ object BackupJsonCodec {
         destination: OutputStream,
         limits: BackupFormatLimits = BackupFormatLimits(),
     ) {
-        val bytes = encodeManifest(manifest).toByteArray(StandardCharsets.UTF_8)
-        if (bytes.size > limits.maximumManifestBytes) limitExceeded("The manifest is too large.")
-        destination.write(bytes)
+        val output = BoundedManifestOutput(destination, limits.maximumManifestBytes)
+        output.append('{')
+        output.append("\"formatVersion\":").append(manifest.formatVersion)
+        output.append(",\"minimumReaderVersion\":").append(manifest.minimumReaderVersion)
+        output.append(",\"requiredFeatures\":[")
+        manifest.requiredFeatures.forEachIndexed { index, feature ->
+            if (index > 0) output.append(',')
+            output.append(jsonString(feature))
+        }
+        output.append(']')
+        output.append(",\"backupId\":").append(jsonString(manifest.backupId))
+        output.append(",\"createdAtEpochMillis\":").append(manifest.createdAtEpochMillis)
+        output.append(",\"producer\":{")
+        output.append("\"applicationId\":").append(jsonString(manifest.producer.applicationId))
+        output.append(",\"versionName\":").append(jsonString(manifest.producer.versionName))
+        output.append(",\"versionCode\":").append(manifest.producer.versionCode)
+        output.append('}')
+        output.append(",\"summary\":{")
+        output.append("\"folderCount\":").append(manifest.summary.folderCount)
+        output.append(",\"documentCount\":").append(manifest.summary.documentCount)
+        output.append(",\"pageCount\":").append(manifest.summary.pageCount)
+        output.append(",\"sourceAssetCount\":").append(manifest.summary.sourceAssetCount)
+        output.append(",\"contentByteLength\":").append(manifest.summary.contentByteLength)
+        output.append('}')
+        output.append(",\"metadata\":{")
+        output.append("\"folders\":").append(jsonString(manifest.metadata.folders))
+        output.append(",\"documents\":").append(jsonString(manifest.metadata.documents))
+        output.append(",\"pages\":").append(jsonString(manifest.metadata.pages))
+        output.append(",\"sourceAssets\":").append(jsonString(manifest.metadata.sourceAssets))
+        output.append('}')
+        manifest.ocr?.let { ocr ->
+            output.append(",\"ocr\":{")
+            output.append("\"documentStatesPath\":").append(jsonString(ocr.documentStatesPath))
+            output.append(",\"pageStatesPath\":").append(jsonString(ocr.pageStatesPath))
+            output.append(",\"artifactsPath\":").append(jsonString(ocr.artifactsPath))
+            output.append(",\"correctionsPath\":").append(jsonString(ocr.correctionsPath))
+            output.append(",\"documentStateCount\":").append(ocr.documentStateCount)
+            output.append(",\"pageStateCount\":").append(ocr.pageStateCount)
+            output.append(",\"artifactCount\":").append(ocr.artifactCount)
+            output.append(",\"correctionCount\":").append(ocr.correctionCount)
+            output.append(",\"lineCount\":").append(ocr.lineCount)
+            output.append(",\"lineByteLength\":").append(ocr.lineByteLength)
+            output.append(",\"lineChunks\":[")
+            ocr.lineChunks.forEachIndexed { index, chunk ->
+                if (index > 0) output.append(',')
+                output.append('{')
+                output.append("\"path\":").append(jsonString(chunk.path))
+                output.append(",\"recordCount\":").append(chunk.recordCount)
+                output.append(",\"byteLength\":").append(chunk.byteLength)
+                output.append('}')
+            }
+            output.append("]}")
+        }
+        output.append(",\"integrity\":{")
+        output.append("\"algorithm\":").append(jsonString(manifest.integrity.algorithm))
+        output.append(",\"checksumsEntry\":").append(jsonString(manifest.integrity.checksumsEntry))
+        output.append("}}")
     }
 
     fun readManifest(
@@ -26,6 +80,13 @@ object BackupJsonCodec {
         val summary = root.requiredObject("summary")
         val metadata = root.requiredObject("metadata")
         val integrity = root.requiredObject("integrity")
+        val ocr = root.fields["ocr"]?.let { value ->
+            val objectValue = value as? JsonObject ?: throw backupFailure(
+                BackupFormatFailure.INVALID_JSON,
+                "The OCR manifest section is invalid.",
+            )
+            decodeOcrManifest(objectValue)
+        }
         val requiredFeatures = root.requiredArray("requiredFeatures").values.map { value ->
             (value as? JsonString)?.value
                 ?: throw backupFailure(
@@ -61,6 +122,7 @@ object BackupJsonCodec {
                 algorithm = integrity.requiredString("algorithm"),
                 checksumsEntry = integrity.requiredString("checksumsEntry"),
             ),
+            ocr = ocr,
         )
     }
 
@@ -142,43 +204,31 @@ object BackupJsonCodec {
         accept,
     )
 
-    private fun encodeManifest(manifest: BackupManifest): String = buildString {
-        append('{')
-        append("\"formatVersion\":").append(manifest.formatVersion)
-        append(",\"minimumReaderVersion\":").append(manifest.minimumReaderVersion)
-        append(",\"requiredFeatures\":[")
-        manifest.requiredFeatures.forEachIndexed { index, feature ->
-            if (index > 0) append(',')
-            append(jsonString(feature))
-        }
-        append(']')
-        append(",\"backupId\":").append(jsonString(manifest.backupId))
-        append(",\"createdAtEpochMillis\":").append(manifest.createdAtEpochMillis)
-        append(",\"producer\":{")
-        append("\"applicationId\":").append(jsonString(manifest.producer.applicationId))
-        append(",\"versionName\":").append(jsonString(manifest.producer.versionName))
-        append(",\"versionCode\":").append(manifest.producer.versionCode)
-        append('}')
-        append(",\"summary\":{")
-        append("\"folderCount\":").append(manifest.summary.folderCount)
-        append(",\"documentCount\":").append(manifest.summary.documentCount)
-        append(",\"pageCount\":").append(manifest.summary.pageCount)
-        append(",\"sourceAssetCount\":").append(manifest.summary.sourceAssetCount)
-        append(",\"contentByteLength\":").append(manifest.summary.contentByteLength)
-        append('}')
-        append(",\"metadata\":{")
-        append("\"folders\":").append(jsonString(manifest.metadata.folders))
-        append(",\"documents\":").append(jsonString(manifest.metadata.documents))
-        append(",\"pages\":").append(jsonString(manifest.metadata.pages))
-        append(",\"sourceAssets\":").append(jsonString(manifest.metadata.sourceAssets))
-        append('}')
-        append(",\"integrity\":{")
-        append("\"algorithm\":").append(jsonString(manifest.integrity.algorithm))
-        append(",\"checksumsEntry\":").append(jsonString(manifest.integrity.checksumsEntry))
-        append("}}")
-    }
+    private fun decodeOcrManifest(root: JsonObject): BackupOcrManifest = BackupOcrManifest(
+        documentStatesPath = root.requiredString("documentStatesPath"),
+        pageStatesPath = root.requiredString("pageStatesPath"),
+        artifactsPath = root.requiredString("artifactsPath"),
+        correctionsPath = root.requiredString("correctionsPath"),
+        documentStateCount = root.requiredInt("documentStateCount"),
+        pageStateCount = root.requiredInt("pageStateCount"),
+        artifactCount = root.requiredInt("artifactCount"),
+        correctionCount = root.requiredInt("correctionCount"),
+        lineCount = root.requiredInt("lineCount"),
+        lineByteLength = root.requiredLong("lineByteLength"),
+        lineChunks = root.requiredArray("lineChunks").values.map { value ->
+            val chunk = value as? JsonObject ?: throw backupFailure(
+                BackupFormatFailure.INVALID_JSON,
+                "An OCR line chunk descriptor is invalid.",
+            )
+            BackupOcrLineChunkDescriptor(
+                path = chunk.requiredString("path"),
+                recordCount = chunk.requiredInt("recordCount"),
+                byteLength = chunk.requiredLong("byteLength"),
+            )
+        },
+    )
 
-    private fun encodeFolder(record: BackupFolderRecord): String = buildString {
+    internal fun encodeFolder(record: BackupFolderRecord): String = buildString {
         append('{')
         append("\"folderId\":").append(jsonString(record.folderId))
         append(",\"name\":").append(jsonString(record.name))
@@ -188,7 +238,7 @@ object BackupJsonCodec {
         append('}')
     }
 
-    private fun decodeFolder(line: String, limits: BackupFormatLimits): BackupFolderRecord {
+    internal fun decodeFolder(line: String, limits: BackupFormatLimits): BackupFolderRecord {
         val root = parseJsonObject(line, limits)
         return BackupFolderRecord(
             folderId = root.requiredString("folderId"),
@@ -199,7 +249,7 @@ object BackupJsonCodec {
         )
     }
 
-    private fun encodeDocument(record: BackupDocumentRecord): String = buildString {
+    internal fun encodeDocument(record: BackupDocumentRecord): String = buildString {
         append('{')
         append("\"documentId\":").append(jsonString(record.documentId))
         append(",\"folderId\":").append(nullableJsonString(record.folderId))
@@ -213,7 +263,7 @@ object BackupJsonCodec {
         append('}')
     }
 
-    private fun decodeDocument(line: String, limits: BackupFormatLimits): BackupDocumentRecord {
+    internal fun decodeDocument(line: String, limits: BackupFormatLimits): BackupDocumentRecord {
         val root = parseJsonObject(line, limits)
         return BackupDocumentRecord(
             documentId = root.requiredString("documentId"),
@@ -228,7 +278,7 @@ object BackupJsonCodec {
         )
     }
 
-    private fun encodePage(record: BackupPageRecord): String = buildString {
+    internal fun encodePage(record: BackupPageRecord): String = buildString {
         append('{')
         append("\"pageId\":").append(jsonString(record.pageId))
         append(",\"documentId\":").append(jsonString(record.documentId))
@@ -247,7 +297,7 @@ object BackupJsonCodec {
         append('}')
     }
 
-    private fun decodePage(line: String, limits: BackupFormatLimits): BackupPageRecord {
+    internal fun decodePage(line: String, limits: BackupFormatLimits): BackupPageRecord {
         val root = parseJsonObject(line, limits)
         return BackupPageRecord(
             pageId = root.requiredString("pageId"),
@@ -267,7 +317,7 @@ object BackupJsonCodec {
         )
     }
 
-    private fun encodeSourceAsset(record: BackupSourceAssetRecord): String = buildString {
+    internal fun encodeSourceAsset(record: BackupSourceAssetRecord): String = buildString {
         append('{')
         append("\"sourceId\":").append(jsonString(record.sourceId))
         append(",\"documentId\":").append(jsonString(record.documentId))
@@ -282,7 +332,7 @@ object BackupJsonCodec {
         append('}')
     }
 
-    private fun decodeSourceAsset(line: String, limits: BackupFormatLimits): BackupSourceAssetRecord {
+    internal fun decodeSourceAsset(line: String, limits: BackupFormatLimits): BackupSourceAssetRecord {
         val root = parseJsonObject(line, limits)
         return BackupSourceAssetRecord(
             sourceId = root.requiredString("sourceId"),
@@ -381,6 +431,27 @@ object BackupJsonCodec {
             total += count
         }
         return destination.toByteArray()
+    }
+}
+
+private class BoundedManifestOutput(
+    private val destination: OutputStream,
+    private val maximumBytes: Int,
+) {
+    private var byteCount = 0
+
+    fun append(value: Char): BoundedManifestOutput = append(value.toString())
+
+    fun append(value: Int): BoundedManifestOutput = append(value.toString())
+
+    fun append(value: Long): BoundedManifestOutput = append(value.toString())
+
+    fun append(value: String): BoundedManifestOutput {
+        val bytes = value.toByteArray(StandardCharsets.UTF_8)
+        if (byteCount > maximumBytes - bytes.size) limitExceeded("The manifest is too large.")
+        destination.write(bytes)
+        byteCount += bytes.size
+        return this
     }
 }
 

@@ -3,22 +3,40 @@ package org.synapseworks.pageharbor.backup.restore
 import android.content.Context
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
+import java.util.UUID
 
 internal interface RestoreArchiveWorkspace {
+    fun availableBytes(): Long? = null
+
     fun create(): File
 
     fun delete(file: File): Boolean
+
+    /** Removes only private archive copies created by this workspace. */
+    fun discardOrphans(): Boolean = true
 }
 
 internal class FileRestoreArchiveWorkspace(
     private val root: File,
 ) : RestoreArchiveWorkspace {
+    override fun availableBytes(): Long? {
+        val storageRoot = when {
+            root.exists() -> root
+            root.parentFile != null -> root.parentFile
+            else -> return null
+        }
+        return storageRoot.usableSpace
+    }
+
     override fun create(): File {
         if ((!root.exists() && !root.mkdirs()) || !root.isDirectory) {
             throw IOException("The private restore archive workspace is unavailable.")
         }
         makeOwnerOnly(root)
-        return File.createTempFile(".rme-restore-", ".zip", root).also(::makeOwnerOnly)
+        val file = File(root, "$ARCHIVE_PREFIX${UUID.randomUUID()}$ARCHIVE_SUFFIX")
+        if (!file.createNewFile()) throw IOException("The private restore archive could not be created.")
+        return file.also(::makeOwnerOnly)
     }
 
     override fun delete(file: File): Boolean {
@@ -32,6 +50,35 @@ internal class FileRestoreArchiveWorkspace(
             false
         }
         return safe && (!file.exists() || file.delete())
+    }
+
+    override fun discardOrphans(): Boolean {
+        if (!root.exists()) return true
+        if (!root.isDirectory) return false
+        var cleaned = true
+        return try {
+            Files.newDirectoryStream(root.toPath()).use { entries ->
+                entries.forEach { entry ->
+                    val name = entry.fileName.toString()
+                    if (MANAGED_ARCHIVE_NAME.matches(name)) {
+                        cleaned = delete(entry.toFile()) && cleaned
+                    }
+                }
+            }
+            cleaned
+        } catch (_: IOException) {
+            false
+        } catch (_: SecurityException) {
+            false
+        }
+    }
+
+    private companion object {
+        const val ARCHIVE_PREFIX = ".rme-restore-"
+        const val ARCHIVE_SUFFIX = ".zip"
+        val MANAGED_ARCHIVE_NAME = Regex(
+            "\\.rme-restore-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.zip",
+        )
     }
 }
 

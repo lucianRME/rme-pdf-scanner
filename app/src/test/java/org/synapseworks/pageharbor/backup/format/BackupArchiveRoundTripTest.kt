@@ -72,7 +72,7 @@ class BackupArchiveRoundTripTest {
         }
 
         assertBackupFailure(BackupFormatFailure.SIZE_MISMATCH) {
-            BackupArchiveWriter.write(output, fixture.manifest, fixture.records, wrongAssets)
+            writeBackupArchiveForTest(output, fixture.manifest, fixture.records, wrongAssets)
         }
     }
 

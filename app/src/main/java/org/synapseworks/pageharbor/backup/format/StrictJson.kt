@@ -281,6 +281,14 @@ internal fun JsonObject.requiredInt(name: String): Int {
 internal fun JsonObject.requiredBoolean(name: String): Boolean =
     (fields[name] as? JsonBoolean)?.value ?: invalidJson("A required JSON boolean is missing or invalid.")
 
+internal fun JsonObject.requiredDouble(name: String): Double {
+    val token = (fields[name] as? JsonNumber)?.token
+        ?: invalidJson("A required JSON number is missing or invalid.")
+    val value = token.toDoubleOrNull() ?: invalidJson("A JSON number is out of range.")
+    if (!value.isFinite()) invalidJson("A JSON number must be finite.")
+    return value
+}
+
 internal fun JsonObject.requiredNullableString(name: String): String? = when (val value = fields[name]) {
     is JsonString -> value.value
     JsonNull -> null

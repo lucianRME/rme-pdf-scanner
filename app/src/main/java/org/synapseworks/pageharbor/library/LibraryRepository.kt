@@ -11,6 +11,7 @@ import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import org.synapseworks.pageharbor.document.session.DocumentImageMetadata
 import org.synapseworks.pageharbor.document.session.DocumentPage
@@ -25,6 +26,8 @@ import org.synapseworks.pageharbor.image.DocumentFilter
 import org.synapseworks.pageharbor.library.duplicate.DocumentFingerprintV1
 import org.synapseworks.pageharbor.library.duplicate.FingerprintPage
 import org.synapseworks.pageharbor.ocr.OcrResult
+import org.synapseworks.pageharbor.ocr.persistence.BundledLatinOcrMappingResult
+import org.synapseworks.pageharbor.ocr.persistence.BundledLatinOcrResultMapper
 
 data class SavedLibraryDocument(
     val id: String,
@@ -77,7 +80,63 @@ class LibraryRepository internal constructor(
     fun observeSearch(query: String): Flow<List<LibraryDocumentSummary>>? {
         val raw = query.trim()
         val fts = raw.toFtsPrefixQuery() ?: return null
-        return dao.observeSearch(fts, raw).map { rows -> rows.map(LibrarySearchRow::toSummary) }
+        return combine(
+            dao.observeDocumentSearch(fts, raw, OBSERVED_SEARCH_LIMIT),
+            dao.observePageSearch(fts, OBSERVED_SEARCH_LIMIT),
+        ) { documentRows, pageRows ->
+            (documentRows + pageRows)
+                .sortedWith(
+                    compareByDescending<LibrarySearchRow> { it.modifiedAtMillis }
+                        .thenBy { it.title.lowercase(Locale.ROOT) }
+                        .thenBy { it.pagePosition ?: -1 },
+                )
+                .distinctBy(LibrarySearchRow::documentId)
+                .take(OBSERVED_SEARCH_LIMIT)
+                .map(LibrarySearchRow::toSummary)
+        }
+    }
+
+    suspend fun searchHits(
+        query: String,
+        beforeModifiedAt: Long = Long.MAX_VALUE,
+        afterDocumentId: String = "",
+        afterPageId: String = "",
+        limit: Int = DEFAULT_SEARCH_PAGE_SIZE,
+    ): List<LibrarySearchHit> {
+        val raw = query.trim()
+        val fts = raw.toFtsPrefixQuery() ?: return emptyList()
+        val boundedLimit = limit.coerceIn(1, MAX_SEARCH_PAGE_SIZE)
+        val documentRows = dao.documentSearchPage(
+            fts,
+            raw,
+            beforeModifiedAt,
+            afterDocumentId,
+            boundedLimit,
+        )
+        val pageRows = dao.pageSearchPage(
+            fts,
+            beforeModifiedAt,
+            afterPageId,
+            boundedLimit,
+        )
+        return (documentRows + pageRows)
+            .sortedWith(
+                compareByDescending<LibrarySearchRow> { it.modifiedAtMillis }
+                    .thenBy(LibrarySearchRow::documentId)
+                    .thenBy { it.pagePosition ?: -1 },
+            )
+            .distinctBy { row -> Triple(row.documentId, row.pageId, row.matchType) }
+            .take(boundedLimit)
+            .map { row ->
+                LibrarySearchHit(
+                    documentId = row.documentId,
+                    pageId = row.pageId,
+                    currentPagePosition = row.pagePosition,
+                    matchType = runCatching { LibrarySearchMatch.valueOf(row.matchType) }
+                        .getOrDefault(LibrarySearchMatch.OCR),
+                    snippet = row.matchSnippet?.trim()?.takeIf(String::isNotBlank),
+                )
+            }
     }
 
     suspend fun saveSession(
@@ -124,7 +183,7 @@ class LibraryRepository internal constructor(
                 },
             )
         }
-        return saveSources(
+        val saved = saveSources(
             existingDocumentId = existingId,
             title = normalizedTitle,
             folderId = folderId,
@@ -143,6 +202,32 @@ class LibraryRepository internal constructor(
                 )
             },
         )
+        if (existingId == null && ocrResult != null && saved is LibraryResult.Success) {
+            promoteFirstSaveOcr(saved.value.id, ocrResult)
+        }
+        return saved
+    }
+
+    /**
+     * Promotes the current bundled-Latin result after the first durable page identities exist.
+     * The legacy artifact written by the base save remains the lossless fallback unless every
+     * page maps and the revision-aware commit succeeds.
+     */
+    private suspend fun promoteFirstSaveOcr(documentId: String, result: OcrResult) {
+        val snapshots = runDatabase { dao.ocrPageSnapshots(documentId) } ?: return
+        val mapped = BundledLatinOcrResultMapper.map(
+            result = result,
+            orderedSnapshots = snapshots,
+            recognizedAtMillis = nowMillis(),
+        )
+        if (mapped !is BundledLatinOcrMappingResult.Success) return
+        runDatabase {
+            dao.commitOcrArtifacts(
+                documentId = documentId,
+                outcomes = mapped.outcomes,
+                modifiedAt = nowMillis(),
+            )
+        }
     }
 
     suspend fun openDocument(documentId: String): LibraryResult<OpenedLibraryDocument> {
@@ -309,6 +394,137 @@ class LibraryRepository internal constructor(
             LibraryResult.Failure(LibraryError.DATABASE_UNAVAILABLE)
         }
     }
+
+    suspend fun captureOcrPageSnapshots(
+        documentId: String,
+        orderedPageIds: List<String>? = null,
+    ): List<LibraryOcrPageSnapshot> = operationGate.withStableSnapshot {
+        val snapshots = dao.ocrPageSnapshots(documentId)
+        if (orderedPageIds != null && snapshots.map(LibraryOcrPageSnapshot::pageId) != orderedPageIds) {
+            emptyList()
+        } else {
+            snapshots
+        }
+    }
+
+    suspend fun commitOcrArtifact(
+        expected: LibraryOcrPageSnapshot,
+        draft: LibraryOcrArtifactDraft,
+    ): LibraryOcrCommitResult = operationGate.withMutation {
+        dao.commitOcrArtifact(expected, draft, nowMillis())
+    }
+
+    suspend fun indexOcr(
+        documentId: String,
+        outcomes: List<LibraryOcrPageOutcomeDraft>,
+    ): LibraryOcrCommitResult = operationGate.withMutation {
+        dao.commitOcrArtifacts(documentId, outcomes, nowMillis())
+    }
+
+    suspend fun saveOcrCorrection(
+        expected: LibraryOcrPageSnapshot,
+        correction: LibraryOcrCorrectionDraft,
+    ): LibraryOcrCommitResult = operationGate.withMutation {
+        dao.saveOcrCorrection(expected, correction, nowMillis())
+    }
+
+    suspend fun revertOcrCorrection(
+        expected: LibraryOcrPageSnapshot,
+    ): LibraryOcrCommitResult = operationGate.withMutation {
+        dao.revertOcrCorrection(expected, nowMillis())
+    }
+
+    suspend fun effectiveOcrPage(
+        documentId: String,
+        pageId: String,
+    ): LibraryEffectiveOcrPage? = operationGate.withStableSnapshot {
+        dao.effectiveOcrPage(documentId, pageId)
+    }
+
+    suspend fun ocrBackupPage(
+        documentId: String,
+        afterPosition: Int,
+        limit: Int,
+    ): List<LibraryOcrRestorePageState> = operationGate.withStableSnapshot {
+        dao.ocrBackupPage(documentId, afterPosition, limit)
+    }
+
+    suspend fun freezeOcrBatchTargets(
+        job: OcrBatchJobEntity,
+        targets: List<OcrBatchTarget>,
+    ): Boolean = operationGate.withMutation {
+        dao.freezeOcrBatchTargets(job, targets)
+    }
+
+    /**
+     * Starts a durable target population. Callers may page their selection and append bounded
+     * chunks without materializing the whole batch. No item can be claimed before finish succeeds.
+     */
+    suspend fun beginOcrBatchTargetPopulation(job: OcrBatchJobEntity): Boolean =
+        operationGate.withMutation {
+            dao.beginOcrBatchTargetPopulation(job)
+        }
+
+    suspend fun appendOcrBatchTargets(
+        jobId: String,
+        targets: List<OcrBatchTarget>,
+    ): Boolean = operationGate.withMutation {
+        dao.appendOcrBatchTargets(jobId, targets, nowMillis())
+    }
+
+    suspend fun finishOcrBatchTargetPopulation(jobId: String): Boolean =
+        operationGate.withMutation {
+            dao.finishOcrBatchTargetPopulation(jobId, nowMillis())
+        }
+
+    suspend fun discardIncompleteOcrBatchTargetPopulation(jobId: String): Boolean =
+        operationGate.withMutation {
+            dao.discardIncompleteOcrBatchTargetPopulation(jobId)
+        }
+
+    suspend fun claimOcrBatchItem(
+        jobId: String,
+        itemId: String,
+        generation: Long,
+        claimToken: String,
+    ): OcrBatchClaim? = operationGate.withMutation {
+        dao.claimOcrBatchItem(jobId, itemId, generation, claimToken, nowMillis())
+    }
+
+    suspend fun completeOcrBatchItem(
+        claim: OcrBatchClaim,
+        draft: LibraryOcrArtifactDraft,
+    ): OcrBatchCompletionResult = operationGate.withMutation {
+        dao.completeOcrBatchItem(claim, draft, nowMillis())
+    }
+
+    suspend fun failOcrBatchItem(
+        claim: OcrBatchClaim,
+        safeErrorCode: String,
+    ): OcrBatchCompletionResult = operationGate.withMutation {
+        dao.failOcrBatchItem(claim, safeErrorCode, nowMillis())
+    }
+
+    suspend fun waitForOcrModel(
+        claim: OcrBatchClaim,
+        safeErrorCode: String,
+    ): OcrBatchCompletionResult = operationGate.withMutation {
+        dao.waitForOcrModel(claim, safeErrorCode, nowMillis())
+    }
+
+    suspend fun requestOcrBatchItemRetry(jobId: String, itemId: String): Boolean =
+        operationGate.withMutation {
+            dao.requestOcrBatchItemRetry(jobId, itemId, nowMillis())
+        }
+
+    suspend fun cancelOcrBatchJob(jobId: String): Boolean = operationGate.withMutation {
+        dao.cancelOcrBatchJob(jobId, nowMillis())
+    }
+
+    suspend fun recoverInterruptedOcrBatchJob(jobId: String): OcrBatchJobEntity? =
+        operationGate.withMutation {
+            dao.recoverInterruptedOcrBatchJob(jobId, nowMillis())
+        }
 
     suspend fun createFolder(
         name: String,
@@ -698,6 +914,9 @@ class LibraryRepository internal constructor(
                 pages = pages,
                 ocrText = pages.joinToString("\n\n") { it.ocrText.orEmpty() },
                 sourceAssets = sourceAssetEntities,
+                ocrCloneSources = prepared.value.pages.mapNotNull { page ->
+                    page.ocrCloneSourcePageId?.let { sourcePageId -> page.pageId to sourcePageId }
+                }.toMap(),
             )
         } catch (error: CancellationException) {
             fileStore.discardRevision(prepared.value.revisionDirectory)
@@ -731,6 +950,7 @@ class LibraryRepository internal constructor(
         val file = fileStore.resolve(relativePath)
         return LibraryPageSource(
             persistentId = pageId.takeIf { preservePersistentId },
+            ocrCloneSourcePageId = pageId.takeUnless { preservePersistentId },
             contentType = contentType,
             sourceCategory = sourceCategory,
             imageMetadata = DocumentImageMetadata(sourceByteCount, width, height),
@@ -789,8 +1009,11 @@ private fun LibrarySearchRow.toSummary(): LibraryDocumentSummary = LibraryDocume
     thumbnailRelativePath = thumbnailRelativePath,
     ocrStatus = runCatching { LibraryOcrStatus.valueOf(ocrStatus) }
         .getOrDefault(LibraryOcrStatus.NOT_INDEXED),
-    searchMatch = if (titleMatch == 1) LibrarySearchMatch.TITLE else LibrarySearchMatch.OCR,
+    searchMatch = runCatching { LibrarySearchMatch.valueOf(matchType) }
+        .getOrDefault(LibrarySearchMatch.OCR),
     searchSnippet = matchSnippet?.trim()?.takeIf(String::isNotBlank),
+    matchingPageId = pageId,
+    matchingPagePosition = pagePosition,
 )
 
 private fun LibraryDocumentEntity.toSummary(folderName: String?): LibraryDocumentSummary =
@@ -830,3 +1053,6 @@ private fun logicalDocumentSha256(pages: List<LibraryPageEntity>): String {
     ).sha256
 }
 private const val ORIGINAL_DOCUMENT_ASSET_ROLE = "ORIGINAL_DOCUMENT"
+private const val OBSERVED_SEARCH_LIMIT = 150
+private const val DEFAULT_SEARCH_PAGE_SIZE = 30
+private const val MAX_SEARCH_PAGE_SIZE = 50

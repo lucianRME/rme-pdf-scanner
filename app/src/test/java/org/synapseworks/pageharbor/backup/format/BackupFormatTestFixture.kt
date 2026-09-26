@@ -107,7 +107,7 @@ internal class BackupFormatTestFixture(
 
     fun writeArchive(): ByteArray {
         val output = ByteArrayOutputStream()
-        BackupArchiveWriter.write(output, manifest, records, assets)
+        writeBackupArchiveForTest(output, manifest, records, assets)
         return output.toByteArray()
     }
 
@@ -140,14 +140,207 @@ internal class BackupFormatTestFixture(
     )
 }
 
-internal class MemoryStagingSink : BackupStagingSink {
+internal class MemoryStagingSink : BackupIndexedStagingSink {
     val assets = LinkedHashMap<String, ByteArrayOutputStream>()
     var verified = false
     var aborted = false
+    private var manifest: BackupManifest? = null
+    private val folders = ArrayList<BackupFolderRecord>()
+    private val documents = ArrayList<BackupDocumentRecord>()
+    private val pages = ArrayList<BackupPageRecord>()
+    private val sourceAssets = ArrayList<BackupSourceAssetRecord>()
+    private val ocrDocumentStates = ArrayList<BackupOcrDocumentStateRecord>()
+    private val ocrPageStates = ArrayList<BackupOcrPageStateRecord>()
+    private val ocrArtifacts = ArrayList<BackupOcrArtifactRecord>()
+    private val ocrCorrections = ArrayList<BackupOcrCorrectionRecord>()
+    private val ocrLines = ArrayList<BackupOcrLineRecord>()
+    private val ocrLineChunks = ArrayList<BackupOcrLineChunkDescriptor>()
+    private val archivePaths = BackupPathRegistry()
+    private val archivePathSet = LinkedHashSet<String>()
+    private val observed = LinkedHashMap<String, BackupObservedEntryRecord>()
+    private val checksums = LinkedHashMap<String, BackupChecksum>()
+    private val checksumCanonicalPaths = HashSet<String>()
 
     override fun open(relativePath: String): OutputStream = ByteArrayOutputStream().also {
         assets[relativePath] = it
     }
+
+    override fun openMetadata(relativePath: String): OutputStream = open(relativePath)
+
+    override fun openVerifiedMetadata(relativePath: String): InputStream? =
+        assets[relativePath]?.toByteArray()?.inputStream()
+
+    override fun acceptManifest(manifest: BackupManifest) {
+        check(this.manifest == null)
+        this.manifest = manifest
+    }
+
+    override fun acceptFolder(ordinal: Int, record: BackupFolderRecord) = appendAt(folders, ordinal, record)
+
+    override fun acceptDocument(ordinal: Int, record: BackupDocumentRecord) =
+        appendAt(documents, ordinal, record)
+
+    override fun acceptPage(ordinal: Int, record: BackupPageRecord) = appendAt(pages, ordinal, record)
+
+    override fun acceptSourceAsset(ordinal: Int, record: BackupSourceAssetRecord) =
+        appendAt(sourceAssets, ordinal, record)
+
+    override fun acceptOcrDocumentState(ordinal: Int, record: BackupOcrDocumentStateRecord) =
+        appendAt(ocrDocumentStates, ordinal, record)
+
+    override fun acceptOcrPageState(ordinal: Int, record: BackupOcrPageStateRecord) =
+        appendAt(ocrPageStates, ordinal, record)
+
+    override fun acceptOcrArtifact(ordinal: Int, record: BackupOcrArtifactRecord) =
+        appendAt(ocrArtifacts, ordinal, record)
+
+    override fun acceptOcrCorrection(ordinal: Int, record: BackupOcrCorrectionRecord) =
+        appendAt(ocrCorrections, ordinal, record)
+
+    override fun acceptOcrLine(ordinal: Int, record: BackupOcrLineRecord) =
+        appendAt(ocrLines, ordinal, record)
+
+    override fun acceptOcrLineChunk(ordinal: Int, descriptor: BackupOcrLineChunkDescriptor) =
+        appendAt(ocrLineChunks, ordinal, descriptor)
+
+    override fun acceptArchivePath(path: String) {
+        archivePaths.add(path)
+        check(archivePathSet.add(path))
+    }
+
+    override fun acceptObservedEntry(record: BackupObservedEntryRecord) {
+        check(observed.put(record.path, record) == null)
+    }
+
+    override fun acceptChecksum(record: BackupChecksum) {
+        if (checksums.put(record.path, record) != null ||
+            !checksumCanonicalPaths.add(BackupPathValidator.canonicalCollisionKey(record.path))
+        ) {
+            throw backupFailure(
+                BackupFormatFailure.DUPLICATE_ENTRY,
+                "The checksum ledger contains colliding paths.",
+            )
+        }
+    }
+
+    override fun verifyIndexed(
+        supportedRequiredFeatures: Set<String>,
+        limits: BackupFormatLimits,
+        checkCancellation: () -> Unit,
+    ): IndexedVerifiedBackup {
+        val actualManifest = manifest
+            ?: throw backupFailure(BackupFormatFailure.MISSING_ENTRY, "The backup manifest is missing.")
+        checkCancellation()
+        BackupFormatValidator.validateCompatibility(actualManifest, supportedRequiredFeatures, limits)
+        val required = requiredEntries(actualManifest)
+        required.forEach { path ->
+            checkCancellation()
+            if (path !in archivePathSet) {
+                throw backupFailure(BackupFormatFailure.MISSING_ENTRY, "A required metadata entry is missing.")
+            }
+        }
+        if (checksums.keys != observed.keys) {
+            throw backupFailure(BackupFormatFailure.INVALID_LEDGER, "The checksum ledger is incomplete.")
+        }
+        checksums.forEach { (path, expected) ->
+            val actual = requireNotNull(observed[path])
+            if (expected.byteLength != actual.byteLength) {
+                throw backupFailure(BackupFormatFailure.SIZE_MISMATCH, "A ZIP entry has the wrong byte length.")
+            }
+            if (expected.sha256 != actual.sha256) {
+                throw backupFailure(BackupFormatFailure.HASH_MISMATCH, "A ZIP entry has the wrong SHA-256.")
+            }
+        }
+        val records = SnapshotBackupRecordSource(
+            folders,
+            documents,
+            pages,
+            sourceAssets,
+            ocrDocumentStates,
+            ocrPageStates,
+            ocrArtifacts,
+            ocrCorrections,
+            ocrLines,
+        )
+        val prepared = BackupStreamingValidator.prepareManifestForWrite(
+            actualManifest,
+            records,
+            supportedRequiredFeatures,
+            limits,
+        )
+        if (prepared != actualManifest || actualManifest.ocr?.lineChunks.orEmpty() != ocrLineChunks) {
+            throw backupFailure(BackupFormatFailure.RELATIONSHIP_INVALID, "The backup metadata is inconsistent.")
+        }
+        val allowedPaths = required + pages.map(BackupPageRecord::relativePath) +
+            sourceAssets.map(BackupSourceAssetRecord::relativePath)
+        if ((archivePathSet - allowedPaths).isNotEmpty()) {
+            throw backupFailure(BackupFormatFailure.UNDECLARED_ENTRY, "The backup contains an undeclared entry.")
+        }
+        verifyAssets(checkCancellation)
+        return IndexedVerifiedBackup(actualManifest, this)
+    }
+
+    override fun foldersPage(afterOrdinal: Int, limit: Int): List<BackupFolderRecord> =
+        folders.drop(afterOrdinal + 1).take(limit)
+
+    override fun documentsPage(afterOrdinal: Int, limit: Int): List<BackupDocumentRecord> =
+        documents.drop(afterOrdinal + 1).take(limit)
+
+    override fun pagesPage(documentId: String, afterPosition: Int, limit: Int): List<BackupPageRecord> =
+        pages.asSequence().filter { it.documentId == documentId && it.position > afterPosition }
+            .sortedBy(BackupPageRecord::position).take(limit).toList()
+
+    override fun sourceAssetsPage(
+        documentId: String,
+        afterSourceId: String?,
+        limit: Int,
+    ): List<BackupSourceAssetRecord> = sourceAssets.asSequence()
+        .filter { it.documentId == documentId && (afterSourceId == null || it.sourceId > afterSourceId) }
+        .sortedBy(BackupSourceAssetRecord::sourceId).take(limit).toList()
+
+    override fun ocrDocumentState(documentId: String): BackupOcrDocumentStateRecord? =
+        ocrDocumentStates.singleOrNull { it.documentId == documentId }
+
+    override fun ocrPageState(pageId: String): BackupOcrPageStateRecord? =
+        ocrPageStates.singleOrNull { it.pageId == pageId }
+
+    override fun ocrArtifactsPage(
+        pageId: String,
+        afterRevision: Long,
+        limit: Int,
+    ): List<BackupOcrArtifactRecord> = ocrArtifacts.asSequence()
+        .filter { it.pageId == pageId && it.artifactRevision > afterRevision }
+        .sortedBy(BackupOcrArtifactRecord::artifactRevision).take(limit).toList()
+
+    override fun ocrArtifactCount(pageId: String): Int = ocrArtifacts.count { it.pageId == pageId }
+
+    override fun ocrCorrection(pageId: String): BackupOcrCorrectionRecord? =
+        ocrCorrections.singleOrNull { it.pageId == pageId }
+
+    override fun ocrLinesPage(
+        pageId: String,
+        artifactRevision: Long,
+        afterOrdinal: Int,
+        limit: Int,
+    ): List<BackupOcrLineRecord> = ocrLines.asSequence()
+        .filter {
+            it.pageId == pageId && it.artifactRevision == artifactRevision && it.lineOrdinal > afterOrdinal
+        }
+        .sortedBy(BackupOcrLineRecord::lineOrdinal).take(limit).toList()
+
+    override fun totals(): BackupIndexedTotals = BackupIndexedTotals(
+        folderCount = folders.size,
+        documentCount = documents.size,
+        pageCount = pages.size,
+        sourceAssetCount = sourceAssets.size,
+        ocrDocumentStateCount = ocrDocumentStates.size,
+        ocrPageStateCount = ocrPageStates.size,
+        ocrArtifactCount = ocrArtifacts.size,
+        ocrCorrectionCount = ocrCorrections.size,
+        ocrLineCount = ocrLines.size,
+        metadataByteEstimate = 0,
+        ocrTextByteCount = 0,
+    )
 
     override fun verified() {
         verified = true
@@ -156,6 +349,90 @@ internal class MemoryStagingSink : BackupStagingSink {
     override fun abort() {
         aborted = true
         assets.clear()
+    }
+
+    fun verifiedBackup(): VerifiedBackup {
+        val actualManifest = requireNotNull(manifest)
+        val ocr = actualManifest.ocr?.let {
+            VerifiedBackupOcr(
+                documentStates = ocrDocumentStates.toList(),
+                pageStates = ocrPageStates.toList(),
+                artifacts = ocrArtifacts.toList(),
+                corrections = ocrCorrections.toList(),
+                lines = object : BackupOcrLineSource {
+                    override val recordCount: Int = ocrLines.size
+
+                    override fun records(): Sequence<BackupOcrLineRecord> = ocrLines.asSequence()
+                },
+            )
+        }
+        return VerifiedBackup(
+            actualManifest,
+            folders.toList(),
+            documents.toList(),
+            pages.toList(),
+            sourceAssets.toList(),
+            ocr,
+        )
+    }
+
+    private fun verifyAssets(checkCancellation: () -> Unit) {
+        val declared = (pages.map { it.relativePath } + sourceAssets.map { it.relativePath }).toSet()
+        val observedAssets = observed.keys.filter(BackupPathValidator::isAssetPath).toSet()
+        if ((observedAssets - declared).isNotEmpty()) {
+            throw backupFailure(BackupFormatFailure.UNDECLARED_ENTRY, "The backup contains an undeclared asset.")
+        }
+        if ((declared - observedAssets).isNotEmpty()) {
+            throw backupFailure(BackupFormatFailure.MISSING_ENTRY, "A declared asset is missing.")
+        }
+        pages.forEach { page ->
+            checkCancellation()
+            verifyAsset(page.relativePath, page.sha256, page.byteLength, page.mimeType, page.width, page.height)
+        }
+        sourceAssets.forEach { source ->
+            checkCancellation()
+            verifyAsset(source.relativePath, source.sha256, source.byteLength, source.mimeType, null, null)
+        }
+    }
+
+    private fun verifyAsset(
+        path: String,
+        sha256: String,
+        byteLength: Long,
+        mimeType: String,
+        width: Int?,
+        height: Int?,
+    ) {
+        val actual = requireNotNull(observed[path])
+        if (byteLength != actual.byteLength) {
+            throw backupFailure(BackupFormatFailure.SIZE_MISMATCH, "An asset has the wrong byte length.")
+        }
+        if (sha256 != actual.sha256) {
+            throw backupFailure(BackupFormatFailure.HASH_MISMATCH, "An asset has the wrong SHA-256.")
+        }
+        BackupAssetInspection.fromSnapshot(requireNotNull(actual.inspection))
+            .requireMatches(mimeType, width, height)
+    }
+
+    private fun requiredEntries(manifest: BackupManifest): Set<String> = buildSet {
+        add(RME_BACKUP_MANIFEST_PATH)
+        add(RME_BACKUP_FOLDERS_PATH)
+        add(RME_BACKUP_DOCUMENTS_PATH)
+        add(RME_BACKUP_PAGES_PATH)
+        add(RME_BACKUP_SOURCE_ASSETS_PATH)
+        add(RME_BACKUP_CHECKSUMS_PATH)
+        manifest.ocr?.let { ocr ->
+            add(ocr.documentStatesPath)
+            add(ocr.pageStatesPath)
+            add(ocr.artifactsPath)
+            add(ocr.correctionsPath)
+            ocr.lineChunks.forEach { add(it.path) }
+        }
+    }
+
+    private fun <T> appendAt(records: MutableList<T>, ordinal: Int, record: T) {
+        check(ordinal == records.size)
+        records += record
     }
 }
 
@@ -194,11 +471,14 @@ internal fun readAndVerify(
     archive: ByteArray,
     staging: MemoryStagingSink = MemoryStagingSink(),
     limits: BackupFormatLimits = BackupFormatLimits(),
-): VerifiedBackup = BackupArchiveReader.readAndVerify(
-    source = ByteArrayInputStream(archive),
-    staging = staging,
-    limits = limits,
-)
+): VerifiedBackup {
+    BackupArchiveReader.readAndVerify(
+        source = ByteArrayInputStream(archive),
+        staging = staging,
+        limits = limits,
+    )
+    return staging.verifiedBackup()
+}
 
 internal fun assertBackupFailure(
     expected: BackupFormatFailure,

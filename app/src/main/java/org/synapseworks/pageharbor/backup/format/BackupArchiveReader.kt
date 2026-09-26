@@ -10,14 +10,26 @@ import java.util.zip.ZipException
 import java.util.zip.ZipInputStream
 
 object BackupArchiveReader {
+    /**
+     * Restore reader that writes every decoded record and integrity row into an operation-owned
+     * disk index. The only retained state is a manifest, counters, and one bounded JSON record.
+     */
     fun readAndVerify(
         source: InputStream,
-        staging: BackupStagingSink,
+        staging: BackupIndexedStagingSink,
         supportedRequiredFeatures: Set<String> = emptySet(),
         limits: BackupFormatLimits = BackupFormatLimits(),
-    ): VerifiedBackup {
+        checkCancellation: () -> Unit = {},
+        onManifest: (BackupManifest) -> Unit = {},
+    ): IndexedVerifiedBackup {
         try {
-            val state = ReaderState(staging, supportedRequiredFeatures, limits)
+            val state = IndexedReaderState(
+                staging,
+                supportedRequiredFeatures,
+                limits,
+                checkCancellation,
+                onManifest,
+            )
             ZipInputStream(BufferedInputStream(source)).use { zip -> state.readAll(zip) }
             val verified = state.verify()
             try {
@@ -55,132 +67,208 @@ object BackupArchiveReader {
         }
     }
 
-    private class ReaderState(
-        private val staging: BackupStagingSink,
+    private class IndexedReaderState(
+        private val staging: BackupIndexedStagingSink,
         private val supportedRequiredFeatures: Set<String>,
         private val limits: BackupFormatLimits,
+        private val checkCancellation: () -> Unit,
+        private val onManifest: (BackupManifest) -> Unit,
     ) {
-        private val pathRegistry = BackupPathRegistry()
-        private val observedEntries = LinkedHashMap<String, ObservedEntry>()
-        private val folders = ArrayList<BackupFolderRecord>()
-        private val documents = ArrayList<BackupDocumentRecord>()
-        private val pages = ArrayList<BackupPageRecord>()
-        private val sourceAssets = ArrayList<BackupSourceAssetRecord>()
         private val budget = ArchiveReadBudget(limits)
         private var manifest: BackupManifest? = null
-        private var ledger: List<BackupChecksum>? = null
         private var entryCount = 0
+        private var folderCount = 0
+        private var documentCount = 0
+        private var pageCount = 0
+        private var sourceAssetCount = 0
+        private var ocrDocumentStateCount = 0
+        private var ocrPageStateCount = 0
+        private var ocrArtifactCount = 0
+        private var ocrCorrectionCount = 0
+        private var ocrLineCount = 0
+        private var ocrLineChunkCount = 0
 
         fun readAll(zip: ZipInputStream) {
             while (true) {
+                checkCancellation()
                 val entry = zip.nextEntry ?: break
                 entryCount += 1
-                if (entryCount > limits.maximumEntryCount) {
-                    limitExceeded("The backup has too many ZIP entries.")
-                }
+                if (entryCount > limits.maximumEntryCount) limitExceeded("The backup has too many ZIP entries.")
                 val path = entry.name
+                if (entryCount == 1 && path != RME_BACKUP_MANIFEST_PATH) {
+                    missingEntry("The backup manifest must be the first ZIP entry.")
+                }
                 if (entry.isDirectory) {
                     throw backupFailure(
                         BackupFormatFailure.INVALID_PATH,
                         "Directory ZIP entries are not part of the backup format.",
                     )
                 }
-                pathRegistry.add(path)
+                staging.acceptArchivePath(path)
                 when (path) {
                     RME_BACKUP_MANIFEST_PATH -> readManifest(zip, entry, path)
                     RME_BACKUP_FOLDERS_PATH -> readFolders(zip, entry, path)
                     RME_BACKUP_DOCUMENTS_PATH -> readDocuments(zip, entry, path)
                     RME_BACKUP_PAGES_PATH -> readPages(zip, entry, path)
                     RME_BACKUP_SOURCE_ASSETS_PATH -> readSourceAssets(zip, entry, path)
+                    RME_BACKUP_OCR_DOCUMENT_STATES_PATH -> readOcrDocumentStates(zip, entry, path)
+                    RME_BACKUP_OCR_PAGE_STATES_PATH -> readOcrPageStates(zip, entry, path)
+                    RME_BACKUP_OCR_ARTIFACTS_PATH -> readOcrArtifacts(zip, entry, path)
+                    RME_BACKUP_OCR_CORRECTIONS_PATH -> readOcrCorrections(zip, entry, path)
                     RME_BACKUP_CHECKSUMS_PATH -> readLedger(zip, entry)
-                    else -> readAsset(zip, entry, path)
+                    else -> if (OCR_LINE_CHUNK_PATH.matches(path)) {
+                        readOcrLines(zip, entry, path)
+                    } else {
+                        readAsset(zip, entry, path)
+                    }
                 }
             }
         }
 
-        fun verify(): VerifiedBackup {
-            val actualManifest = manifest ?: missingEntry("The backup manifest is missing.")
-            val actualLedger = ledger ?: missingEntry("The checksum ledger is missing.")
-            REQUIRED_HASHED_ENTRIES.forEach { path ->
-                if (path !in observedEntries) missingEntry("A required metadata entry is missing.")
-            }
-
-            BackupFormatValidator.validateCompleteBackup(
-                manifest = actualManifest,
-                folders = folders,
-                documents = documents,
-                pages = pages,
-                sourceAssets = sourceAssets,
-                supportedRequiredFeatures = supportedRequiredFeatures,
-                limits = limits,
-            )
-            verifyLedger(actualLedger)
-            verifyDeclaredAssets()
-            return VerifiedBackup(
-                manifest = actualManifest,
-                folders = folders.toList(),
-                documents = documents.toList(),
-                pages = pages.toList(),
-                sourceAssets = sourceAssets.toList(),
-            )
+        fun verify(): IndexedVerifiedBackup {
+            if (manifest == null) missingEntry("The backup manifest is missing.")
+            return staging.verifyIndexed(supportedRequiredFeatures, limits, checkCancellation)
         }
 
         private fun readManifest(zip: ZipInputStream, entry: ZipEntry, path: String) {
             val result = readMeasuredEntry(
-                zip = zip,
-                entry = entry,
-                path = path,
-                maximumBytes = limits.maximumManifestBytes.toLong(),
-            ) { input -> BackupJsonCodec.readManifest(input, limits) }
+                zip,
+                entry,
+                path,
+                limits.maximumManifestBytes.toLong(),
+            ) { BackupJsonCodec.readManifest(it, limits) }
             manifest = result.value
             BackupFormatValidator.validateCompatibility(result.value, supportedRequiredFeatures, limits)
+            checkCancellation()
+            onManifest(result.value)
+            checkCancellation()
+            staging.acceptManifest(result.value)
         }
 
         private fun readFolders(zip: ZipInputStream, entry: ZipEntry, path: String) {
-            readMeasuredEntry(
-                zip = zip,
-                entry = entry,
-                path = path,
-                maximumBytes = limits.maximumMetadataEntryBytes.toLong(),
-            ) { input -> BackupJsonCodec.readFolders(input, limits, folders::add) }
+            readMeasuredEntry(zip, entry, path, limits.maximumMetadataEntryBytes.toLong()) { input ->
+                BackupJsonCodec.readFolders(input, limits) {
+                    checkCancellation()
+                    staging.acceptFolder(folderCount++, it)
+                }
+            }
         }
 
         private fun readDocuments(zip: ZipInputStream, entry: ZipEntry, path: String) {
-            readMeasuredEntry(
-                zip = zip,
-                entry = entry,
-                path = path,
-                maximumBytes = limits.maximumMetadataEntryBytes.toLong(),
-            ) { input -> BackupJsonCodec.readDocuments(input, limits, documents::add) }
+            readMeasuredEntry(zip, entry, path, limits.maximumMetadataEntryBytes.toLong()) { input ->
+                BackupJsonCodec.readDocuments(input, limits) {
+                    checkCancellation()
+                    staging.acceptDocument(documentCount++, it)
+                }
+            }
         }
 
         private fun readPages(zip: ZipInputStream, entry: ZipEntry, path: String) {
-            readMeasuredEntry(
-                zip = zip,
-                entry = entry,
-                path = path,
-                maximumBytes = limits.maximumMetadataEntryBytes.toLong(),
-            ) { input -> BackupJsonCodec.readPages(input, limits, pages::add) }
+            readMeasuredEntry(zip, entry, path, limits.maximumMetadataEntryBytes.toLong()) { input ->
+                BackupJsonCodec.readPages(input, limits) {
+                    checkCancellation()
+                    staging.acceptPage(pageCount++, it)
+                }
+            }
         }
 
         private fun readSourceAssets(zip: ZipInputStream, entry: ZipEntry, path: String) {
-            readMeasuredEntry(
-                zip = zip,
-                entry = entry,
-                path = path,
-                maximumBytes = limits.maximumMetadataEntryBytes.toLong(),
-            ) { input -> BackupJsonCodec.readSourceAssets(input, limits, sourceAssets::add) }
+            readMeasuredEntry(zip, entry, path, limits.maximumMetadataEntryBytes.toLong()) { input ->
+                BackupJsonCodec.readSourceAssets(input, limits) {
+                    checkCancellation()
+                    staging.acceptSourceAsset(sourceAssetCount++, it)
+                }
+            }
+        }
+
+        private fun readOcrDocumentStates(zip: ZipInputStream, entry: ZipEntry, path: String) {
+            readMeasuredEntry(zip, entry, path, limits.maximumOcrMetadataEntryBytes.toLong()) { input ->
+                BackupOcrJsonCodec.readDocumentStates(input, limits) {
+                    checkCancellation()
+                    staging.acceptOcrDocumentState(ocrDocumentStateCount++, it)
+                }
+            }
+        }
+
+        private fun readOcrPageStates(zip: ZipInputStream, entry: ZipEntry, path: String) {
+            readMeasuredEntry(zip, entry, path, limits.maximumOcrMetadataEntryBytes.toLong()) { input ->
+                BackupOcrJsonCodec.readPageStates(input, limits) {
+                    checkCancellation()
+                    staging.acceptOcrPageState(ocrPageStateCount++, it)
+                }
+            }
+        }
+
+        private fun readOcrArtifacts(zip: ZipInputStream, entry: ZipEntry, path: String) {
+            readMeasuredEntry(zip, entry, path, limits.maximumOcrMetadataEntryBytes.toLong()) { input ->
+                BackupOcrJsonCodec.readArtifacts(input, limits) {
+                    checkCancellation()
+                    staging.acceptOcrArtifact(ocrArtifactCount++, it)
+                }
+            }
+        }
+
+        private fun readOcrCorrections(zip: ZipInputStream, entry: ZipEntry, path: String) {
+            readMeasuredEntry(zip, entry, path, limits.maximumOcrMetadataEntryBytes.toLong()) { input ->
+                BackupOcrJsonCodec.readCorrections(input, limits) {
+                    checkCancellation()
+                    staging.acceptOcrCorrection(ocrCorrectionCount++, it)
+                }
+            }
+        }
+
+        private fun readOcrLines(zip: ZipInputStream, entry: ZipEntry, path: String) {
+            val expectedPath = "$RME_BACKUP_OCR_LINES_DIRECTORY/${ocrLineChunkCount.toString().padStart(6, '0')}.jsonl"
+            if (path != expectedPath) {
+                throw backupFailure(
+                    BackupFormatFailure.INVALID_PATH,
+                    "OCR line chunks are not in canonical order.",
+                )
+            }
+            val stagedOutput = try {
+                staging.openMetadata(path)
+            } catch (exception: Exception) {
+                throw backupFailure(
+                    BackupFormatFailure.STAGING_FAILED,
+                    "An OCR metadata staging output could not be opened.",
+                    exception,
+                )
+            }
+            var lineCount = 0
+            val result = stagedOutput.use { output ->
+                readMeasuredEntry(
+                    zip,
+                    entry,
+                    path,
+                    limits.maximumOcrLineChunkBytes.toLong(),
+                ) { input ->
+                    BackupOcrJsonCodec.readLines(TeeInputStream(input, output), limits) { line ->
+                        checkCancellation()
+                        staging.acceptOcrLine(ocrLineCount++, line)
+                        lineCount += 1
+                    }
+                }
+            }
+            checkCancellation()
+            staging.acceptOcrLineChunk(
+                ocrLineChunkCount++,
+                BackupOcrLineChunkDescriptor(path, lineCount, result.observed.byteLength),
+            )
         }
 
         private fun readLedger(zip: ZipInputStream, entry: ZipEntry) {
-            val result = readMeasuredEntry(
-                zip = zip,
-                entry = entry,
-                path = RME_BACKUP_CHECKSUMS_PATH,
-                maximumBytes = limits.maximumLedgerBytes.toLong(),
+            readMeasuredEntry(
+                zip,
+                entry,
+                RME_BACKUP_CHECKSUMS_PATH,
+                limits.maximumLedgerBytes.toLong(),
                 includeAsObserved = false,
-            ) { input -> BackupChecksumLedger.read(input, limits) }
-            ledger = result.value
+            ) { input ->
+                BackupChecksumLedger.read(input, limits) { checksum ->
+                    checkCancellation()
+                    staging.acceptChecksum(checksum)
+                }
+            }
         }
 
         private fun readAsset(zip: ZipInputStream, entry: ZipEntry, path: String) {
@@ -192,16 +280,16 @@ object BackupArchiveReader {
             }
             val inspection = BackupAssetInspection.Collector()
             readMeasuredEntry(
-                zip = zip,
-                entry = entry,
-                path = path,
-                maximumBytes = limits.maximumSingleAssetBytes,
+                zip,
+                entry,
+                path,
+                limits.maximumSingleAssetBytes,
                 inspection = inspection,
             ) { input -> stageAsset(path, input) }
         }
 
         private fun stageAsset(path: String, input: InputStream) {
-            val destination = try {
+            val output = try {
                 staging.open(path)
             } catch (exception: Exception) {
                 throw backupFailure(
@@ -210,39 +298,13 @@ object BackupArchiveReader {
                     exception,
                 )
             }
-            var failure: Throwable? = null
-            try {
-                copyToStaging(input, destination)
-            } catch (throwable: Throwable) {
-                failure = throwable
-            }
-            try {
-                destination.close()
-            } catch (closeFailure: Throwable) {
-                val wrapped = backupFailure(
-                    BackupFormatFailure.STAGING_FAILED,
-                    "A staging output could not be closed.",
-                    closeFailure,
-                )
-                if (failure == null) failure = wrapped else requireNotNull(failure).addSuppressed(wrapped)
-            }
-            failure?.let { throw it }
-        }
-
-        private fun copyToStaging(source: InputStream, destination: OutputStream) {
-            val buffer = ByteArray(COPY_BUFFER_BYTES)
-            while (true) {
-                val count = source.read(buffer)
-                if (count < 0) break
-                if (count == 0) continue
-                try {
-                    destination.write(buffer, 0, count)
-                } catch (exception: Exception) {
-                    throw backupFailure(
-                        BackupFormatFailure.STAGING_FAILED,
-                        "An asset could not be written to staging.",
-                        exception,
-                    )
+            output.use { destination ->
+                val buffer = ByteArray(COPY_BUFFER_BYTES)
+                while (true) {
+                    checkCancellation()
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    if (count > 0) destination.write(buffer, 0, count)
                 }
             }
         }
@@ -257,10 +319,11 @@ object BackupArchiveReader {
             read: (InputStream) -> T,
         ): MeasuredValue<T> {
             val measuredInput = MeasuringEntryInputStream(
-                source = zip,
-                maximumEntryBytes = maximumBytes,
-                budget = budget,
-                inspection = inspection,
+                zip,
+                maximumBytes,
+                budget,
+                inspection,
+                checkCancellation,
             )
             val value = read(measuredInput)
             val measured = measuredInput.finish()
@@ -272,109 +335,32 @@ object BackupArchiveReader {
                 byteLength = measured.byteLength,
                 inspection = inspection?.finish(),
             )
-            if (includeAsObserved) observedEntries[path] = observed
+            if (includeAsObserved) {
+                checkCancellation()
+                staging.acceptObservedEntry(
+                    BackupObservedEntryRecord(
+                        path = observed.path,
+                        sha256 = observed.sha256,
+                        byteLength = observed.byteLength,
+                        inspection = observed.inspection?.snapshot(),
+                    ),
+                )
+            }
             return MeasuredValue(value, observed)
         }
 
         private fun requireCompressionRatio(entry: ZipEntry, uncompressedBytes: Long) {
             val compressedBytes = entry.compressedSize
             if (uncompressedBytes == 0L) return
-            if (compressedBytes == 0L || (
-                    compressedBytes > 0L &&
-                        uncompressedBytes / compressedBytes > limits.maximumCompressionRatio
-                    )
+            if (compressedBytes == 0L ||
+                (compressedBytes > 0L && uncompressedBytes / compressedBytes > limits.maximumCompressionRatio)
             ) {
                 limitExceeded("A ZIP entry exceeds the configured decompression ratio.")
             }
         }
-
-        private fun verifyLedger(checksums: List<BackupChecksum>) {
-            val byPath = checksums.associateBy(BackupChecksum::path)
-            if (byPath.size != checksums.size || byPath.keys != observedEntries.keys) {
-                throw backupFailure(
-                    BackupFormatFailure.INVALID_LEDGER,
-                    "The checksum ledger does not declare every archive entry exactly once.",
-                )
-            }
-            observedEntries.forEach { (path, observed) ->
-                val declared = byPath.getValue(path)
-                if (declared.byteLength != observed.byteLength) {
-                    throw backupFailure(
-                        BackupFormatFailure.SIZE_MISMATCH,
-                        "A ZIP entry does not match its ledger byte length.",
-                    )
-                }
-                if (!constantTimeEquals(declared.sha256, observed.sha256)) {
-                    throw backupFailure(
-                        BackupFormatFailure.HASH_MISMATCH,
-                        "A ZIP entry does not match its ledger SHA-256.",
-                    )
-                }
-            }
-        }
-
-        private fun verifyDeclaredAssets() {
-            val declared = LinkedHashMap<String, DeclaredAssetMetadata>()
-            pages.forEach { page ->
-                declared[page.relativePath] = DeclaredAssetMetadata(
-                    page.mimeType,
-                    page.sha256,
-                    page.byteLength,
-                    page.width,
-                    page.height,
-                )
-            }
-            sourceAssets.forEach { source ->
-                declared[source.relativePath] = DeclaredAssetMetadata(
-                    source.mimeType,
-                    source.sha256,
-                    source.byteLength,
-                    null,
-                    null,
-                )
-            }
-            val observedAssets = observedEntries.filterKeys(BackupPathValidator::isAssetPath)
-            val undeclared = observedAssets.keys - declared.keys
-            if (undeclared.isNotEmpty()) {
-                throw backupFailure(
-                    BackupFormatFailure.UNDECLARED_ENTRY,
-                    "The backup contains an asset not declared by metadata.",
-                )
-            }
-            val missing = declared.keys - observedAssets.keys
-            if (missing.isNotEmpty()) missingEntry("A declared asset is missing from the backup.")
-
-            declared.forEach { (path, metadata) ->
-                val observed = observedAssets.getValue(path)
-                if (metadata.byteLength != observed.byteLength) {
-                    throw backupFailure(
-                        BackupFormatFailure.SIZE_MISMATCH,
-                        "An asset does not match its metadata byte length.",
-                    )
-                }
-                if (!constantTimeEquals(metadata.sha256, observed.sha256)) {
-                    throw backupFailure(
-                        BackupFormatFailure.HASH_MISMATCH,
-                        "An asset does not match its metadata SHA-256.",
-                    )
-                }
-                requireNotNull(observed.inspection).requireMatches(
-                    metadata.mimeType,
-                    metadata.width,
-                    metadata.height,
-                )
-            }
-        }
     }
-}
 
-private data class DeclaredAssetMetadata(
-    val mimeType: String,
-    val sha256: String,
-    val byteLength: Long,
-    val width: Int?,
-    val height: Int?,
-)
+}
 
 private data class ObservedEntry(
     val path: String,
@@ -398,6 +384,7 @@ private class MeasuringEntryInputStream(
     private val maximumEntryBytes: Long,
     private val budget: ArchiveReadBudget,
     private val inspection: BackupAssetInspection.Collector?,
+    private val checkCancellation: () -> Unit,
 ) : InputStream() {
     private val digest = MessageDigest.getInstance("SHA-256")
     private var byteLength = 0L
@@ -409,6 +396,7 @@ private class MeasuringEntryInputStream(
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        checkCancellation()
         val count = source.read(buffer, offset, length)
         if (count < 0) {
             exhausted = true
@@ -435,6 +423,23 @@ private class MeasuringEntryInputStream(
     }
 }
 
+private class TeeInputStream(
+    private val source: InputStream,
+    private val copy: OutputStream,
+) : InputStream() {
+    override fun read(): Int {
+        val value = source.read()
+        if (value >= 0) copy.write(value)
+        return value
+    }
+
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        val count = source.read(buffer, offset, length)
+        if (count > 0) copy.write(buffer, offset, count)
+        return count
+    }
+}
+
 private class ArchiveReadBudget(
     private val limits: BackupFormatLimits,
 ) {
@@ -448,22 +453,30 @@ private class ArchiveReadBudget(
     }
 }
 
-private fun constantTimeEquals(left: String, right: String): Boolean = MessageDigest.isEqual(
-    left.toByteArray(Charsets.US_ASCII),
-    right.toByteArray(Charsets.US_ASCII),
-)
-
 private fun missingEntry(message: String): Nothing = throw backupFailure(
     BackupFormatFailure.MISSING_ENTRY,
     message,
 )
 
-private val REQUIRED_HASHED_ENTRIES = setOf(
+private val V1_REQUIRED_HASHED_ENTRIES = setOf(
     RME_BACKUP_MANIFEST_PATH,
     RME_BACKUP_FOLDERS_PATH,
     RME_BACKUP_DOCUMENTS_PATH,
     RME_BACKUP_PAGES_PATH,
     RME_BACKUP_SOURCE_ASSETS_PATH,
 )
+
+private fun requiredHashedEntries(manifest: BackupManifest): Set<String> = when (manifest.formatVersion) {
+    RME_BACKUP_FORMAT_VERSION_V1 -> V1_REQUIRED_HASHED_ENTRIES
+    RME_BACKUP_FORMAT_VERSION_V2 -> V1_REQUIRED_HASHED_ENTRIES + setOf(
+        RME_BACKUP_OCR_DOCUMENT_STATES_PATH,
+        RME_BACKUP_OCR_PAGE_STATES_PATH,
+        RME_BACKUP_OCR_ARTIFACTS_PATH,
+        RME_BACKUP_OCR_CORRECTIONS_PATH,
+    ) + requireNotNull(manifest.ocr).lineChunks.map(BackupOcrLineChunkDescriptor::path)
+    else -> emptySet()
+}
+
+private val OCR_LINE_CHUNK_PATH = Regex("ocr-lines/[0-9]{6,}\\.jsonl")
 
 private const val COPY_BUFFER_BYTES = 32 * 1024

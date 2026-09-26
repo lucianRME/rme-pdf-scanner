@@ -14,7 +14,7 @@ import org.synapseworks.pageharbor.library.duplicate.DuplicateKind
 
 class RoomMigrationDuplicateAnalyzerTest {
     @Test
-    fun readOnlyPreviewCountsMoreThanTwentyPdfPagesAndClassifiesExact() = runBlocking {
+    fun readOnlyPreviewKeepsMissingOcrDigestConservativeForLargePdf() = runBlocking {
         val root = Files.createTempDirectory("migration-preview-test").toFile()
         try {
             val plan = pdfPlan("large-pdf")
@@ -44,8 +44,9 @@ class RoomMigrationDuplicateAnalyzerTest {
             assertTrue(analyzed.duplicateAnalysisComplete)
             assertEquals(25L, analyzed.pageCount)
             assertEquals(25, analyzed.duplicateDocuments.single().analyzedPageCount)
-            assertEquals(DuplicateKind.EXACT, analyzed.duplicateDocuments.single().duplicateKind)
-            assertEquals(1, analyzed.exactDuplicateCount)
+            assertEquals(DuplicateKind.POSSIBLE, analyzed.duplicateDocuments.single().duplicateKind)
+            assertEquals(0, analyzed.exactDuplicateCount)
+            assertEquals(1, analyzed.possibleDuplicateCount)
             assertEquals(1, stager.stageCalls)
             assertFalse(File(root, plan.id).exists())
         } finally {

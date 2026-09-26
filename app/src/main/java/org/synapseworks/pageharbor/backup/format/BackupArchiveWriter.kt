@@ -3,95 +3,98 @@ package org.synapseworks.pageharbor.backup.format
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.io.File
 import java.security.MessageDigest
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
 
-object BackupArchiveWriter {
+internal object BackupArchiveWriter {
+    /** Writes only a prevalidated, disk-prepared source; production never re-materializes records here. */
     fun write(
         destination: OutputStream,
         manifest: BackupManifest,
-        records: BackupRecordSource,
-        assets: BackupAssetStreamOpener,
+        source: PreparedBackupArchiveSource,
+        scratchDirectory: File,
         supportedRequiredFeatures: Set<String> = emptySet(),
         limits: BackupFormatLimits = BackupFormatLimits(),
     ): BackupWriteResult {
-        val folders = records.folders().toBoundedList(limits.maximumFolderCount)
-        val documents = records.documents().toBoundedList(limits.maximumDocumentCount)
-        val pages = records.pages().toBoundedList(limits.maximumPageCount)
-        val sourceAssets = records.sourceAssets().toBoundedList(limits.maximumSourceAssetCount)
-        BackupFormatValidator.validateCompleteBackup(
-            manifest = manifest,
-            folders = folders,
-            documents = documents,
-            pages = pages,
-            sourceAssets = sourceAssets,
-            supportedRequiredFeatures = supportedRequiredFeatures,
-            limits = limits,
-        )
-        val expectedEntryCount = 6L + pages.size.toLong() + sourceAssets.size.toLong()
+        source.checkCancellation()
+        check(manifest.summary == source.preparedSummary)
+        val archiveManifest = manifest.copy(ocr = source.preparedOcrManifest).also { value ->
+            BackupFormatValidator.validateCompatibility(value, supportedRequiredFeatures, limits)
+        }
+        val ocrEntryCount = archiveManifest.ocr?.let { 4L + it.lineChunks.size } ?: 0L
+        val expectedEntryCount = 6L + archiveManifest.summary.pageCount.toLong() +
+            archiveManifest.summary.sourceAssetCount.toLong() + ocrEntryCount
         if (expectedEntryCount > limits.maximumEntryCount) {
             limitExceeded("The backup has too many ZIP entries.")
         }
 
-        val zip = ZipOutputStream(destination)
-        val state = WriterState(zip, limits)
+        val zip = SpoolingZipWriter(
+            destination = destination,
+            cancellationCheck = source::checkCancellation,
+            centralDirectoryFile = createPrivateCentralDirectoryFile(scratchDirectory),
+        )
+        val state = try {
+            WriterState(zip, limits, scratchDirectory, source::checkCancellation)
+        } catch (failure: Throwable) {
+            try {
+                zip.close()
+            } catch (cleanupFailure: Throwable) {
+                failure.addSuppressed(cleanupFailure)
+            }
+            throw failure
+        }
         try {
             state.writeEntry(
                 path = RME_BACKUP_MANIFEST_PATH,
                 maximumBytes = limits.maximumManifestBytes.toLong(),
-            ) { output -> BackupJsonCodec.writeManifest(manifest, output, limits) }
-            state.writeEntry(
-                path = RME_BACKUP_FOLDERS_PATH,
-                maximumBytes = limits.maximumMetadataEntryBytes.toLong(),
-            ) { output -> BackupJsonCodec.writeFolders(folders.asSequence(), output, limits) }
-            state.writeEntry(
-                path = RME_BACKUP_DOCUMENTS_PATH,
-                maximumBytes = limits.maximumMetadataEntryBytes.toLong(),
-            ) { output -> BackupJsonCodec.writeDocuments(documents.asSequence(), output, limits) }
-            state.writeEntry(
-                path = RME_BACKUP_PAGES_PATH,
-                maximumBytes = limits.maximumMetadataEntryBytes.toLong(),
-            ) { output -> BackupJsonCodec.writePages(pages.asSequence(), output, limits) }
-            state.writeEntry(
-                path = RME_BACKUP_SOURCE_ASSETS_PATH,
-                maximumBytes = limits.maximumMetadataEntryBytes.toLong(),
-            ) { output -> BackupJsonCodec.writeSourceAssets(sourceAssets.asSequence(), output, limits) }
+            ) { output -> BackupJsonCodec.writeManifest(archiveManifest, output, limits) }
+            state.writePreparedMetadata(source, RME_BACKUP_FOLDERS_PATH, limits.maximumMetadataEntryBytes)
+            state.writePreparedMetadata(source, RME_BACKUP_DOCUMENTS_PATH, limits.maximumMetadataEntryBytes)
+            state.writePreparedMetadata(source, RME_BACKUP_PAGES_PATH, limits.maximumMetadataEntryBytes)
+            state.writePreparedMetadata(source, RME_BACKUP_SOURCE_ASSETS_PATH, limits.maximumMetadataEntryBytes)
 
-            val declaredAssets = buildList<DeclaredAsset> {
-                pages.forEach { page ->
-                    add(
-                        DeclaredAsset(
-                            path = page.relativePath,
-                            mimeType = page.mimeType,
-                            sha256 = page.sha256,
-                            byteLength = page.byteLength,
-                            width = page.width,
-                            height = page.height,
-                        ),
-                    )
+            archiveManifest.ocr?.let { ocr ->
+                state.writePreparedMetadata(source, ocr.documentStatesPath, limits.maximumOcrMetadataEntryBytes)
+                state.writePreparedMetadata(source, ocr.pageStatesPath, limits.maximumOcrMetadataEntryBytes)
+                state.writePreparedMetadata(source, ocr.artifactsPath, limits.maximumOcrMetadataEntryBytes)
+                state.writePreparedMetadata(source, ocr.correctionsPath, limits.maximumOcrMetadataEntryBytes)
+                ocr.lineChunks.forEach { chunk ->
+                    state.writePreparedMetadata(source, chunk.path, limits.maximumOcrLineChunkBytes)
                 }
-                sourceAssets.forEach { source ->
-                    add(
-                        DeclaredAsset(
-                            path = source.relativePath,
-                            mimeType = source.mimeType,
-                            sha256 = source.sha256,
-                            byteLength = source.byteLength,
-                            width = null,
-                            height = null,
-                        ),
-                    )
+            }
+
+            var writtenPageAssets = 0
+            val pageAssets = source.preparedPageAssets()
+            try {
+                pageAssets.forEach { asset ->
+                    source.checkCancellation()
+                    state.writePreparedAsset(asset)
+                    writtenPageAssets += 1
                 }
-            }.sortedBy(DeclaredAsset::path)
-            declaredAssets.forEach { asset -> state.writeAsset(asset, assets) }
+            } finally {
+                pageAssets.close()
+            }
+            requireRecordCount(writtenPageAssets, archiveManifest.summary.pageCount)
+            var writtenSourceAssets = 0
+            val sourceAssets = source.preparedSourceAssets()
+            try {
+                sourceAssets.forEach { asset ->
+                    source.checkCancellation()
+                    state.writePreparedAsset(asset)
+                    writtenSourceAssets += 1
+                }
+            } finally {
+                sourceAssets.close()
+            }
+            requireRecordCount(writtenSourceAssets, archiveManifest.summary.sourceAssetCount)
 
             state.writeLedger()
             zip.finish()
             zip.flush()
             return BackupWriteResult(
                 entryCount = expectedEntryCount.toInt(),
-                contentByteLength = manifest.summary.contentByteLength,
+                contentByteLength = archiveManifest.summary.contentByteLength,
+                manifest = archiveManifest,
             )
         } catch (exception: BackupFormatException) {
             throw exception
@@ -101,15 +104,31 @@ object BackupArchiveWriter {
                 "The backup ZIP could not be written.",
                 exception,
             )
+        } finally {
+            state.close()
+        }
+    }
+
+    private fun requireRecordCount(actual: Int, expected: Int) {
+        if (actual != expected) {
+            throw backupFailure(
+                BackupFormatFailure.RELATIONSHIP_INVALID,
+                "A repeatable backup record source changed while the archive was written.",
+            )
         }
     }
 
     private class WriterState(
-        private val zip: ZipOutputStream,
+        private val zip: SpoolingZipWriter,
         private val limits: BackupFormatLimits,
-    ) {
-        private val pathRegistry = BackupPathRegistry()
-        private val checksums = ArrayList<BackupChecksum>()
+        scratchDirectory: File,
+        private val cancellationCheck: () -> Unit,
+    ) : AutoCloseable {
+        private val checksums = BackupChecksumSpool(
+            limits = limits,
+            cancellationCheck = cancellationCheck,
+            root = createPrivateChecksumDirectory(scratchDirectory),
+        )
         private var totalUncompressedBytes = 0L
 
         fun writeEntry(
@@ -118,8 +137,9 @@ object BackupArchiveWriter {
             includeInLedger: Boolean = true,
             writeContent: (OutputStream) -> Unit,
         ): MeasuredContent {
-            pathRegistry.add(path)
-            zip.putNextEntry(ZipEntry(path).apply { time = 0L })
+            cancellationCheck()
+            BackupPathValidator.requireSupportedEntryPath(path)
+            zip.putNextEntry(path, maximumBytes)
             val output = MeasuringOutputStream(
                 destination = zip,
                 maximumEntryBytes = maximumBytes,
@@ -139,9 +159,44 @@ object BackupArchiveWriter {
             failure?.let { throw it }
             val measured = output.finish()
             if (includeInLedger) {
-                checksums += BackupChecksum(measured.sha256, measured.byteLength, path)
+                checksums.append(BackupChecksum(measured.sha256, measured.byteLength, path))
             }
             return measured
+        }
+
+        fun writePreparedMetadata(
+            source: PreparedBackupArchiveSource,
+            path: String,
+            maximumBytes: Int,
+        ) {
+            writeEntry(path, maximumBytes.toLong()) { output ->
+                source.openPreparedEntry(path).use { input ->
+                    val buffer = ByteArray(DEFAULT_COPY_BUFFER_BYTES)
+                    while (true) {
+                        source.checkCancellation()
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        if (count > 0) output.write(buffer, 0, count)
+                    }
+                }
+            }
+        }
+
+        fun writePreparedAsset(asset: PreparedBackupAsset) {
+            writeAsset(
+                DeclaredAsset(
+                    path = asset.path,
+                    mimeType = asset.mimeType,
+                    sha256 = asset.sha256,
+                    byteLength = asset.byteLength,
+                    width = asset.width,
+                    height = asset.height,
+                ),
+                BackupAssetStreamOpener { requestedPath ->
+                    check(requestedPath == asset.path)
+                    asset.openStream()
+                },
+            )
         }
 
         fun writeAsset(asset: DeclaredAsset, opener: BackupAssetStreamOpener) {
@@ -193,7 +248,22 @@ object BackupArchiveWriter {
                 path = RME_BACKUP_CHECKSUMS_PATH,
                 maximumBytes = limits.maximumLedgerBytes.toLong(),
                 includeInLedger = false,
-            ) { output -> BackupChecksumLedger.write(checksums, output, limits) }
+            ) { output -> checksums.writeLedger(output) }
+        }
+
+        override fun close() {
+            var failure: Throwable? = null
+            try {
+                checksums.close()
+            } catch (closeFailure: Throwable) {
+                failure = closeFailure
+            }
+            try {
+                zip.close()
+            } catch (closeFailure: Throwable) {
+                if (failure == null) failure = closeFailure else failure.addSuppressed(closeFailure)
+            }
+            failure?.let { throw it }
         }
 
         private fun copyAsset(
@@ -205,6 +275,7 @@ object BackupArchiveWriter {
             val buffer = ByteArray(DEFAULT_COPY_BUFFER_BYTES)
             var copied = 0L
             while (true) {
+                cancellationCheck()
                 val count = source.read(buffer)
                 if (count < 0) break
                 if (count == 0) continue
@@ -228,6 +299,32 @@ object BackupArchiveWriter {
         }
     }
 }
+
+/** A repeatable, operation-owned source whose metadata has already been serialized in bounded batches. */
+internal interface PreparedBackupArchiveSource {
+    val preparedSummary: BackupSummary
+    val preparedOcrManifest: BackupOcrManifest?
+
+    fun openPreparedEntry(path: String): InputStream
+
+    fun preparedPageAssets(): PreparedBackupAssetSource
+
+    fun preparedSourceAssets(): PreparedBackupAssetSource
+
+    fun checkCancellation()
+}
+
+internal interface PreparedBackupAssetSource : Sequence<PreparedBackupAsset>, AutoCloseable
+
+internal data class PreparedBackupAsset(
+    val path: String,
+    val mimeType: String,
+    val sha256: String,
+    val byteLength: Long,
+    val width: Int?,
+    val height: Int?,
+    val openStream: () -> InputStream,
+)
 
 private data class DeclaredAsset(
     val path: String,
@@ -270,15 +367,6 @@ private class MeasuringOutputStream(
         byteLength = byteLength,
         sha256 = digest.digest().toLowerHex(),
     )
-}
-
-private fun <T> Sequence<T>.toBoundedList(maximumSize: Int): List<T> {
-    val result = ArrayList<T>(minOf(maximumSize, 1_024))
-    forEach { value ->
-        if (result.size >= maximumSize) limitExceeded("A metadata record count exceeds its limit.")
-        result += value
-    }
-    return result.toList()
 }
 
 internal fun ByteArray.toLowerHex(): String = joinToString(separator = "") { byte ->

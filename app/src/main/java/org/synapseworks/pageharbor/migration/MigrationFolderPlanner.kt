@@ -14,6 +14,7 @@ internal data class MigrationExistingFolder(
 
 internal data class MigrationFolderPlan(
     val targetFolderId: String?,
+    val targetFolderSearchPath: String,
     val foldersToCreate: List<LibraryFolderEntity>,
 )
 
@@ -25,7 +26,7 @@ internal object MigrationFolderPlanner {
         newId: () -> String,
         nowMillis: Long,
     ): MigrationFolderPlan {
-        if (relativePath.isEmpty()) return MigrationFolderPlan(null, emptyList())
+        if (relativePath.isEmpty()) return MigrationFolderPlan(null, "", emptyList())
         require(relativePath.none(::isUnsafePathSegment))
 
         val available = existingFolders.toMutableList()
@@ -34,6 +35,7 @@ internal object MigrationFolderPlanner {
                 siblings.mapTo(linkedSetOf()) { it.normalizedName.lowercase(Locale.ROOT) }
             }
         val created = mutableListOf<LibraryFolderEntity>()
+        val targetPathNames = mutableListOf<String>()
         var parentId: String? = null
 
         relativePath.forEach { rawSegment ->
@@ -44,6 +46,7 @@ internal object MigrationFolderPlanner {
                     folder.normalizedName.lowercase(Locale.ROOT) == requestedNormalized
             }?.let { matching ->
                 parentId = matching.folderId
+                targetPathNames += matching.name
                 return@forEach
             }
 
@@ -59,6 +62,7 @@ internal object MigrationFolderPlanner {
                 }
                 if (existingAtTarget != null) {
                     parentId = existingAtTarget.folderId
+                    targetPathNames += existingAtTarget.name
                     return@forEach
                 }
                 if (
@@ -90,8 +94,9 @@ internal object MigrationFolderPlanner {
             reservedNormalizedNamesByParent.getOrPut(entity.parentFolderId, ::linkedSetOf) +=
                 selectedNormalized
             parentId = folderId
+            targetPathNames += entity.name
         }
-        return MigrationFolderPlan(parentId, created)
+        return MigrationFolderPlan(parentId, targetPathNames.joinToString("/"), created)
     }
 
     private fun collisionSafeName(requestedName: String, suffixIndex: Int): String {

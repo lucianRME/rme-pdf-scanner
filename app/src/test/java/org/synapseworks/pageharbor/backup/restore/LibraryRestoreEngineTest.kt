@@ -14,19 +14,37 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.synapseworks.pageharbor.backup.format.BackupVerifiedRecordStore
 import org.synapseworks.pageharbor.backup.format.BackupFormatTestFixture
+import org.synapseworks.pageharbor.backup.format.BackupOcrArtifactRecord
+import org.synapseworks.pageharbor.backup.format.BackupOcrDocumentStateRecord
+import org.synapseworks.pageharbor.backup.format.BackupOcrInputFingerprint
+import org.synapseworks.pageharbor.backup.format.BackupOcrLineRecord
+import org.synapseworks.pageharbor.backup.format.BackupOcrManifest
+import org.synapseworks.pageharbor.backup.format.BackupOcrPageStateRecord
+import org.synapseworks.pageharbor.backup.format.BackupOcrPoint
+import org.synapseworks.pageharbor.backup.format.BackupOcrVerificationState
+import org.synapseworks.pageharbor.backup.format.BackupPageRecord
+import org.synapseworks.pageharbor.backup.format.BackupSourceAssetRecord
+import org.synapseworks.pageharbor.backup.format.RME_BACKUP_FORMAT_VERSION_V2
+import org.synapseworks.pageharbor.backup.format.RME_BACKUP_READER_VERSION
+import org.synapseworks.pageharbor.backup.format.SnapshotBackupRecordSource
+import org.synapseworks.pageharbor.backup.format.writeBackupArchiveForTest
 import org.synapseworks.pageharbor.library.LibraryOperationGate
 import org.synapseworks.pageharbor.library.duplicate.DocumentFingerprintV1
 import org.synapseworks.pageharbor.library.duplicate.DuplicateCandidate
+import org.synapseworks.pageharbor.library.duplicate.DuplicateDetector
 import org.synapseworks.pageharbor.library.duplicate.DuplicateKind
+import org.synapseworks.pageharbor.library.duplicate.DuplicateMatch
 import org.synapseworks.pageharbor.library.duplicate.FingerprintPage
+import org.synapseworks.pageharbor.library.duplicate.IncomingDocumentIdentity
 
 class LibraryRestoreEngineTest {
     @Test
     fun nestedTwentyOnePageRoundTripPreservesPortableContentAndActivatesOnce() = runBlocking {
         val fixture = BackupFormatTestFixture(pageCount = 21)
         val archive = fixture.writeArchive()
-        val workspace = MemoryRestoreWorkspace()
+        val workspace = TestIndexedRestoreWorkspace()
         val store = FakeRestoreStore()
         val gate = LibraryOperationGate()
         val engine = engine(store, workspace, gate)
@@ -39,7 +57,8 @@ class LibraryRestoreEngineTest {
         assertEquals(1, prepared.preview.documentCount)
         assertEquals(21, prepared.preview.pageCount)
         assertEquals(1, prepared.preview.sourceAssetCount)
-        assertEquals(DuplicateKind.DIFFERENT, prepared.preview.documents.single().duplicateKind)
+        assertEquals(0, prepared.preview.exactDuplicateCount)
+        assertEquals(0, prepared.preview.possibleDuplicateCount)
         assertFalse(store.journalStarted)
 
         val result = engine.restore(prepared, RestoreMergePolicy.MERGE_IMPORT_ANYWAY)
@@ -53,25 +72,25 @@ class LibraryRestoreEngineTest {
         assertTrue(store.activatedOnlyWhileGateHeld)
         assertEquals(1, store.visibleDocumentCount)
         val activation = requireNotNull(store.activation)
-        assertEquals(2, activation.folders.size)
-        val root = activation.folders.single { it.originalFolderId == "folder-root" }
-        val child = activation.folders.single { it.originalFolderId == "folder-child" }
+        val activatedFolders = activation.folders.plannedFoldersPage(-1, 10).map { it.folder }
+        assertEquals(2, activatedFolders.size)
+        val root = activatedFolders.single { it.originalFolderId == "folder-root" }
+        val child = activatedFolders.single { it.originalFolderId == "folder-child" }
         assertEquals(root.folderId, child.parentFolderId)
-        val restored = activation.documents.single().bundle
-        assertEquals(21, restored.pages.size)
-        assertEquals(90, restored.pages[1].rotationDegrees)
-        assertEquals("GRAYSCALE", restored.pages[1].filterName)
-        assertEquals("Synthetic text", restored.pages.first().ocrText)
-        assertEquals(1, restored.sourceAssets.size)
-        assertEquals("application/pdf", restored.sourceAssets.single().mimeType)
-        assertEquals(1_000L, restored.document.createdAtEpochMillis)
-        assertEquals(3_000L, restored.document.modifiedAtEpochMillis)
+        assertEquals(21, store.observedPages.size)
+        assertEquals(90, store.observedPages[1].rotationDegrees)
+        assertEquals("GRAYSCALE", store.observedPages[1].filterName)
+        assertEquals("Synthetic text", store.observedPages.first().ocrText)
+        assertEquals(1, store.observedSources.size)
+        assertEquals("application/pdf", store.observedSources.single().mimeType)
+        assertEquals(1_000L, store.pendingSource.single().document.createdAtEpochMillis)
+        assertEquals(3_000L, store.pendingSource.single().document.modifiedAtEpochMillis)
         assertTrue(workspace.operationIds().isEmpty())
     }
 
     @Test
     fun corruptArchiveAndMissingVerifiedSourceFailWithoutActivatingLibrary() = runBlocking {
-        val corruptWorkspace = MemoryRestoreWorkspace()
+        val corruptWorkspace = TestIndexedRestoreWorkspace()
         val corruptStore = FakeRestoreStore()
         val corruptResult = engine(corruptStore, corruptWorkspace).prepare(
             byteArrayOf(1, 2, 3, 4).source(),
@@ -83,7 +102,7 @@ class LibraryRestoreEngineTest {
         assertTrue(corruptWorkspace.operationIds().isEmpty())
 
         val fixture = BackupFormatTestFixture(pageCount = 2)
-        val missingWorkspace = MemoryRestoreWorkspace()
+        val missingWorkspace = TestIndexedRestoreWorkspace()
         val missingStore = FakeRestoreStore()
         val missingEngine = engine(missingStore, missingWorkspace)
         val prepared = (missingEngine.prepare(fixture.writeArchive().source()) as
@@ -108,25 +127,25 @@ class LibraryRestoreEngineTest {
     }
 
     @Test
-    fun exactDuplicatesCanBeSkippedOrExplicitlyImportedAndPossibleMatchesAreNotSkipped() = runBlocking {
+    fun contentOnlyDuplicatesRemainPossibleAndAreNeverSilentlySkipped() = runBlocking {
         val fixture = BackupFormatTestFixture(pageCount = 3)
         val exactCandidate = fixture.exactCandidate()
 
         val skipStore = FakeRestoreStore(candidates = mutableListOf(exactCandidate))
-        val skipEngine = engine(skipStore, MemoryRestoreWorkspace())
+        val skipEngine = engine(skipStore, TestIndexedRestoreWorkspace())
         val skipPrepared = (skipEngine.prepare(fixture.writeArchive().source()) as
             RestorePreparationResult.Ready).prepared
-        assertEquals(DuplicateKind.EXACT, skipPrepared.preview.documents.single().duplicateKind)
+        assertEquals(1, skipPrepared.preview.possibleDuplicateCount)
 
         val skipped = skipEngine.restore(skipPrepared, RestoreMergePolicy.MERGE_SKIP_EXACT)
 
         skipped as RestoreResult.Completed
-        assertEquals(0, skipped.importedDocumentCount)
-        assertEquals(1, skipped.skippedExactDocumentCount)
-        assertEquals(0, skipStore.prepareCount)
+        assertEquals(1, skipped.importedDocumentCount)
+        assertEquals(0, skipped.skippedExactDocumentCount)
+        assertEquals(1, skipStore.prepareCount)
 
         val importStore = FakeRestoreStore(candidates = mutableListOf(exactCandidate))
-        val importEngine = engine(importStore, MemoryRestoreWorkspace())
+        val importEngine = engine(importStore, TestIndexedRestoreWorkspace())
         val importPrepared = (importEngine.prepare(fixture.writeArchive().source()) as
             RestorePreparationResult.Ready).prepared
 
@@ -144,10 +163,10 @@ class LibraryRestoreEngineTest {
             sourceSha256 = setOf(fixture.sourceAssets.single().sha256),
         )
         val possibleStore = FakeRestoreStore(candidates = mutableListOf(possibleCandidate))
-        val possibleEngine = engine(possibleStore, MemoryRestoreWorkspace())
+        val possibleEngine = engine(possibleStore, TestIndexedRestoreWorkspace())
         val possiblePrepared = (possibleEngine.prepare(fixture.writeArchive().source()) as
             RestorePreparationResult.Ready).prepared
-        assertEquals(DuplicateKind.POSSIBLE, possiblePrepared.preview.documents.single().duplicateKind)
+        assertEquals(1, possiblePrepared.preview.possibleDuplicateCount)
 
         val possibleResult = possibleEngine.restore(
             possiblePrepared,
@@ -163,7 +182,7 @@ class LibraryRestoreEngineTest {
         runBlocking {
             val fixture = BackupFormatTestFixture(pageCount = 21)
             val cancellationStore = FakeRestoreStore(initialVisibleDocumentCount = 4)
-            val cancellationWorkspace = MemoryRestoreWorkspace()
+            val cancellationWorkspace = TestIndexedRestoreWorkspace()
             val cancellationEngine = engine(cancellationStore, cancellationWorkspace)
             val cancellationPrepared = (
                 cancellationEngine.prepare(fixture.writeArchive().source()) as
@@ -188,7 +207,7 @@ class LibraryRestoreEngineTest {
                 initialVisibleDocumentCount = 7,
                 failActivation = true,
             )
-            val failingWorkspace = MemoryRestoreWorkspace()
+            val failingWorkspace = TestIndexedRestoreWorkspace()
             val failingEngine = engine(failingStore, failingWorkspace)
             val failingPrepared = (
                 failingEngine.prepare(fixture.writeArchive().source()) as
@@ -213,7 +232,7 @@ class LibraryRestoreEngineTest {
         runBlocking {
             val fixture = BackupFormatTestFixture(pageCount = 3)
             val store = FakeRestoreStore(throwCancellationAfterActivationCommit = true)
-            val workspace = MemoryRestoreWorkspace()
+            val workspace = TestIndexedRestoreWorkspace()
             val restoreEngine = engine(store, workspace)
             val prepared = (
                 restoreEngine.prepare(fixture.writeArchive().source()) as
@@ -236,7 +255,7 @@ class LibraryRestoreEngineTest {
     @Test
     fun storagePreflightAndJournalRecoveryAreSchedulerIndependent() = runBlocking {
         val fixture = BackupFormatTestFixture()
-        val rejectedWorkspace = MemoryRestoreWorkspace()
+        val rejectedWorkspace = TestIndexedRestoreWorkspace()
         val rejectedEngine = LibraryRestoreEngine(
             store = FakeRestoreStore(),
             stagingWorkspace = rejectedWorkspace,
@@ -252,9 +271,12 @@ class LibraryRestoreEngineTest {
         assertEquals(RestorePreparationFailure.INSUFFICIENT_STORAGE, rejected.reason)
         assertEquals(0, rejectedWorkspace.createCount)
 
-        val recoveryWorkspace = MemoryRestoreWorkspace()
-        val recoveryId = SequentialRestoreIds().newId()
+        val recoveryWorkspace = TestIndexedRestoreWorkspace()
+        val recoveryIds = SequentialRestoreIds()
+        val recoveryId = recoveryIds.newId()
+        val orphanedPreviewId = recoveryIds.newId()
         recoveryWorkspace.create(recoveryId)
+        recoveryWorkspace.create(orphanedPreviewId)
         val recoveryStore = FakeRestoreStore(
             recoverable = mutableListOf(RestoreRecoveryOperation(recoveryId)),
         )
@@ -265,11 +287,12 @@ class LibraryRestoreEngineTest {
         assertEquals(1, recovered)
         assertEquals(listOf(recoveryId), recoveryStore.terminatedOperationIds)
         assertTrue(recoveryWorkspace.operationIds().isEmpty())
+        assertEquals(2, recoveryWorkspace.discardCount)
     }
 
     private fun engine(
         store: FakeRestoreStore,
-        workspace: MemoryRestoreWorkspace,
+        workspace: TestIndexedRestoreWorkspace,
         gate: LibraryOperationGate = LibraryOperationGate(),
     ): LibraryRestoreEngine {
         store.gate = gate
@@ -282,12 +305,94 @@ class LibraryRestoreEngineTest {
         )
     }
 
+    private fun v2ArchiveWithOcrLine(): ByteArray {
+        val fixture = BackupFormatTestFixture()
+        val activePage = fixture.pages.first()
+        val rawText = "Synthetic staged OCR"
+        val line = BackupOcrLineRecord(
+            pageId = activePage.pageId,
+            artifactRevision = 1,
+            lineOrdinal = 0,
+            rawText = rawText,
+            cornerPoints = listOf(
+                BackupOcrPoint(0.1, 0.1),
+                BackupOcrPoint(0.9, 0.1),
+                BackupOcrPoint(0.9, 0.2),
+                BackupOcrPoint(0.1, 0.2),
+            ),
+            baselineStart = BackupOcrPoint(0.1, 0.18),
+            baselineEnd = BackupOcrPoint(0.9, 0.18),
+            baselineAngleDegrees = 0.0,
+            writingOrientation = "HORIZONTAL_LTR",
+        )
+        val artifact = BackupOcrArtifactRecord(
+            pageId = activePage.pageId,
+            artifactRevision = 1,
+            capturedPageVisualRevision = 0,
+            capturedDocumentContentRevision = 1,
+            verificationState = BackupOcrVerificationState.CURRENT_VERIFIED,
+            inputFingerprint = BackupOcrInputFingerprint(
+                version = 1,
+                value = "synthetic-input-fingerprint",
+                contentSha256 = activePage.sha256,
+                visualRevision = 0,
+                rotationDegrees = activePage.rotationDegrees,
+                filterName = activePage.filterName,
+                uprightWidth = activePage.width,
+                uprightHeight = activePage.height,
+                coordinateSystemVersion = 1,
+                transformVersion = 1,
+            ),
+            actualScript = "LATIN",
+            recognizerId = "synthetic-latin",
+            pipelineVersion = "1",
+            clientVersion = "17",
+            delivery = "BUNDLED",
+            recognizedAtEpochMillis = 1L,
+            rawText = rawText,
+            lineCount = 1,
+        )
+        val pages = fixture.pages.map { page ->
+            page.copy(ocrText = if (page.pageId == activePage.pageId) rawText else null)
+        }
+        val records = SnapshotBackupRecordSource(
+            folders = fixture.folders,
+            documents = fixture.documents,
+            pages = pages,
+            sourceAssets = fixture.sourceAssets,
+            ocrDocumentStates = fixture.documents.map { document ->
+                BackupOcrDocumentStateRecord(document.documentId, 1, "LATIN")
+            },
+            ocrPageStates = pages.map { page ->
+                if (page.pageId == activePage.pageId) {
+                    BackupOcrPageStateRecord(page.pageId, 0, 1, 1)
+                } else {
+                    BackupOcrPageStateRecord(page.pageId, 0, 0, null)
+                }
+            },
+            ocrArtifacts = listOf(artifact),
+            ocrLines = listOf(line),
+        )
+        val output = ByteArrayOutputStream()
+        writeBackupArchiveForTest(
+            destination = output,
+            manifest = fixture.manifest.copy(
+                formatVersion = RME_BACKUP_FORMAT_VERSION_V2,
+                minimumReaderVersion = RME_BACKUP_READER_VERSION,
+                ocr = BackupOcrManifest.empty(),
+            ),
+            records = records,
+            assets = fixture.assets,
+        )
+        return output.toByteArray()
+    }
+
     private companion object {
         const val NOW = 1_790_035_200_000L
     }
 }
 
-private class FakeRestoreStore(
+internal class FakeRestoreStore(
     private val candidates: MutableList<DuplicateCandidate> = mutableListOf(),
     private val initialVisibleDocumentCount: Int = 0,
     private val failActivation: Boolean = false,
@@ -303,29 +408,61 @@ private class FakeRestoreStore(
     var terminated = false
     var visibleDocumentCount = initialVisibleDocumentCount
     val pending = mutableListOf<RestoreDocumentToPrepare>()
+    val pendingSource = mutableListOf<RestoreIndexedDocument>()
+    val observedPages = mutableListOf<BackupPageRecord>()
+    val observedSources = mutableListOf<BackupSourceAssetRecord>()
     val terminatedOperationIds = mutableListOf<String>()
     private val completedOperationIds = mutableSetOf<String>()
 
-    override suspend fun duplicateCandidates(): List<DuplicateCandidate> = candidates.toList()
+    override suspend fun classifyDuplicate(identity: IncomingDocumentIdentity): DuplicateMatch =
+        DuplicateDetector.classify(identity, candidates)
 
-    override suspend fun existingFolders(): List<RestoreExistingFolder> = emptyList()
+    override suspend fun possibleSourceDuplicate(sourceSha256: Collection<String>): String? =
+        candidates.firstOrNull { candidate -> candidate.sourceSha256.any(sourceSha256::contains) }?.documentId
+
+    override suspend fun folderNameExists(parentFolderId: String?, normalizedName: String): Boolean = false
 
     override suspend fun beginOperation(plan: RestoreJournalPlan) {
         journalStarted = true
     }
 
+    override suspend fun recordSkippedExactDocument(
+        operationId: String,
+        ordinal: Int,
+        source: RestoreIndexedDocument,
+    ) = Unit
+
     override suspend fun preparePendingDocument(
         operationId: String,
+        ordinal: Int,
         document: RestoreDocumentToPrepare,
+        records: BackupVerifiedRecordStore,
         assets: RestoreStagedAssetSource,
     ) {
         prepareCount += 1
         preparedOnlyWhileGateHeld = preparedOnlyWhileGateHeld && gate?.isOperationActive == true
-        document.bundle.pages.forEach { page -> assets.openAsset(page.relativePath).use(InputStream::readBytes) }
-        document.bundle.sourceAssets.forEach { source ->
-            assets.openAsset(source.relativePath).use(InputStream::readBytes)
+        var afterPosition = -1
+        while (true) {
+            val page = records.pagesPage(document.source.document.documentId, afterPosition, 8)
+            if (page.isEmpty()) break
+            page.forEach {
+                assets.openAsset(it.relativePath).use(InputStream::readBytes)
+                observedPages += it
+            }
+            afterPosition = page.last().position
+        }
+        var afterSourceId: String? = null
+        while (true) {
+            val source = records.sourceAssetsPage(document.source.document.documentId, afterSourceId, 8)
+            if (source.isEmpty()) break
+            source.forEach {
+                assets.openAsset(it.relativePath).use(InputStream::readBytes)
+                observedSources += it
+            }
+            afterSourceId = source.last().sourceId
         }
         pending += document
+        pendingSource += document.source
     }
 
     override suspend fun activate(plan: RestoreActivationPlan) {
@@ -356,68 +493,6 @@ private class FakeRestoreStore(
     }
 
     override suspend fun recoverableOperations(): List<RestoreRecoveryOperation> = recoverable.toList()
-}
-
-private class MemoryRestoreWorkspace(
-    private val available: Long = Long.MAX_VALUE,
-) : RestoreStagingWorkspace {
-    private val areas = linkedMapOf<String, MemoryRestoreStagingArea>()
-    var createCount: Int = 0
-
-    override fun availableBytes(): Long = available
-
-    override fun create(operationId: String): RestoreStagingArea {
-        createCount += 1
-        check(operationId !in areas)
-        return MemoryRestoreStagingArea(operationId) { areas.remove(operationId) }.also {
-            areas[operationId] = it
-        }
-    }
-
-    override fun discard(operationId: String): Boolean = areas.remove(operationId) != null || operationId !in areas
-
-    fun removeAsset(operationId: String, path: String) {
-        areas.getValue(operationId).assets.remove(path)
-    }
-
-    fun operationIds(): Set<String> = areas.keys.toSet()
-}
-
-private class MemoryRestoreStagingArea(
-    override val operationId: String,
-    private val onDiscard: () -> Unit,
-) : RestoreStagingArea {
-    val assets = linkedMapOf<String, ByteArrayOutputStream>()
-    private var isVerified = false
-    private var isDiscarded = false
-
-    override fun open(relativePath: String): OutputStream {
-        check(!isVerified && !isDiscarded)
-        return ByteArrayOutputStream().also { assets[relativePath] = it }
-    }
-
-    override fun openAsset(relativePath: String): InputStream {
-        check(isVerified && !isDiscarded)
-        val bytes = assets[relativePath]?.toByteArray() ?: throw IOException("missing staged asset")
-        return ByteArrayInputStream(bytes)
-    }
-
-    override fun verified() {
-        isVerified = true
-    }
-
-    override fun abort() {
-        discard()
-    }
-
-    override fun discard(): Boolean {
-        if (!isDiscarded) {
-            isDiscarded = true
-            assets.clear()
-            onDiscard()
-        }
-        return true
-    }
 }
 
 private class SequentialRestoreIds : RestoreIdSource {

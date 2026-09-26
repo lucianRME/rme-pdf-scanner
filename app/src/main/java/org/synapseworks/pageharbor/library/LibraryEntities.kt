@@ -4,6 +4,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Fts4
+import androidx.room.FtsOptions
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
@@ -62,8 +63,10 @@ internal fun libraryFolderParentScope(parentFolderId: String?): String = parentF
         Index(value = ["modified_at"]),
         Index(value = ["pending_operation_id"]),
         Index(value = ["library_state", "modified_at"]),
+        Index(value = ["library_state", "row_id"]),
         Index(value = ["library_state", "folder_id", "modified_at"]),
         Index(value = ["library_state", "content_hash_version", "content_sha256"]),
+        Index(value = ["library_state", "page_count", "content_byte_count", "row_id"]),
     ],
 )
 data class LibraryDocumentEntity(
@@ -99,7 +102,15 @@ data class LibraryDocumentEntity(
     val sourceModifiedAtMillis: Long? = null,
     @ColumnInfo(name = "imported_at")
     val importedAtMillis: Long? = null,
-)
+    @ColumnInfo(name = "content_revision", defaultValue = "0")
+    val contentRevision: Long = 0,
+    @ColumnInfo(name = "ocr_script_preference")
+    val ocrScriptPreference: String? = null,
+) {
+    init {
+        require(ocrScriptPreference == null || ocrScriptPreference.isSupportedOcrSelectionId())
+    }
+}
 
 @Entity(
     tableName = "library_pages",
@@ -144,6 +155,12 @@ data class LibraryPageEntity(
     val ocrError: String?,
     @ColumnInfo(name = "content_sha256")
     val contentSha256: String? = null,
+    @ColumnInfo(name = "visual_revision", defaultValue = "0")
+    val visualRevision: Long = 0,
+    @ColumnInfo(name = "ocr_state_revision", defaultValue = "0")
+    val ocrStateRevision: Long = 0,
+    @ColumnInfo(name = "active_ocr_artifact_revision")
+    val activeOcrArtifactRevision: Long? = null,
 )
 
 @Entity(tableName = "library_metadata")
@@ -235,6 +252,45 @@ data class LibraryDataOperationEntity(
     val cancelRequested: Boolean,
     @ColumnInfo(name = "terminal_error_code")
     val terminalErrorCode: String?,
+)
+
+/**
+ * Operation-owned folder rows prepared outside the final visibility transaction. They are not
+ * queried by the library UI and are removed atomically when restore activation succeeds.
+ */
+@Entity(
+    tableName = "library_pending_restore_folders",
+    foreignKeys = [
+        ForeignKey(
+            entity = LibraryDataOperationEntity::class,
+            parentColumns = ["operation_id"],
+            childColumns = ["operation_id"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [
+        Index(value = ["operation_id", "ordinal"], unique = true),
+        Index(value = ["operation_id", "parent_folder_id"]),
+    ],
+)
+data class LibraryPendingRestoreFolderEntity(
+    @PrimaryKey
+    @ColumnInfo(name = "folder_id")
+    val folderId: String,
+    @ColumnInfo(name = "operation_id")
+    val operationId: String,
+    val ordinal: Int,
+    val name: String,
+    @ColumnInfo(name = "normalized_name")
+    val normalizedName: String,
+    @ColumnInfo(name = "created_at")
+    val createdAtMillis: Long,
+    @ColumnInfo(name = "modified_at")
+    val modifiedAtMillis: Long,
+    @ColumnInfo(name = "parent_folder_id")
+    val parentFolderId: String?,
+    @ColumnInfo(name = "parent_scope")
+    val parentScope: String,
 )
 
 @Entity(
@@ -332,16 +388,373 @@ data class LibraryDataOperationSourceEntity(
     val failureCode: String?,
 )
 
-@Fts4
-@Entity(tableName = "library_document_search")
+@Entity(
+    tableName = "library_page_ocr_artifacts",
+    primaryKeys = ["page_id", "artifact_revision"],
+    foreignKeys = [
+        ForeignKey(
+            entity = LibraryPageEntity::class,
+            parentColumns = ["page_id"],
+            childColumns = ["page_id"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [
+        Index(value = ["page_id", "verification_state"]),
+        Index(value = ["actual_script"]),
+    ],
+)
+data class LibraryPageOcrArtifactEntity(
+    @ColumnInfo(name = "page_id")
+    val pageId: String,
+    @ColumnInfo(name = "artifact_revision")
+    val artifactRevision: Long,
+    @ColumnInfo(name = "captured_document_content_revision")
+    val capturedDocumentContentRevision: Long?,
+    @ColumnInfo(name = "captured_page_visual_revision")
+    val capturedPageVisualRevision: Long?,
+    @ColumnInfo(name = "input_fingerprint_version")
+    val inputFingerprintVersion: Int?,
+    @ColumnInfo(name = "input_fingerprint")
+    val inputFingerprint: String?,
+    @ColumnInfo(name = "verification_state")
+    val verificationState: String,
+    @ColumnInfo(name = "content_sha256")
+    val contentSha256: String?,
+    @ColumnInfo(name = "rotation_degrees")
+    val rotationDegrees: Int?,
+    @ColumnInfo(name = "filter_name")
+    val filterName: String?,
+    @ColumnInfo(name = "upright_width")
+    val uprightWidth: Int?,
+    @ColumnInfo(name = "upright_height")
+    val uprightHeight: Int?,
+    @ColumnInfo(name = "coordinate_system_version")
+    val coordinateSystemVersion: Int?,
+    @ColumnInfo(name = "transform_version")
+    val transformVersion: Int?,
+    @ColumnInfo(name = "actual_script")
+    val actualScript: String?,
+    @ColumnInfo(name = "recognizer_id")
+    val recognizerId: String,
+    @ColumnInfo(name = "pipeline_version")
+    val pipelineVersion: String?,
+    @ColumnInfo(name = "client_version")
+    val clientVersion: String?,
+    val delivery: String?,
+    @ColumnInfo(name = "recognized_at")
+    val recognizedAtMillis: Long?,
+    @ColumnInfo(name = "raw_text")
+    val rawText: String,
+) {
+    init {
+        require(actualScript == null || actualScript.isSupportedOcrScriptId())
+    }
+}
+
+@Entity(
+    tableName = "library_page_ocr_lines",
+    primaryKeys = ["page_id", "artifact_revision", "line_ordinal"],
+    foreignKeys = [
+        ForeignKey(
+            entity = LibraryPageOcrArtifactEntity::class,
+            parentColumns = ["page_id", "artifact_revision"],
+            childColumns = ["page_id", "artifact_revision"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index(value = ["page_id", "artifact_revision"])],
+)
+data class LibraryPageOcrLineEntity(
+    @ColumnInfo(name = "page_id")
+    val pageId: String,
+    @ColumnInfo(name = "artifact_revision")
+    val artifactRevision: Long,
+    @ColumnInfo(name = "line_ordinal")
+    val lineOrdinal: Int,
+    @ColumnInfo(name = "raw_text")
+    val rawText: String,
+    @ColumnInfo(name = "top_left_x")
+    val topLeftX: Double,
+    @ColumnInfo(name = "top_left_y")
+    val topLeftY: Double,
+    @ColumnInfo(name = "top_right_x")
+    val topRightX: Double,
+    @ColumnInfo(name = "top_right_y")
+    val topRightY: Double,
+    @ColumnInfo(name = "bottom_right_x")
+    val bottomRightX: Double,
+    @ColumnInfo(name = "bottom_right_y")
+    val bottomRightY: Double,
+    @ColumnInfo(name = "bottom_left_x")
+    val bottomLeftX: Double,
+    @ColumnInfo(name = "bottom_left_y")
+    val bottomLeftY: Double,
+    @ColumnInfo(name = "baseline_start_x")
+    val baselineStartX: Double,
+    @ColumnInfo(name = "baseline_start_y")
+    val baselineStartY: Double,
+    @ColumnInfo(name = "baseline_end_x")
+    val baselineEndX: Double,
+    @ColumnInfo(name = "baseline_end_y")
+    val baselineEndY: Double,
+    @ColumnInfo(name = "baseline_angle_degrees")
+    val baselineAngleDegrees: Double,
+    @ColumnInfo(name = "writing_orientation")
+    val writingOrientation: String?,
+)
+
+@Entity(
+    tableName = "library_page_ocr_corrections",
+    primaryKeys = ["page_id", "base_artifact_revision"],
+    foreignKeys = [
+        ForeignKey(
+            entity = LibraryPageEntity::class,
+            parentColumns = ["page_id"],
+            childColumns = ["page_id"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+        ForeignKey(
+            entity = LibraryPageOcrArtifactEntity::class,
+            parentColumns = ["page_id", "artifact_revision"],
+            childColumns = ["page_id", "base_artifact_revision"],
+            deferred = true,
+        ),
+    ],
+    indices = [Index(value = ["page_id"], unique = true)],
+)
+data class LibraryPageOcrCorrectionEntity(
+    @ColumnInfo(name = "page_id")
+    val pageId: String,
+    @ColumnInfo(name = "base_artifact_revision")
+    val baseArtifactRevision: Long,
+    @ColumnInfo(name = "corrected_text")
+    val correctedText: String,
+    @ColumnInfo(name = "corrected_at")
+    val correctedAtMillis: Long,
+    @ColumnInfo(name = "alignment_state")
+    val alignmentState: String,
+)
+
+@Entity(
+    tableName = "library_page_ocr_correction_lines",
+    primaryKeys = ["page_id", "base_artifact_revision", "line_ordinal"],
+    foreignKeys = [
+        ForeignKey(
+            entity = LibraryPageOcrCorrectionEntity::class,
+            parentColumns = ["page_id", "base_artifact_revision"],
+            childColumns = ["page_id", "base_artifact_revision"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+        ForeignKey(
+            entity = LibraryPageOcrLineEntity::class,
+            parentColumns = ["page_id", "artifact_revision", "line_ordinal"],
+            childColumns = ["page_id", "base_artifact_revision", "line_ordinal"],
+            deferred = true,
+        ),
+    ],
+    indices = [Index(value = ["page_id", "base_artifact_revision"])],
+)
+data class LibraryPageOcrCorrectionLineEntity(
+    @ColumnInfo(name = "page_id")
+    val pageId: String,
+    @ColumnInfo(name = "base_artifact_revision")
+    val baseArtifactRevision: Long,
+    @ColumnInfo(name = "line_ordinal")
+    val lineOrdinal: Int,
+    @ColumnInfo(name = "corrected_text")
+    val correctedText: String,
+)
+
+@Entity(
+    tableName = "library_document_search_content_v3",
+    foreignKeys = [
+        ForeignKey(
+            entity = LibraryDocumentEntity::class,
+            parentColumns = ["document_id"],
+            childColumns = ["document_id"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index(value = ["document_id"], unique = true)],
+)
+data class LibraryDocumentSearchContentEntity(
+    @PrimaryKey
+    @ColumnInfo(name = "rowid")
+    val rowId: Long,
+    @ColumnInfo(name = "document_id")
+    val documentId: String,
+    val title: String,
+    @ColumnInfo(name = "folder_path")
+    val folderPath: String,
+    @ColumnInfo(name = "auxiliary_terms")
+    val auxiliaryTerms: String,
+)
+
+@Fts4(
+    contentEntity = LibraryDocumentSearchContentEntity::class,
+    tokenizer = FtsOptions.TOKENIZER_UNICODE61,
+    tokenizerArgs = ["remove_diacritics=0"],
+    notIndexed = ["document_id"],
+)
+@Entity(tableName = "library_document_search_v3")
 data class LibraryDocumentSearchEntity(
     @PrimaryKey
     @ColumnInfo(name = "rowid")
     val rowId: Long,
+    @ColumnInfo(name = "document_id")
+    val documentId: String,
     val title: String,
-    @ColumnInfo(name = "ocr_text")
-    val ocrText: String,
+    @ColumnInfo(name = "folder_path")
+    val folderPath: String,
+    @ColumnInfo(name = "auxiliary_terms")
+    val auxiliaryTerms: String,
 )
+
+@Entity(
+    tableName = "library_page_search_content_v3",
+    foreignKeys = [
+        ForeignKey(
+            entity = LibraryPageEntity::class,
+            parentColumns = ["page_id"],
+            childColumns = ["page_id"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index(value = ["page_id"], unique = true)],
+)
+data class LibraryPageSearchContentEntity(
+    @PrimaryKey(autoGenerate = true)
+    @ColumnInfo(name = "rowid")
+    val rowId: Long = 0,
+    @ColumnInfo(name = "page_id")
+    val pageId: String,
+    @ColumnInfo(name = "effective_text")
+    val effectiveText: String,
+    @ColumnInfo(name = "auxiliary_terms")
+    val auxiliaryTerms: String,
+)
+
+@Fts4(
+    contentEntity = LibraryPageSearchContentEntity::class,
+    tokenizer = FtsOptions.TOKENIZER_UNICODE61,
+    tokenizerArgs = ["remove_diacritics=0"],
+    notIndexed = ["page_id"],
+)
+@Entity(tableName = "library_page_search_v3")
+data class LibraryPageSearchEntity(
+    @PrimaryKey
+    @ColumnInfo(name = "rowid")
+    val rowId: Long,
+    @ColumnInfo(name = "page_id")
+    val pageId: String,
+    @ColumnInfo(name = "effective_text")
+    val effectiveText: String,
+    @ColumnInfo(name = "auxiliary_terms")
+    val auxiliaryTerms: String,
+)
+
+@Entity(
+    tableName = "ocr_batch_jobs",
+    indices = [Index(value = ["state", "updated_at"])],
+)
+data class OcrBatchJobEntity(
+    @PrimaryKey
+    @ColumnInfo(name = "job_id")
+    val jobId: String,
+    @ColumnInfo(name = "selection_policy")
+    val selectionPolicy: String,
+    @ColumnInfo(name = "requested_script_selection")
+    val requestedScriptSelection: String,
+    @ColumnInfo(name = "locale_recommendation_snapshot")
+    val localeRecommendationSnapshot: String,
+    val state: String,
+    @ColumnInfo(name = "total_item_count")
+    val totalItemCount: Int,
+    @ColumnInfo(name = "completed_item_count")
+    val completedItemCount: Int,
+    @ColumnInfo(name = "failed_item_count")
+    val failedItemCount: Int,
+    @ColumnInfo(name = "skipped_item_count")
+    val skippedItemCount: Int,
+    @ColumnInfo(name = "created_at")
+    val createdAtMillis: Long,
+    @ColumnInfo(name = "updated_at")
+    val updatedAtMillis: Long,
+    @ColumnInfo(name = "run_generation")
+    val runGeneration: Long,
+    @ColumnInfo(name = "cancel_requested")
+    val cancelRequested: Boolean,
+    @ColumnInfo(name = "target_population_complete")
+    val targetPopulationComplete: Boolean,
+    @ColumnInfo(name = "terminal_error_code")
+    val terminalErrorCode: String?,
+) {
+    init {
+        require(requestedScriptSelection.isSupportedOcrSelectionId())
+        require(state in OcrBatchJobState.entries.map(OcrBatchJobState::name))
+    }
+}
+
+@Entity(
+    tableName = "ocr_batch_items",
+    foreignKeys = [
+        ForeignKey(
+            entity = OcrBatchJobEntity::class,
+            parentColumns = ["job_id"],
+            childColumns = ["job_id"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [
+        Index(value = ["job_id", "page_id"], unique = true),
+        Index(value = ["job_id", "ordinal"], unique = true),
+        Index(value = ["job_id", "state", "ordinal"]),
+    ],
+)
+data class OcrBatchItemEntity(
+    @PrimaryKey
+    @ColumnInfo(name = "item_id")
+    val itemId: String,
+    @ColumnInfo(name = "job_id")
+    val jobId: String,
+    @ColumnInfo(name = "document_id")
+    val documentId: String,
+    @ColumnInfo(name = "page_id")
+    val pageId: String,
+    val ordinal: Int,
+    @ColumnInfo(name = "requested_script_selection")
+    val requestedScriptSelection: String,
+    @ColumnInfo(name = "resolved_script")
+    val resolvedScript: String,
+    @ColumnInfo(name = "expected_document_content_revision")
+    val expectedDocumentContentRevision: Long,
+    @ColumnInfo(name = "expected_page_visual_revision")
+    val expectedPageVisualRevision: Long,
+    @ColumnInfo(name = "expected_input_fingerprint_version")
+    val expectedInputFingerprintVersion: Int?,
+    @ColumnInfo(name = "expected_input_fingerprint")
+    val expectedInputFingerprint: String?,
+    @ColumnInfo(name = "expected_active_artifact_revision")
+    val expectedActiveArtifactRevision: Long?,
+    @ColumnInfo(name = "expected_ocr_state_revision")
+    val expectedOcrStateRevision: Long,
+    val state: String,
+    @ColumnInfo(name = "attempt_number")
+    val attemptNumber: Int,
+    @ColumnInfo(name = "claim_generation")
+    val claimGeneration: Long?,
+    @ColumnInfo(name = "claim_token")
+    val claimToken: String?,
+    @ColumnInfo(name = "safe_error_code")
+    val safeErrorCode: String?,
+) {
+    init {
+        require(requestedScriptSelection.isSupportedOcrSelectionId())
+        require(resolvedScript.isSupportedOcrScriptId())
+        require(state in OcrBatchItemState.entries.map(OcrBatchItemState::name))
+    }
+}
 
 data class LibraryDocumentListingRow(
     @ColumnInfo(name = "document_id") val documentId: String,
@@ -365,8 +778,35 @@ data class LibrarySearchRow(
     @ColumnInfo(name = "folder_name") val folderName: String?,
     @ColumnInfo(name = "thumbnail_path") val thumbnailRelativePath: String?,
     @ColumnInfo(name = "ocr_status") val ocrStatus: String,
-    @ColumnInfo(name = "title_match") val titleMatch: Int,
+    @ColumnInfo(name = "page_id") val pageId: String?,
+    @ColumnInfo(name = "page_position") val pagePosition: Int?,
+    @ColumnInfo(name = "match_type") val matchType: String,
     @ColumnInfo(name = "match_snippet") val matchSnippet: String?,
+)
+
+data class LibraryEffectiveOcrPageRow(
+    @ColumnInfo(name = "document_id") val documentId: String,
+    @ColumnInfo(name = "page_id") val pageId: String,
+    @ColumnInfo(name = "page_position") val pagePosition: Int,
+    @ColumnInfo(name = "effective_text") val effectiveText: String,
+    @ColumnInfo(name = "raw_text") val rawText: String,
+    @ColumnInfo(name = "corrected_text") val correctedText: String?,
+    @ColumnInfo(name = "alignment_state") val alignmentState: String?,
+    @ColumnInfo(name = "artifact_revision") val artifactRevision: Long,
+    @ColumnInfo(name = "active_artifact_revision") val activeArtifactRevision: Long,
+    @ColumnInfo(name = "correction_base_artifact_revision") val correctionBaseArtifactRevision: Long?,
+    @ColumnInfo(name = "document_content_revision") val documentContentRevision: Long,
+    @ColumnInfo(name = "page_visual_revision") val pageVisualRevision: Long,
+    @ColumnInfo(name = "ocr_state_revision") val ocrStateRevision: Long,
+    @ColumnInfo(name = "input_fingerprint_version") val inputFingerprintVersion: Int?,
+    @ColumnInfo(name = "input_fingerprint") val inputFingerprint: String?,
+    @ColumnInfo(name = "coordinate_system_version") val coordinateSystemVersion: Int?,
+    @ColumnInfo(name = "transform_version") val transformVersion: Int?,
+    @ColumnInfo(name = "upright_width") val uprightWidth: Int?,
+    @ColumnInfo(name = "upright_height") val uprightHeight: Int?,
+    @ColumnInfo(name = "verification_state") val verificationState: String,
+    @ColumnInfo(name = "actual_script") val actualScript: String?,
+    @ColumnInfo(name = "recognizer_id") val recognizerId: String,
 )
 
 data class LibraryFolderRow(

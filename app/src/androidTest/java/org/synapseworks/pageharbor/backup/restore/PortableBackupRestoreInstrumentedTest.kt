@@ -19,6 +19,9 @@ import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertArrayEquals
@@ -47,11 +50,21 @@ import org.synapseworks.pageharbor.image.DocumentFilter
 import org.synapseworks.pageharbor.library.LibraryDao
 import org.synapseworks.pageharbor.library.LibraryDatabase
 import org.synapseworks.pageharbor.library.LibraryDocumentEntity
+import org.synapseworks.pageharbor.library.LibraryEffectiveOcrPage
 import org.synapseworks.pageharbor.library.LibraryFileStore
 import org.synapseworks.pageharbor.library.LibraryFolderEntity
+import org.synapseworks.pageharbor.library.LibraryOcrArtifactDraft
+import org.synapseworks.pageharbor.library.LibraryOcrCommitResult
+import org.synapseworks.pageharbor.library.LibraryOcrCorrectionAlignment
+import org.synapseworks.pageharbor.library.LibraryOcrCorrectionDraft
+import org.synapseworks.pageharbor.library.LibraryOcrLineDraft
 import org.synapseworks.pageharbor.library.LibraryOcrStatus
 import org.synapseworks.pageharbor.library.LibraryOperationGate
 import org.synapseworks.pageharbor.library.LibraryPageEntity
+import org.synapseworks.pageharbor.library.LibraryPageOcrArtifactEntity
+import org.synapseworks.pageharbor.library.LibraryPageOcrCorrectionEntity
+import org.synapseworks.pageharbor.library.LibraryPageOcrCorrectionLineEntity
+import org.synapseworks.pageharbor.library.LibraryPageOcrLineEntity
 import org.synapseworks.pageharbor.library.LibraryPageSource
 import org.synapseworks.pageharbor.library.LibraryRepository
 import org.synapseworks.pageharbor.library.LibraryResult
@@ -122,6 +135,14 @@ class PortableBackupRestoreInstrumentedTest {
                 assertTrue(encryptedFile.isFile && encryptedFile.length() > 0L)
                 assertFalse(encryptedFile.readBytes().containsSubsequence(OCR_SENTINEL.toByteArray()))
 
+                assertRestoreFailureAndRecoveryCleanup(
+                    plainRig = plain,
+                    encryptedRig = encrypted,
+                    plainBackup = plainFile,
+                    encryptedBackup = encryptedFile,
+                    workRoot = File(workRoot, "failure-cleanup"),
+                )
+
                 restoreAndAssert(
                     rig = plain,
                     backup = plainFile,
@@ -153,6 +174,95 @@ class PortableBackupRestoreInstrumentedTest {
         }
     }
 
+    private suspend fun assertRestoreFailureAndRecoveryCleanup(
+        plainRig: LibraryRig,
+        encryptedRig: LibraryRig,
+        plainBackup: File,
+        encryptedBackup: File,
+        workRoot: File,
+    ) {
+        val wrongPasswordRoot = File(workRoot, "wrong-password")
+        val wrongPasswordReference = RestoreSafReference("wrong-password")
+        val wrongPasswordCoordinator = restoreCoordinator(
+            rig = encryptedRig,
+            safAccess = FileRestoreSafAccess(wrongPasswordReference, encryptedBackup),
+            workRoot = wrongPasswordRoot,
+            idSeed = 700,
+        )
+        val wrongPassword = wrongPasswordCoordinator.prepare(
+            wrongPasswordReference,
+            "definitely-wrong".toCharArray(),
+        )
+        wrongPassword as RestoreCoordinatorPrepareResult.Failed
+        assertEquals(
+            RestoreCoordinatorFailure.WRONG_PASSWORD_OR_DAMAGED_ENCRYPTED_BACKUP,
+            wrongPassword.reason,
+        )
+        assertRestoreScratchEmpty(wrongPasswordRoot)
+        assertTrue(encryptedRig.dao.activeDocumentsPage(-1L, 10).isEmpty())
+
+        val cancellationRoot = File(workRoot, "cancelled-copy")
+        val cancellationReference = RestoreSafReference("cancelled-copy")
+        val cancellationCoordinator = restoreCoordinator(
+            rig = plainRig,
+            safAccess = CancelAfterSniffRestoreSafAccess(cancellationReference, plainBackup),
+            workRoot = cancellationRoot,
+            idSeed = 800,
+        )
+        var cancellationPropagated = false
+        try {
+            cancellationCoordinator.prepare(cancellationReference)
+        } catch (_: CancellationException) {
+            cancellationPropagated = true
+        }
+        assertTrue("Restore cancellation was not propagated", cancellationPropagated)
+        assertRestoreScratchEmpty(cancellationRoot)
+        assertTrue(plainRig.dao.activeDocumentsPage(-1L, 10).isEmpty())
+
+        val recoveryRoot = File(workRoot, "interrupted-recovery")
+        val operationId = "00000000-0000-4000-8000-000000000900"
+        val orphanId = "00000000-0000-4000-8000-000000000999"
+        val store = RoomRestoreLibraryStore(
+            context = context,
+            dao = plainRig.dao,
+            fileStore = plainRig.fileStore,
+            clock = RestoreClock { RESTORED_AT },
+        )
+        val workspace = FileRestoreStagingWorkspace(recoveryRoot)
+        store.beginOperation(
+            RestoreJournalPlan(
+                operationId = operationId,
+                backupId = BACKUP_ID,
+                createdAtEpochMillis = RESTORED_AT,
+                contentByteLength = 0L,
+                discoveredDocumentCount = 0,
+                plannedDocumentCount = 0,
+                skippedExactDocumentCount = 0,
+            ),
+        )
+        assertTrue(File(recoveryRoot, operationId).mkdirs())
+        assertTrue(File(recoveryRoot, orphanId).mkdirs())
+        val recovered = LibraryRestoreEngine(
+            store = store,
+            stagingWorkspace = workspace,
+            operationGate = LibraryOperationGate(),
+            storagePreflight = RestoreStoragePreflight { true },
+            idSource = SequentialRestoreIdSource(900),
+            clock = RestoreClock { RESTORED_AT },
+        ).recoverInterruptedOperations()
+
+        assertEquals(1, recovered)
+        assertEquals("FAILED", plainRig.dao.operation(operationId)?.phase)
+        assertTrue(store.recoverableOperations().isEmpty())
+        assertTrue(recoveryRoot.listFiles().isNullOrEmpty())
+        assertTrue(plainRig.dao.activeDocumentsPage(-1L, 10).isEmpty())
+    }
+
+    private fun assertRestoreScratchEmpty(workRoot: File) {
+        assertTrue(File(workRoot, "verified-staging").listFiles().isNullOrEmpty())
+        assertTrue(File(workRoot, "archive-staging").listFiles().isNullOrEmpty())
+    }
+
     private suspend fun restoreAndAssert(
         rig: LibraryRig,
         backup: File,
@@ -165,7 +275,63 @@ class PortableBackupRestoreInstrumentedTest {
         assertTrue(rig.dao.activeDocumentsPage(-1L, 10).isEmpty())
         assertTrue(rig.dao.foldersPage(0, 10).isEmpty())
         val reference = RestoreSafReference("test-backup")
-        val engine = LibraryRestoreEngine(
+        val coordinator = restoreCoordinator(
+            rig = rig,
+            safAccess = FileRestoreSafAccess(reference, backup),
+            workRoot = workRoot,
+            idSeed = idSeed,
+        )
+
+        assertEquals(
+            RestoreSourceInspection.Supported(expectedKind, password != null),
+            coordinator.inspect(reference),
+        )
+        // Preview and the later user-approved restore run in distinct launcher Jobs in production.
+        val preparation = coroutineScope {
+            async { coordinator.prepare(reference, password) }.await()
+        }
+        val prepared = when (preparation) {
+            is RestoreCoordinatorPrepareResult.Ready -> preparation.prepared
+            is RestoreCoordinatorPrepareResult.Failed -> error(
+                "Restore preparation failed: ${preparation.reason}/${preparation.detailCode}",
+            )
+            RestoreCoordinatorPrepareResult.PasswordRequired ->
+                error("Restore preparation unexpectedly required a password")
+        }
+        assertEquals(2, prepared.preview.documentCount)
+        assertEquals(28, prepared.preview.pageCount)
+        assertEquals(2, prepared.preview.folderCount)
+        assertEquals(1, prepared.preview.sourceAssetCount)
+
+        val result = coroutineScope {
+            async { coordinator.restore(prepared, RestoreMergePolicy.MERGE_IMPORT_ANYWAY) }.await()
+        }
+
+        result as RestoreResult.Completed
+        assertEquals(2, result.importedDocumentCount)
+        assertEquals(0, result.skippedExactDocumentCount)
+        assertTrue(result.stagingCleanupSucceeded)
+        assertEquals(expected, logicalSnapshot(rig))
+        assertTrue(
+            rig.dao.activeDocumentsPage(-1L, 10)
+                .flatMap { document -> rig.dao.pages(document.documentId) }
+                .none { page ->
+                    page.pageId.startsWith("$LONG_DOCUMENT_ID-page-") ||
+                        page.pageId.startsWith("$SHORT_DOCUMENT_ID-page-")
+                },
+        )
+        assertDerivedStateAndExport(rig, workRoot)
+        assertTrue(File(workRoot, "verified-staging").listFiles().isNullOrEmpty())
+        assertTrue(File(workRoot, "archive-staging").listFiles().isNullOrEmpty())
+    }
+
+    private fun restoreCoordinator(
+        rig: LibraryRig,
+        safAccess: RestoreSafAccess,
+        workRoot: File,
+        idSeed: Int,
+    ): AndroidRestoreCoordinator = AndroidRestoreCoordinator(
+        engine = LibraryRestoreEngine(
             store = RoomRestoreLibraryStore(
                 context = context,
                 dao = rig.dao,
@@ -177,36 +343,12 @@ class PortableBackupRestoreInstrumentedTest {
             storagePreflight = RestoreStoragePreflight { true },
             idSource = SequentialRestoreIdSource(idSeed),
             clock = RestoreClock { RESTORED_AT },
-        )
-        val coordinator = AndroidRestoreCoordinator(
-            engine = engine,
-            safAccess = FileRestoreSafAccess(reference, backup),
-            archiveWorkspace = FileRestoreArchiveWorkspace(File(workRoot, "archive-staging")),
-            testing = Unit,
-        )
-
-        assertEquals(
-            RestoreSourceInspection.Supported(expectedKind, password != null),
-            coordinator.inspect(reference),
-        )
-        val preparation = coordinator.prepare(reference, password)
-        val prepared = (preparation as RestoreCoordinatorPrepareResult.Ready).prepared
-        assertEquals(2, prepared.preview.documentCount)
-        assertEquals(28, prepared.preview.pageCount)
-        assertEquals(2, prepared.preview.folderCount)
-        assertEquals(1, prepared.preview.sourceAssetCount)
-
-        val result = coordinator.restore(prepared, RestoreMergePolicy.MERGE_IMPORT_ANYWAY)
-
-        result as RestoreResult.Completed
-        assertEquals(2, result.importedDocumentCount)
-        assertEquals(0, result.skippedExactDocumentCount)
-        assertTrue(result.stagingCleanupSucceeded)
-        assertEquals(expected, logicalSnapshot(rig))
-        assertDerivedStateAndExport(rig, workRoot)
-        assertTrue(File(workRoot, "verified-staging").listFiles().isNullOrEmpty())
-        assertTrue(File(workRoot, "archive-staging").listFiles().isNullOrEmpty())
-    }
+        ),
+        safAccess = safAccess,
+        archiveWorkspace = FileRestoreArchiveWorkspace(File(workRoot, "archive-staging")),
+        archivePreflight = RestoreStoragePreflight { true },
+        testing = Unit,
+    )
 
     private suspend fun assertDerivedStateAndExport(rig: LibraryRig, workRoot: File) {
         val repository = LibraryRepository(context, rig.dao, rig.fileStore)
@@ -226,6 +368,13 @@ class PortableBackupRestoreInstrumentedTest {
         }
 
         val longDocument = documents.single { it.title == LONG_DOCUMENT_TITLE }
+        val firstPage = rig.dao.pages(longDocument.documentId).first()
+        val effective = requireNotNull(rig.dao.effectiveOcrPage(longDocument.documentId, firstPage.pageId))
+        assertEquals("private amber archive sentinel\nsecond original line", effective.rawText)
+        assertEquals("$OCR_SENTINEL\nsecond corrected line", effective.effectiveText)
+        assertEquals(listOf(OCR_SENTINEL, "second corrected line"), effective.lines.map { it.text })
+        assertEquals(LibraryOcrCorrectionAlignment.LINE_ALIGNED, effective.alignment)
+        assertEquals("CURRENT_VERIFIED", effective.verification.name)
         val source = rig.dao.sourceAssets(longDocument.documentId).single()
         val sourceFile = requireNotNull(rig.fileStore.resolve(source.relativePath))
         assertTrue(sourceFile.isFile && sourceFile.length() == source.byteCount)
@@ -291,8 +440,81 @@ class PortableBackupRestoreInstrumentedTest {
             pageCount = SHORT_PAGE_COUNT,
             sourcePdf = null,
         )
+        seedVerifiedOcrWithCorrection(rig)
         originalPdf.delete()
     }
+
+    private suspend fun seedVerifiedOcrWithCorrection(rig: LibraryRig) {
+        val page = rig.dao.pages(LONG_DOCUMENT_ID).first()
+        val expected = requireNotNull(rig.dao.ocrPageSnapshot(LONG_DOCUMENT_ID, page.pageId))
+        val rawLines = listOf(
+            positionedLine(0, "private amber archive sentinel", 0.10, 0.25),
+            positionedLine(1, "second original line", 0.35, 0.50),
+        )
+        assertEquals(
+            LibraryOcrCommitResult.APPLIED,
+            rig.dao.commitOcrArtifact(
+                expected = expected,
+                draft = LibraryOcrArtifactDraft(
+                    inputFingerprintVersion = 1,
+                    inputFingerprint = "sha256:verified-ocr-input",
+                    contentSha256 = requireNotNull(expected.contentSha256),
+                    rotationDegrees = expected.rotationDegrees,
+                    filterName = expected.filterName,
+                    uprightWidth = PAGE_WIDTH,
+                    uprightHeight = PAGE_HEIGHT,
+                    coordinateSystemVersion = 1,
+                    transformVersion = 1,
+                    actualScript = "LATIN",
+                    recognizerId = "ML_KIT_LATIN_BUNDLED",
+                    pipelineVersion = "instrumentation-v1",
+                    clientVersion = "16.0.1",
+                    delivery = "BUNDLED",
+                    recognizedAtMillis = LONG_MODIFIED_AT + 1,
+                    rawText = rawLines.joinToString("\n", transform = LibraryOcrLineDraft::rawText),
+                    lines = rawLines,
+                ),
+                modifiedAt = LONG_MODIFIED_AT + 1,
+            ),
+        )
+        val recognized = requireNotNull(rig.dao.ocrPageSnapshot(LONG_DOCUMENT_ID, page.pageId))
+        assertEquals(
+            LibraryOcrCommitResult.APPLIED,
+            rig.dao.saveOcrCorrection(
+                expected = recognized,
+                correction = LibraryOcrCorrectionDraft(
+                    correctedText = "$OCR_SENTINEL\nsecond corrected line",
+                    alignment = LibraryOcrCorrectionAlignment.LINE_ALIGNED,
+                    correctedLines = listOf(OCR_SENTINEL, "second corrected line"),
+                ),
+                modifiedAt = LONG_MODIFIED_AT + 2,
+            ),
+        )
+    }
+
+    private fun positionedLine(
+        ordinal: Int,
+        text: String,
+        top: Double,
+        bottom: Double,
+    ) = LibraryOcrLineDraft(
+        lineOrdinal = ordinal,
+        rawText = text,
+        topLeftX = 0.10,
+        topLeftY = top,
+        topRightX = 0.90,
+        topRightY = top,
+        bottomRightX = 0.90,
+        bottomRightY = bottom,
+        bottomLeftX = 0.10,
+        bottomLeftY = bottom,
+        baselineStartX = 0.10,
+        baselineStartY = bottom,
+        baselineEndX = 0.90,
+        baselineEndY = bottom,
+        baselineAngleDegrees = 0.0,
+        writingOrientation = "HORIZONTAL",
+    )
 
     private suspend fun seedDocument(
         rig: LibraryRig,
@@ -414,6 +636,8 @@ class PortableBackupRestoreInstrumentedTest {
                 contentByteCount = pages.sumOf { requireNotNull(it.sourceByteCount) },
                 sourceModifiedAtMillis = storedSources.firstOrNull()?.sourceModifiedAtMillis,
                 importedAtMillis = createdAt + 1,
+                contentRevision = if (documentId == LONG_DOCUMENT_ID) 7 else 2,
+                ocrScriptPreference = if (documentId == LONG_DOCUMENT_ID) "LATIN" else "AUTOMATIC",
             ),
             pages = pages,
             ocrText = pages.joinToString("\n\n") { it.ocrText.orEmpty() },
@@ -443,6 +667,7 @@ class PortableBackupRestoreInstrumentedTest {
         }.sortedBy(LogicalFolder::path)
         val documents = rig.dao.activeDocumentsPage(-1L, 100).map { document ->
             val pages = rig.dao.pages(document.documentId).map { page ->
+                val artifacts = rig.dao.ocrArtifacts(page.pageId)
                 LogicalPage(
                     position = page.position,
                     mimeType = page.contentType,
@@ -454,6 +679,20 @@ class PortableBackupRestoreInstrumentedTest {
                     filter = page.filterName,
                     ocrText = page.ocrText,
                     ocrError = page.ocrError,
+                    visualRevision = page.visualRevision,
+                    ocrStateRevision = page.ocrStateRevision,
+                    activeArtifactRevision = page.activeOcrArtifactRevision,
+                    artifacts = artifacts.map { it.copy(pageId = NORMALIZED_PAGE_ID) },
+                    lines = artifacts.flatMap { artifact ->
+                        rig.dao.ocrLines(page.pageId, artifact.artifactRevision)
+                    }.map { it.copy(pageId = NORMALIZED_PAGE_ID) },
+                    correction = rig.dao.ocrCorrection(page.pageId)?.copy(pageId = NORMALIZED_PAGE_ID),
+                    correctionLines = rig.dao.ocrCorrectionLines(page.pageId)
+                        .map { it.copy(pageId = NORMALIZED_PAGE_ID) },
+                    effective = rig.dao.effectiveOcrPage(document.documentId, page.pageId)?.copy(
+                        documentId = NORMALIZED_DOCUMENT_ID,
+                        pageId = NORMALIZED_PAGE_ID,
+                    ),
                 )
             }
             assertEquals(pages.indices.toList(), pages.map(LogicalPage::position))
@@ -489,6 +728,8 @@ class PortableBackupRestoreInstrumentedTest {
                 modifiedAt = document.modifiedAtMillis,
                 contentHashVersion = requireNotNull(document.contentHashVersion),
                 contentSha256 = requireNotNull(document.contentSha256),
+                contentRevision = document.contentRevision,
+                scriptPreference = document.ocrScriptPreference,
                 pages = pages,
                 sources = sources,
             )
@@ -606,6 +847,25 @@ class PortableBackupRestoreInstrumentedTest {
         }
     }
 
+    private class CancelAfterSniffRestoreSafAccess(
+        private val expected: RestoreSafReference,
+        private val file: File,
+    ) : RestoreSafAccess {
+        private var openCount = 0
+
+        override fun open(reference: RestoreSafReference): InputStream {
+            require(reference == expected)
+            openCount += 1
+            if (openCount == 1) return FileInputStream(file)
+            return object : InputStream() {
+                override fun read(): Int = throw CancellationException("synthetic restore cancellation")
+
+                override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
+                    throw CancellationException("synthetic restore cancellation")
+            }
+        }
+    }
+
     private class SequentialRestoreIdSource(start: Int) : RestoreIdSource {
         private var next = start
 
@@ -626,6 +886,8 @@ class PortableBackupRestoreInstrumentedTest {
         val modifiedAt: Long,
         val contentHashVersion: Int,
         val contentSha256: String,
+        val contentRevision: Long,
+        val scriptPreference: String?,
         val pages: List<LogicalPage>,
         val sources: List<LogicalSource>,
     )
@@ -641,6 +903,14 @@ class PortableBackupRestoreInstrumentedTest {
         val filter: String,
         val ocrText: String?,
         val ocrError: String?,
+        val visualRevision: Long,
+        val ocrStateRevision: Long,
+        val activeArtifactRevision: Long?,
+        val artifacts: List<LibraryPageOcrArtifactEntity>,
+        val lines: List<LibraryPageOcrLineEntity>,
+        val correction: LibraryPageOcrCorrectionEntity?,
+        val correctionLines: List<LibraryPageOcrCorrectionLineEntity>,
+        val effective: LibraryEffectiveOcrPage?,
     )
 
     private data class LogicalSource(
@@ -674,6 +944,8 @@ class PortableBackupRestoreInstrumentedTest {
         const val SHORT_PAGE_COUNT = 3
         const val ORIGINAL_SOURCE_MODIFIED_AT = 1_719_999_900_000L
         const val OCR_SENTINEL = "private quartz archive sentinel"
+        const val NORMALIZED_DOCUMENT_ID = "document"
+        const val NORMALIZED_PAGE_ID = "page"
         const val PAGE_WIDTH = 96
         const val PAGE_HEIGHT = 128
     }

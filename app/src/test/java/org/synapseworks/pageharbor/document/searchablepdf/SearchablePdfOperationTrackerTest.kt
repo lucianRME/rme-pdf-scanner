@@ -103,4 +103,28 @@ class SearchablePdfOperationTrackerTest {
             tracker.claimCompletion(token),
         )
     }
+
+    @Test
+    fun revisionBoundPreparationRejectsProgressAndCompletionAfterMutation() {
+        val tracker = SearchablePdfOperationTracker()
+        val token = tracker.begin(documentRevision = 11L)
+
+        assertTrue(tracker.acceptsProgress(token, documentRevision = 11L))
+        assertFalse(tracker.acceptsProgress(token, documentRevision = 12L))
+        assertEquals(
+            SearchablePdfOperationTracker.CompletionClaim.SUPERSEDED,
+            tracker.claimCompletion(token, documentRevision = 12L),
+        )
+    }
+
+    @Test
+    fun revisionInvalidationDoesNotCancelWorkForTheCurrentRevision() {
+        val tracker = SearchablePdfOperationTracker()
+        val token = tracker.begin(documentRevision = 20L)
+
+        assertFalse(tracker.invalidateIfDocumentRevisionChanged(20L))
+        assertTrue(tracker.isCurrent(token, 20L))
+        assertTrue(tracker.invalidateIfDocumentRevisionChanged(21L))
+        assertFalse(tracker.isCurrent(token, 21L))
+    }
 }

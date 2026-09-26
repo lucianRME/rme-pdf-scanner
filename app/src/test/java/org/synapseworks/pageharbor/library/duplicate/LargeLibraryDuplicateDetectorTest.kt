@@ -17,6 +17,8 @@ class LargeLibraryDuplicateDetectorTest {
                     pageCount = PAGES_PER_DOCUMENT,
                     contentByteLength = documentBytes(index),
                     orderedMimeTypes = MIME_TYPES,
+                    ocrStateDigestVersion = OCR_DIGEST_VERSION,
+                    ocrStateSha256 = ocrDigest(index),
                 )
 
                 index < EXACT_COUNT + POSSIBLE_COUNT -> DuplicateCandidate(
@@ -52,6 +54,8 @@ class LargeLibraryDuplicateDetectorTest {
                     pageCount = PAGES_PER_DOCUMENT,
                     contentByteLength = documentBytes(index),
                     orderedMimeTypes = MIME_TYPES,
+                    ocrStateDigestVersion = OCR_DIGEST_VERSION,
+                    ocrStateSha256 = ocrDigest(index),
                 )
 
                 index < EXACT_COUNT + POSSIBLE_COUNT -> IncomingDocumentIdentity(
@@ -99,6 +103,8 @@ class LargeLibraryDuplicateDetectorTest {
 
     private fun sourceHash(index: Int): String = hashOf("source:$index")
 
+    private fun ocrDigest(index: Int): String = hashOf("ocr-state:$index")
+
     private fun documentBytes(index: Int): Long =
         (0 until PAGES_PER_DOCUMENT).sumOf { pageIndex -> 1_000L + index + pageIndex }
 
@@ -115,6 +121,7 @@ class LargeLibraryDuplicateDetectorTest {
         const val PAGES_PER_DOCUMENT = 3
         const val EXACT_COUNT = 500
         const val POSSIBLE_COUNT = 250
+        const val OCR_DIGEST_VERSION = 1
         const val DIFFERENT_COUNT = DOCUMENT_COUNT - EXACT_COUNT - POSSIBLE_COUNT
         val MIME_TYPES = listOf("image/jpeg", "image/png", "image/webp")
     }

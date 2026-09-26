@@ -18,9 +18,9 @@ object BackupFormatValidator {
         supportedRequiredFeatures: Set<String> = emptySet(),
         limits: BackupFormatLimits = BackupFormatLimits(),
     ) {
-        if (
-            manifest.formatVersion != RME_BACKUP_FORMAT_VERSION ||
-            manifest.minimumReaderVersion !in 1..RME_BACKUP_READER_VERSION
+        if (manifest.formatVersion !in setOf(RME_BACKUP_FORMAT_VERSION_V1, RME_BACKUP_FORMAT_VERSION_V2) ||
+            manifest.minimumReaderVersion !in 1..RME_BACKUP_READER_VERSION ||
+            manifest.minimumReaderVersion != manifest.formatVersion
         ) {
             throw backupFailure(
                 BackupFormatFailure.UNSUPPORTED_VERSION,
@@ -55,7 +55,18 @@ object BackupFormatValidator {
             manifest.integrity.algorithm != "SHA-256" ||
             manifest.integrity.checksumsEntry != RME_BACKUP_CHECKSUMS_PATH
         ) {
-            invalidMetadata("The v1 manifest declares unsupported metadata or integrity paths.")
+            invalidMetadata("The manifest declares unsupported metadata or integrity paths.")
+        }
+        when (manifest.formatVersion) {
+            RME_BACKUP_FORMAT_VERSION_V1 -> if (manifest.ocr != null) {
+                invalidMetadata("A v1 manifest cannot declare v2 OCR metadata.")
+            }
+
+            RME_BACKUP_FORMAT_VERSION_V2 -> {
+                val ocr = manifest.ocr
+                    ?: invalidMetadata("A v2 manifest must declare OCR metadata.")
+                validateOcrManifestShape(ocr, limits)
+            }
         }
         val summary = manifest.summary
         if (
@@ -66,6 +77,41 @@ object BackupFormatValidator {
             summary.contentByteLength !in 0..limits.maximumTotalUncompressedBytes
         ) {
             limitExceeded("The manifest summary exceeds configured limits.")
+        }
+    }
+
+    private fun validateOcrManifestShape(ocr: BackupOcrManifest, limits: BackupFormatLimits) {
+        if (ocr.documentStatesPath != RME_BACKUP_OCR_DOCUMENT_STATES_PATH ||
+            ocr.pageStatesPath != RME_BACKUP_OCR_PAGE_STATES_PATH ||
+            ocr.artifactsPath != RME_BACKUP_OCR_ARTIFACTS_PATH ||
+            ocr.correctionsPath != RME_BACKUP_OCR_CORRECTIONS_PATH
+        ) {
+            invalidMetadata("The v2 manifest declares unsupported OCR metadata paths.")
+        }
+        if (ocr.documentStateCount !in 0..limits.maximumDocumentCount ||
+            ocr.pageStateCount !in 0..limits.maximumPageCount ||
+            ocr.artifactCount !in 0..limits.maximumOcrArtifactCount ||
+            ocr.correctionCount !in 0..limits.maximumOcrCorrectionCount ||
+            ocr.lineCount !in 0..limits.maximumOcrLineCount ||
+            ocr.lineByteLength !in 0..limits.maximumTotalUncompressedBytes
+        ) {
+            limitExceeded("The v2 OCR summary exceeds configured limits.")
+        }
+        var aggregateRecords = 0L
+        var aggregateBytes = 0L
+        ocr.lineChunks.forEachIndexed { index, chunk ->
+            val expectedPath = "$RME_BACKUP_OCR_LINES_DIRECTORY/${index.toString().padStart(6, '0')}.jsonl"
+            if (chunk.path != expectedPath ||
+                chunk.recordCount !in 1..limits.maximumOcrLineChunkRecords ||
+                chunk.byteLength !in 1..limits.maximumOcrLineChunkBytes
+            ) {
+                invalidMetadata("An OCR line chunk descriptor is invalid.")
+            }
+            aggregateRecords = checkedAdd(aggregateRecords, chunk.recordCount.toLong())
+            aggregateBytes = checkedAdd(aggregateBytes, chunk.byteLength)
+        }
+        if (aggregateRecords != ocr.lineCount.toLong() || aggregateBytes != ocr.lineByteLength) {
+            relationshipInvalid("The OCR line chunk totals do not match the OCR summary.")
         }
     }
 

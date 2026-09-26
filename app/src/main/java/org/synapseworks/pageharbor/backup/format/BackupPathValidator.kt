@@ -23,6 +23,10 @@ object BackupPathValidator {
         RME_BACKUP_DOCUMENTS_PATH,
         RME_BACKUP_PAGES_PATH,
         RME_BACKUP_SOURCE_ASSETS_PATH,
+        RME_BACKUP_OCR_DOCUMENT_STATES_PATH,
+        RME_BACKUP_OCR_PAGE_STATES_PATH,
+        RME_BACKUP_OCR_ARTIFACTS_PATH,
+        RME_BACKUP_OCR_CORRECTIONS_PATH,
         RME_BACKUP_CHECKSUMS_PATH,
     )
 
@@ -40,7 +44,7 @@ object BackupPathValidator {
 
     fun requireSupportedEntryPath(path: String): String {
         requireValidArchivePath(path)
-        if (path !in fixedEntries && !isAssetPath(path)) {
+        if (path !in fixedEntries && !isAssetPath(path) && !isOcrLineChunkPath(path)) {
             throw backupFailure(
                 BackupFormatFailure.UNDECLARED_ENTRY,
                 "The backup contains an unsupported entry path.",
@@ -60,6 +64,8 @@ object BackupPathValidator {
     }
 
     fun isAssetPath(path: String): Boolean = pageAsset.matches(path) || sourceAsset.matches(path)
+
+    fun isOcrLineChunkPath(path: String): Boolean = ocrLineChunk.matches(path)
 
     fun requirePageAssetPath(record: BackupPageRecord) {
         requireValidArchivePath(record.relativePath)
@@ -111,6 +117,8 @@ object BackupPathValidator {
             "A page has an unsupported MIME type.",
         )
     }
+
+    private val ocrLineChunk = Regex("$RME_BACKUP_OCR_LINES_DIRECTORY/[0-9]{6,}\\.jsonl")
 
     private fun invalid(@Suppress("UNUSED_PARAMETER") path: String): Nothing = throw backupFailure(
         BackupFormatFailure.INVALID_PATH,

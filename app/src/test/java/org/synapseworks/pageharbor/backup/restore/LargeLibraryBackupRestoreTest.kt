@@ -11,7 +11,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.synapseworks.pageharbor.backup.format.BackupArchiveWriter
 import org.synapseworks.pageharbor.backup.format.BackupAssetStreamOpener
 import org.synapseworks.pageharbor.backup.format.BackupDocumentRecord
 import org.synapseworks.pageharbor.backup.format.BackupFolderRecord
@@ -21,6 +20,7 @@ import org.synapseworks.pageharbor.backup.format.BackupMetadataPaths
 import org.synapseworks.pageharbor.backup.format.BackupPageRecord
 import org.synapseworks.pageharbor.backup.format.BackupProducer
 import org.synapseworks.pageharbor.backup.format.BackupRecordSource
+import org.synapseworks.pageharbor.backup.format.BackupVerifiedRecordStore
 import org.synapseworks.pageharbor.backup.format.BackupSummary
 import org.synapseworks.pageharbor.backup.format.RME_BACKUP_CHECKSUMS_PATH
 import org.synapseworks.pageharbor.backup.format.RME_BACKUP_DOCUMENTS_PATH
@@ -28,8 +28,11 @@ import org.synapseworks.pageharbor.backup.format.RME_BACKUP_FOLDERS_PATH
 import org.synapseworks.pageharbor.backup.format.RME_BACKUP_PAGES_PATH
 import org.synapseworks.pageharbor.backup.format.RME_BACKUP_SOURCE_ASSETS_PATH
 import org.synapseworks.pageharbor.backup.format.SnapshotBackupRecordSource
+import org.synapseworks.pageharbor.backup.format.writeBackupArchiveForTest
 import org.synapseworks.pageharbor.library.LibraryOperationGate
-import org.synapseworks.pageharbor.library.duplicate.DuplicateCandidate
+import org.synapseworks.pageharbor.library.duplicate.DuplicateKind
+import org.synapseworks.pageharbor.library.duplicate.DuplicateMatch
+import org.synapseworks.pageharbor.library.duplicate.IncomingDocumentIdentity
 
 class LargeLibraryBackupRestoreTest {
     @Test
@@ -43,7 +46,7 @@ class LargeLibraryBackupRestoreTest {
 
         try {
             val writeResult = archive.outputStream().buffered().use { output ->
-                BackupArchiveWriter.write(
+                writeBackupArchiveForTest(
                     destination = output,
                     manifest = fixture.manifest,
                     records = fixture.records,
@@ -59,7 +62,7 @@ class LargeLibraryBackupRestoreTest {
             assertEquals(0, writerStreams.activeStreams)
             assertTrue("The synthetic archive must remain small", archive.length() < 16L * 1024L * 1024L)
 
-            val workspace = ProbedRestoreWorkspace()
+            val workspace = TestIndexedRestoreWorkspace()
             val engine = LibraryRestoreEngine(
                 store = EmptyRestoreStore,
                 stagingWorkspace = workspace,
@@ -78,16 +81,18 @@ class LargeLibraryBackupRestoreTest {
             assertEquals(1_000, prepared.preview.documentCount)
             assertEquals(3_000, prepared.preview.pageCount)
             assertEquals(0, prepared.preview.sourceAssetCount)
-            assertEquals(1_000, prepared.preview.documents.size)
-            assertEquals("Document 0517", prepared.verifiedBackup.documents[517].title)
-            assertEquals("OCR text 0517", prepared.verifiedBackup.pages[517 * 3].ocrText)
-            assertEquals("folder-child-17", prepared.verifiedBackup.documents[517].folderId)
+            assertEquals(0, prepared.preview.exactDuplicateCount)
+            assertEquals(0, prepared.preview.possibleDuplicateCount)
+            val records = prepared.backup.records
+            assertEquals("Document 0517", records.documentsPage(516, 1).single().title)
+            assertEquals("OCR text 0517", records.pagesPage("document-0517", -1, 1).single().ocrText)
+            assertEquals("folder-child-17", records.documentsPage(516, 1).single().folderId)
             assertEquals(
                 "folder-root-17",
-                prepared.verifiedBackup.folders.single { it.folderId == "folder-child-17" }.parentFolderId,
+                records.foldersPage(0, 40).single { it.folderId == "folder-child-17" }.parentFolderId,
             )
 
-            val staging = workspace.area
+            val staging = workspace.area(prepared.stagingArea.operationId)
             assertTrue(staging.verified)
             assertFalse(staging.aborted)
             assertEquals(3_000, staging.openCount)
@@ -264,15 +269,26 @@ private class ProbedAssetStreams(
 }
 
 private object EmptyRestoreStore : RestoreLibraryStore {
-    override suspend fun duplicateCandidates(): List<DuplicateCandidate> = emptyList()
+    override suspend fun classifyDuplicate(identity: IncomingDocumentIdentity): DuplicateMatch =
+        DuplicateMatch(DuplicateKind.DIFFERENT, null)
 
-    override suspend fun existingFolders(): List<RestoreExistingFolder> = emptyList()
+    override suspend fun possibleSourceDuplicate(sourceSha256: Collection<String>): String? = null
+
+    override suspend fun folderNameExists(parentFolderId: String?, normalizedName: String): Boolean = false
 
     override suspend fun beginOperation(plan: RestoreJournalPlan) = error("Restore was not requested")
 
+    override suspend fun recordSkippedExactDocument(
+        operationId: String,
+        ordinal: Int,
+        source: RestoreIndexedDocument,
+    ) = error("Restore was not requested")
+
     override suspend fun preparePendingDocument(
         operationId: String,
+        ordinal: Int,
         document: RestoreDocumentToPrepare,
+        records: BackupVerifiedRecordStore,
         assets: RestoreStagedAssetSource,
     ) = error("Restore was not requested")
 

@@ -10,14 +10,24 @@ import androidx.room.RoomDatabase
         LibraryFolderEntity::class,
         LibraryMetadataEntity::class,
         LibraryDataOperationEntity::class,
+        LibraryPendingRestoreFolderEntity::class,
         LibraryDocumentEntity::class,
         LibraryPageEntity::class,
         LibrarySourceAssetEntity::class,
         LibraryDataOperationItemEntity::class,
         LibraryDataOperationSourceEntity::class,
+        LibraryPageOcrArtifactEntity::class,
+        LibraryPageOcrLineEntity::class,
+        LibraryPageOcrCorrectionEntity::class,
+        LibraryPageOcrCorrectionLineEntity::class,
+        LibraryDocumentSearchContentEntity::class,
         LibraryDocumentSearchEntity::class,
+        LibraryPageSearchContentEntity::class,
+        LibraryPageSearchEntity::class,
+        OcrBatchJobEntity::class,
+        OcrBatchItemEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class LibraryDatabase : RoomDatabase() {
@@ -32,7 +42,7 @@ abstract class LibraryDatabase : RoomDatabase() {
                 context.applicationContext,
                 LibraryDatabase::class.java,
                 LIBRARY_DATABASE_NAME,
-            ).addMigrations(MIGRATION_1_2)
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
                 .also { database -> instance = database }
         }

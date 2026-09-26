@@ -4,6 +4,12 @@ internal class BackupAssetInspection private constructor(
     private val prefix: ByteArray,
     private val jpegDimensions: AssetDimensions?,
 ) {
+    fun snapshot(): BackupAssetInspectionSnapshot = BackupAssetInspectionSnapshot(
+        prefix = prefix.copyOf(),
+        jpegWidth = jpegDimensions?.width,
+        jpegHeight = jpegDimensions?.height,
+    )
+
     fun requireMatches(mimeType: String, expectedWidth: Int?, expectedHeight: Int?) {
         val signatureMatches = when (mimeType) {
             "image/jpeg" -> prefix.startsWith(0xff, 0xd8, 0xff)
@@ -100,6 +106,20 @@ internal class BackupAssetInspection private constructor(
         )
     }
 
+    companion object {
+        fun fromSnapshot(snapshot: BackupAssetInspectionSnapshot): BackupAssetInspection =
+            BackupAssetInspection(
+                prefix = snapshot.prefix.copyOf(),
+                jpegDimensions = if (snapshot.jpegWidth != null && snapshot.jpegHeight != null) {
+                    AssetDimensions(snapshot.jpegWidth, snapshot.jpegHeight)
+                } else {
+                    null
+                },
+            )
+
+        private const val MAX_PREFIX_BYTES = 32
+    }
+
     private fun ByteArray.startsWith(vararg values: Int): Boolean = sliceMatches(0, *values)
 
     private fun ByteArray.sliceMatches(offset: Int, vararg values: Int): Boolean =
@@ -121,9 +141,6 @@ internal class BackupAssetInspection private constructor(
             ((this[offset + 1].toInt() and 0xff) shl 8) or
             ((this[offset + 2].toInt() and 0xff) shl 16)
 
-    private companion object {
-        const val MAX_PREFIX_BYTES = 32
-    }
 }
 
 private data class AssetDimensions(val width: Int, val height: Int)

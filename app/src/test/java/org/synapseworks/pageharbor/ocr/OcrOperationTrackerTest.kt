@@ -27,4 +27,30 @@ class OcrOperationTrackerTest {
             tracker.claimCompletion(replacementToken),
         )
     }
+
+    @Test
+    fun revisionBoundOperationRejectsCompletionAfterMutation() {
+        val tracker = OcrOperationTracker()
+        val token = tracker.begin(documentRevision = 4L)
+
+        assertEquals(
+            OcrOperationTracker.CompletionClaim.SUPERSEDED,
+            tracker.claimCompletion(token, documentRevision = 5L),
+        )
+        assertEquals(false, tracker.isCurrent(token, documentRevision = 5L))
+    }
+
+    @Test
+    fun revisionInvalidationPreservesCurrentWorkAndSupersedesStaleWork() {
+        val tracker = OcrOperationTracker()
+        val token = tracker.begin(documentRevision = 7L)
+
+        assertEquals(false, tracker.invalidateIfDocumentRevisionChanged(7L))
+        assertEquals(true, tracker.isCurrent(token, 7L))
+        assertEquals(true, tracker.invalidateIfDocumentRevisionChanged(8L))
+        assertEquals(
+            OcrOperationTracker.CompletionClaim.SUPERSEDED,
+            tracker.claimCompletion(token, 8L),
+        )
+    }
 }

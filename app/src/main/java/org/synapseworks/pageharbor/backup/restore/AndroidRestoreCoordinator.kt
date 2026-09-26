@@ -2,6 +2,7 @@ package org.synapseworks.pageharbor.backup.restore
 
 import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileInputStream
@@ -18,6 +19,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.synapseworks.pageharbor.backup.crypto.BackupEnvelopeException
 import org.synapseworks.pageharbor.backup.crypto.EncryptedBackupEnvelope
 import org.synapseworks.pageharbor.backup.crypto.EnvelopeFailure
@@ -83,6 +86,7 @@ class AndroidRestoreCoordinator private constructor(
     private val engine: LibraryRestoreEngine,
     private val safAccess: RestoreSafAccess,
     private val archiveWorkspace: RestoreArchiveWorkspace,
+    private val archivePreflight: RestoreStoragePreflight,
 ) {
     constructor(context: Context) : this(
         engine = LibraryRestoreEngine(
@@ -91,20 +95,26 @@ class AndroidRestoreCoordinator private constructor(
         ),
         safAccess = AndroidRestoreSafAccess(context.applicationContext),
         archiveWorkspace = AndroidRestoreArchiveWorkspace(context.applicationContext),
+        archivePreflight = DefaultRestoreStoragePreflight,
     )
 
     internal constructor(
         engine: LibraryRestoreEngine,
         safAccess: RestoreSafAccess,
         archiveWorkspace: RestoreArchiveWorkspace,
+        archivePreflight: RestoreStoragePreflight = DefaultRestoreStoragePreflight,
         @Suppress("UNUSED_PARAMETER") testing: Unit = Unit,
-    ) : this(engine, safAccess, archiveWorkspace)
+    ) : this(engine, safAccess, archiveWorkspace, archivePreflight)
+
+    private val recoveryMutex = Mutex()
+    private var initialRecoveryComplete = false
 
     suspend fun inspect(uri: Uri): RestoreSourceInspection = inspect(RestoreSafReference(uri.toString()))
 
     internal suspend fun inspect(reference: RestoreSafReference): RestoreSourceInspection =
         withContext(Dispatchers.IO) {
             try {
+                recoverScratchOnce()
                 when (sniff(reference)) {
                     RestoreInputKind.ZIP -> RestoreSourceInspection.Supported(
                         RestoreInputKind.ZIP,
@@ -132,6 +142,13 @@ class AndroidRestoreCoordinator private constructor(
         reference: RestoreSafReference,
         password: CharArray? = null,
     ): RestoreCoordinatorPrepareResult = withContext(Dispatchers.IO) {
+        try {
+            recoverScratchOnce()
+        } catch (_: Exception) {
+            return@withContext RestoreCoordinatorPrepareResult.Failed(
+                RestoreCoordinatorFailure.TEMPORARY_CLEANUP_FAILED,
+            )
+        }
         val kind = try {
             sniff(reference)
         } catch (cancelled: CancellationException) {
@@ -146,6 +163,22 @@ class AndroidRestoreCoordinator private constructor(
 
         if (kind == RestoreInputKind.ENCRYPTED && (password == null || password.isEmpty())) {
             return@withContext RestoreCoordinatorPrepareResult.PasswordRequired
+        }
+        val providerByteLength = try {
+            safAccess.byteLength(reference)
+        } catch (_: Exception) {
+            null
+        }?.takeIf { it >= 0L }
+        val copyEstimate = RestoreStorageEstimator.beforeArchiveCopy(
+            providerByteLength,
+            archiveWorkspace.availableBytes(),
+        )
+        if (providerByteLength?.let { it > MAXIMUM_STAGED_ARCHIVE_BYTES } == true ||
+            !archivePreflight.hasCapacity(copyEstimate)
+        ) {
+            return@withContext RestoreCoordinatorPrepareResult.Failed(
+                RestoreCoordinatorFailure.INSUFFICIENT_STORAGE,
+            )
         }
         val archiveFile = try {
             archiveWorkspace.create()
@@ -168,12 +201,19 @@ class AndroidRestoreCoordinator private constructor(
             }
             currentCoroutineContext().ensureActive()
             coreResult = engine.prepare(
-                RestoreArchiveSource(archiveFile.length()) { FileInputStream(archiveFile) },
+                RestoreArchiveSource(
+                    byteLength = archiveFile.length(),
+                    reclaimableByteLength = archiveFile.length(),
+                ) { FileInputStream(archiveFile) },
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: BackupEnvelopeException) {
             earlyResult = RestoreCoordinatorPrepareResult.Failed(failure.toCoordinatorFailure())
+        } catch (_: RestoreArchiveCapacityException) {
+            earlyResult = RestoreCoordinatorPrepareResult.Failed(
+                RestoreCoordinatorFailure.INSUFFICIENT_STORAGE,
+            )
         } catch (_: FileNotFoundException) {
             earlyResult = RestoreCoordinatorPrepareResult.Failed(
                 RestoreCoordinatorFailure.SOURCE_UNAVAILABLE,
@@ -214,7 +254,23 @@ class AndroidRestoreCoordinator private constructor(
         progressListener = progressListener,
     )
 
-    suspend fun recoverInterruptedOperations(): Int = engine.recoverInterruptedOperations()
+    suspend fun recoverInterruptedOperations(): Int = recoveryMutex.withLock {
+        recoverScratch().also { initialRecoveryComplete = true }
+    }
+
+    private suspend fun recoverScratchOnce() = recoveryMutex.withLock {
+        if (!initialRecoveryComplete) {
+            recoverScratch()
+            initialRecoveryComplete = true
+        }
+    }
+
+    private suspend fun recoverScratch(): Int {
+        if (!archiveWorkspace.discardOrphans()) {
+            throw IOException("Orphaned restore archives could not be removed")
+        }
+        return engine.recoverInterruptedOperations()
+    }
 
     private suspend fun sniff(reference: RestoreSafReference): RestoreInputKind? =
         safAccess.open(reference).use { source ->
@@ -251,6 +307,7 @@ class AndroidRestoreCoordinator private constructor(
                     if (count < 0) break
                     if (count == 0) continue
                     copied = checkedCopyLength(copied, count)
+                    requireStreamingCapacity(copied)
                     output.write(buffer, 0, count)
                 }
                 output.flush()
@@ -275,6 +332,7 @@ class AndroidRestoreCoordinator private constructor(
                         plaintextZipDestination = CancellationCheckingOutputStream(
                             destination = destinationStream,
                             checkCancelled = { job?.ensureActive() },
+                            checkCapacity = ::requireStreamingCapacity,
                         ),
                         password = passwordCopy,
                     )
@@ -290,12 +348,22 @@ class AndroidRestoreCoordinator private constructor(
         val updated = try {
             Math.addExact(current, count.toLong())
         } catch (failure: ArithmeticException) {
-            throw IOException("The restore archive is too large.", failure)
+            throw RestoreArchiveCapacityException("The restore archive is too large.", failure)
         }
         if (updated > MAXIMUM_STAGED_ARCHIVE_BYTES) {
-            throw IOException("The restore archive exceeds the supported limit.")
+            throw RestoreArchiveCapacityException("The restore archive exceeds the supported limit.")
         }
         return updated
+    }
+
+    private fun requireStreamingCapacity(stagedBytes: Long) {
+        if (stagedBytes > MAXIMUM_STAGED_ARCHIVE_BYTES) {
+            throw RestoreArchiveCapacityException("The restore archive exceeds the supported limit.")
+        }
+        val available = archiveWorkspace.availableBytes()
+        if (available != null && available < STREAMING_SAFETY_MARGIN_BYTES) {
+            throw RestoreArchiveCapacityException("Insufficient private storage remains for restore staging.")
+        }
     }
 
     private companion object {
@@ -304,6 +372,7 @@ class AndroidRestoreCoordinator private constructor(
         const val SNIFF_BYTES = 8
         const val COPY_BUFFER_BYTES = 32 * 1024
         const val MAXIMUM_STAGED_ARCHIVE_BYTES = 8L * 1024L * 1024L * 1024L
+        const val STREAMING_SAFETY_MARGIN_BYTES = 64L * 1024L * 1024L
     }
 }
 
@@ -312,6 +381,8 @@ internal value class RestoreSafReference(val value: String)
 
 internal interface RestoreSafAccess {
     fun open(reference: RestoreSafReference): InputStream
+
+    fun byteLength(reference: RestoreSafReference): Long? = null
 }
 
 private class AndroidRestoreSafAccess(context: Context) : RestoreSafAccess {
@@ -319,6 +390,13 @@ private class AndroidRestoreSafAccess(context: Context) : RestoreSafAccess {
 
     override fun open(reference: RestoreSafReference): InputStream =
         resolver.openInputStream(Uri.parse(reference.value)) ?: throw FileNotFoundException()
+
+    override fun byteLength(reference: RestoreSafReference): Long? {
+        val uri = Uri.parse(reference.value)
+        return resolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+            if (!cursor.moveToFirst() || cursor.isNull(0)) null else cursor.getLong(0).takeIf { it >= 0L }
+        }
+    }
 }
 
 private class CancellationCheckingInputStream(
@@ -339,6 +417,7 @@ private class CancellationCheckingInputStream(
 private class CancellationCheckingOutputStream(
     destination: OutputStream,
     private val checkCancelled: () -> Unit,
+    private val checkCapacity: (Long) -> Unit = {},
     private val maximumBytes: Long = 8L * 1024L * 1024L * 1024L,
 ) : FilterOutputStream(destination) {
     private var writtenBytes = 0L
@@ -361,10 +440,18 @@ private class CancellationCheckingOutputStream(
         } catch (failure: ArithmeticException) {
             throw IOException("The decrypted restore archive is too large.", failure)
         }
-        if (updated > maximumBytes) throw IOException("The decrypted restore archive is too large.")
+        if (updated > maximumBytes) {
+            throw RestoreArchiveCapacityException("The decrypted restore archive is too large.")
+        }
+        checkCapacity(updated)
         writtenBytes = updated
     }
 }
+
+private class RestoreArchiveCapacityException(
+    message: String,
+    cause: Throwable? = null,
+) : IOException(message, cause)
 
 private fun ByteArray.startsWith(prefix: ByteArray): Boolean =
     size >= prefix.size && prefix.indices.all { this[it] == prefix[it] }

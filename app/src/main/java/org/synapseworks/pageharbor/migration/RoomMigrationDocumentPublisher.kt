@@ -29,8 +29,8 @@ import org.synapseworks.pageharbor.library.LibraryOcrStatus
 import org.synapseworks.pageharbor.library.LibraryOperationCoordinator
 import org.synapseworks.pageharbor.library.LibraryOperationGate
 import org.synapseworks.pageharbor.library.LibraryPageEntity
+import org.synapseworks.pageharbor.library.LibraryPendingRestoreFolderEntity
 import org.synapseworks.pageharbor.library.LibraryPageSource
-import org.synapseworks.pageharbor.library.LibraryRestoreDocumentActivation
 import org.synapseworks.pageharbor.library.LibraryResult
 import org.synapseworks.pageharbor.library.LibrarySourceAssetEntity
 import org.synapseworks.pageharbor.library.LibrarySourceAssetSource
@@ -446,22 +446,38 @@ internal class RoomMigrationDocumentPublisher(
                 updatedItem = initialItem.copy(
                     itemState = ITEM_PREPARED,
                     targetRevisionId = prepared.revisionDirectory.name,
+                    proposedFolderPath = folderPlan.targetFolderId,
                 ),
                 updatedOperation = preparedOperation,
+                folderSearchPath = folderPlan.targetFolderSearchPath,
             )
             if (context.cancellationSignal.isCancellationRequested()) {
                 terminateOperation(operationId, targetDocumentId, cancelled = true, failure = null)
                 return MigrationPublicationResult.Cancelled
             }
             val activatedAt = nowMillis()
+            if (folderPlan.foldersToCreate.isNotEmpty()) {
+                dao.insertPendingRestoreFolders(
+                    folderPlan.foldersToCreate.mapIndexed { ordinal, folder ->
+                        LibraryPendingRestoreFolderEntity(
+                            folderId = folder.folderId,
+                            operationId = operationId,
+                            ordinal = ordinal,
+                            name = folder.name,
+                            normalizedName = folder.normalizedName,
+                            createdAtMillis = folder.createdAtMillis,
+                            modifiedAtMillis = folder.modifiedAtMillis,
+                            parentFolderId = folder.parentFolderId,
+                            parentScope = folder.parentScope,
+                        )
+                    },
+                )
+            }
             return completeMigrationActivation(
                 activate = {
                     dao.activateRestoreOperation(
                         operationId = operationId,
-                        folders = folderPlan.foldersToCreate,
-                        assignments = listOf(
-                            LibraryRestoreDocumentActivation(targetDocumentId, folderPlan.targetFolderId),
-                        ),
+                        expectedFolderCount = folderPlan.foldersToCreate.size,
                         completedOperation = preparedOperation.copy(
                             phase = PHASE_COMPLETED,
                             updatedAtMillis = activatedAt,

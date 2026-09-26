@@ -2,7 +2,11 @@ package org.synapseworks.pageharbor.backup.format
 
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.nio.file.Files
+import kotlinx.coroutines.CancellationException
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -98,15 +102,146 @@ class BackupJsonCodecTest {
             BackupChecksum("b".repeat(64), 20, RME_BACKUP_PAGES_PATH),
         )
         val output = ByteArrayOutputStream()
-        BackupChecksumLedger.write(valid.reversed(), output)
-        val decoded = BackupChecksumLedger.read(ByteArrayInputStream(output.toByteArray()))
+        writeChecksumLedgerForTest(valid.reversed(), output)
+        val decoded = buildList {
+            BackupChecksumLedger.read(ByteArrayInputStream(output.toByteArray()), accept = ::add)
+        }
         assertEquals(valid, decoded)
 
         val unsorted = valid.reversed().joinToString(separator = "") {
             "${it.sha256}  ${it.byteLength}  ${it.path}\n"
         }
         assertBackupFailure(BackupFormatFailure.INVALID_LEDGER) {
-            BackupChecksumLedger.read(ByteArrayInputStream(unsorted.toByteArray()))
+            BackupChecksumLedger.read(ByteArrayInputStream(unsorted.toByteArray())) { }
         }
+    }
+
+    @Test
+    fun checksumLedgerStreamsRecordsAndRejectsCanonicalPathCollisions() {
+        val valid = listOf(
+            BackupChecksum("a".repeat(64), 10, RME_BACKUP_MANIFEST_PATH),
+            BackupChecksum("b".repeat(64), 20, RME_BACKUP_PAGES_PATH),
+        )
+        val output = ByteArrayOutputStream()
+        writeChecksumLedgerForTest(valid, output)
+        val streamed = mutableListOf<BackupChecksum>()
+
+        val count = BackupChecksumLedger.read(
+            ByteArrayInputStream(output.toByteArray()),
+            accept = streamed::add,
+        )
+
+        assertEquals(valid.size, count)
+        assertEquals(valid, streamed)
+
+        val collision = listOf(
+            BackupChecksum(
+                "c".repeat(64),
+                1,
+                "documents/Doc/pages/000000-page.png",
+            ),
+            BackupChecksum(
+                "d".repeat(64),
+                1,
+                "documents/doc/pages/000000-page.png",
+            ),
+        )
+        assertBackupFailure(BackupFormatFailure.DUPLICATE_ENTRY) {
+            writeChecksumLedgerForTest(collision, ByteArrayOutputStream())
+        }
+
+        val duplicate = buildString {
+            repeat(2) { append("${"e".repeat(64)}  1  $RME_BACKUP_MANIFEST_PATH\n") }
+        }
+        assertBackupFailure(BackupFormatFailure.INVALID_LEDGER) {
+            BackupChecksumLedger.read(ByteArrayInputStream(duplicate.toByteArray())) { }
+        }
+        assertBackupFailure(BackupFormatFailure.INVALID_LEDGER) {
+            BackupChecksumLedger.read(ByteArrayInputStream("not-a-ledger-record\n".toByteArray())) { }
+        }
+    }
+
+    @Test
+    fun checksumExternalSortPropagatesCancellationAndDeletesItsSpool() {
+        val root = Files.createTempDirectory("rme-checksum-cancellation").toFile()
+        var cancelled = false
+        val spool = BackupChecksumSpool(
+            limits = BackupFormatLimits(),
+            cancellationCheck = {
+                if (cancelled) throw CancellationException("synthetic cancellation")
+            },
+            root = root,
+        )
+        spool.append(BackupChecksum("a".repeat(64), 1, RME_BACKUP_MANIFEST_PATH))
+        cancelled = true
+
+        try {
+            assertThrows(CancellationException::class.java) {
+                spool.writeLedger(ByteArrayOutputStream())
+            }
+        } finally {
+            spool.close()
+        }
+
+        assertFalse(root.exists())
+    }
+
+    @Test
+    fun checksumSpoolCleanupFailureIsObservableAndCloseCanRetry() {
+        val root = Files.createTempDirectory("rme-checksum-cleanup-retry").toFile()
+        var allowCleanup = false
+        var cleanupAttempts = 0
+        val spool = BackupChecksumSpool(
+            limits = BackupFormatLimits(),
+            root = root,
+            cleanup = { directory ->
+                cleanupAttempts += 1
+                allowCleanup && directory.deleteRecursively()
+            },
+        )
+        spool.append(BackupChecksum("a".repeat(64), 1, RME_BACKUP_MANIFEST_PATH))
+
+        assertThrows(java.io.IOException::class.java, spool::close)
+        assertEquals(3, cleanupAttempts)
+        assertTrue(root.exists())
+
+        allowCleanup = true
+        spool.close()
+
+        assertEquals(4, cleanupAttempts)
+        assertFalse(root.exists())
+    }
+
+    @Test
+    fun checksumExternalSortStreamsAcrossMultipleRunsInPathOrder() {
+        val records = (0 until 4_100).map { index ->
+            BackupChecksum(
+                sha256 = index.toString(16).padStart(64, '0'),
+                byteLength = index.toLong(),
+                path = "documents/d$index/pages/0-p$index.png",
+            )
+        }
+        val output = ByteArrayOutputStream()
+
+        writeChecksumLedgerForTest(records.reversed(), output)
+
+        var previousPath: String? = null
+        val count = BackupChecksumLedger.read(ByteArrayInputStream(output.toByteArray())) { checksum ->
+            previousPath?.let { previous -> assertTrue(previous < checksum.path) }
+            previousPath = checksum.path
+        }
+        assertEquals(records.size, count)
+    }
+}
+
+private fun writeChecksumLedgerForTest(
+    records: Collection<BackupChecksum>,
+    destination: ByteArrayOutputStream,
+) {
+    val scratch = Files.createTempDirectory("rme-checksum-ledger-test").toFile()
+    try {
+        BackupChecksumLedger.write(records, destination, scratch)
+    } finally {
+        scratch.deleteRecursively()
     }
 }

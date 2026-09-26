@@ -183,6 +183,20 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    suspend fun captureOcrPageSnapshots(
+        documentId: String,
+        orderedPageIds: List<String>,
+    ): List<LibraryOcrPageSnapshot> = withContext(Dispatchers.IO) {
+        repository.captureOcrPageSnapshots(documentId, orderedPageIds)
+    }
+
+    suspend fun indexOcr(
+        documentId: String,
+        outcomes: List<LibraryOcrPageOutcomeDraft>,
+    ): LibraryOcrCommitResult = withContext(Dispatchers.IO) {
+        repository.indexOcr(documentId, outcomes)
+    }
+
     suspend fun extractPages(
         documentId: String,
         pageIds: Set<String>,

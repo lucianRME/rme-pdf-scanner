@@ -106,8 +106,11 @@ import org.synapseworks.pageharbor.ocr.OcrUiState
 import org.synapseworks.pageharbor.ocr.canStartOcr
 import org.synapseworks.pageharbor.ocr.clearedOcrState
 import org.synapseworks.pageharbor.ocr.ocrStateAfterResult
+import org.synapseworks.pageharbor.ocr.persistence.BundledLatinOcrMappingResult
+import org.synapseworks.pageharbor.ocr.persistence.BundledLatinOcrResultMapper
 import org.synapseworks.pageharbor.library.LibraryResult
 import org.synapseworks.pageharbor.library.LibraryActionState
+import org.synapseworks.pageharbor.library.LibraryOcrCommitResult
 import org.synapseworks.pageharbor.library.LibraryViewModel
 import org.synapseworks.pageharbor.migration.workflow.MigrationDuplicateSelectionId
 import org.synapseworks.pageharbor.migration.workflow.MigrationIssueReason
@@ -421,6 +424,7 @@ class MainActivity : FragmentActivity() {
             session.documentRevisionChanges.collect { revision ->
                 if (revision == observedDocumentRevision) return@collect
                 observedDocumentRevision = revision
+                clearStaleOcrAndSearchablePdfOperations(revision)
                 clearStaleNormalDocumentOperations(revision)
             }
         }
@@ -828,12 +832,8 @@ class MainActivity : FragmentActivity() {
                     documentCount = preview.documentCount,
                     pageCount = preview.pageCount,
                     folderCount = preview.folderCount,
-                    exactDuplicateCount = preview.documents.count {
-                        it.duplicateKind == org.synapseworks.pageharbor.library.duplicate.DuplicateKind.EXACT
-                    },
-                    possibleDuplicateCount = preview.documents.count {
-                        it.duplicateKind == org.synapseworks.pageharbor.library.duplicate.DuplicateKind.POSSIBLE
-                    },
+                    exactDuplicateCount = preview.exactDuplicateCount,
+                    possibleDuplicateCount = preview.possibleDuplicateCount,
                     estimatedStorage = formatByteCount(preview.contentByteLength),
                     createdAt = DateFormat.getDateInstance(DateFormat.MEDIUM)
                         .format(Date(preview.createdAtEpochMillis)),
@@ -1786,43 +1786,92 @@ class MainActivity : FragmentActivity() {
             return
         }
 
+        val documentRevision = session.documentRevision
+        val savedDocumentId = lease.session.libraryDocument?.documentId
+        val persistentPageIds = lease.session.pages.map(DocumentPage::persistentId)
         ocrUiState = OcrUiState.Recognizing
-        val operationId = ocrOperationTracker.begin()
+        val operationId = ocrOperationTracker.begin(documentRevision)
         ocrJob = lifecycleScope.launch {
             try {
-                val result = try {
-                    withContext(Dispatchers.IO) {
-                        ocrEngine.recognize(pages)
+                val capturedSnapshots = if (savedDocumentId != null) {
+                    val orderedPageIds = persistentPageIds.filterNotNull()
+                    if (orderedPageIds.size != pages.size) {
+                        publishOcrUnexpectedFailure(operationId)
+                        return@launch
                     }
-                } catch (_: kotlinx.coroutines.CancellationException) {
-                    return@launch
-                } catch (_: Exception) {
-                    if (ocrOperationTracker.claimCompletion(operationId) ==
-                        OcrOperationTracker.CompletionClaim.CLAIMED
-                    ) {
-                        ocrUiState = OcrUiState.Error(OcrUiError.UNEXPECTED_FAILURE)
-                        ocrTerminalStateObserverForTest?.invoke()
+                    val snapshots = library.captureOcrPageSnapshots(
+                        documentId = savedDocumentId,
+                        orderedPageIds = orderedPageIds,
+                    )
+                    if (!ocrOperationTracker.isCurrent(operationId, session.documentRevision)) {
+                        return@launch
                     }
+                    if (snapshots.size != pages.size) {
+                        publishOcrUnexpectedFailure(operationId)
+                        return@launch
+                    }
+                    snapshots
+                } else {
+                    null
+                }
+
+                val result = withContext(Dispatchers.IO) {
+                    ocrEngine.recognize(pages)
+                }
+                if (!ocrOperationTracker.isCurrent(operationId, session.documentRevision)) {
                     return@launch
                 }
-                if (ocrOperationTracker.claimCompletion(operationId) !=
-                    OcrOperationTracker.CompletionClaim.CLAIMED
+
+                if (capturedSnapshots != null) {
+                    val mapping = BundledLatinOcrResultMapper.map(
+                        result = result,
+                        orderedSnapshots = capturedSnapshots,
+                        recognizedAtMillis = System.currentTimeMillis(),
+                    )
+                    if (mapping !is BundledLatinOcrMappingResult.Success) {
+                        publishOcrUnexpectedFailure(operationId)
+                        return@launch
+                    }
+                    if (!ocrOperationTracker.isCurrent(operationId, session.documentRevision)) {
+                        return@launch
+                    }
+                    val commit = library.indexOcr(
+                        documentId = requireNotNull(savedDocumentId),
+                        outcomes = mapping.outcomes,
+                    )
+                    if (commit != LibraryOcrCommitResult.APPLIED) {
+                        publishOcrUnexpectedFailure(operationId)
+                        return@launch
+                    }
+                }
+
+                if (ocrOperationTracker.claimCompletion(
+                        operationId,
+                        session.documentRevision,
+                    ) != OcrOperationTracker.CompletionClaim.CLAIMED
                 ) {
                     return@launch
                 }
                 ocrUiState = ocrStateAfterResult(result)
                 ocrSelectedPageIndex = 0
-                lease.session.libraryDocument?.let { saved ->
-                    library.indexOcr(
-                        documentId = saved.documentId,
-                        pageIds = lease.session.pages.map(DocumentPage::persistentId),
-                        result = result,
-                    )
-                }
                 ocrTerminalStateObserverForTest?.invoke()
+            } catch (_: CancellationException) {
+                return@launch
+            } catch (_: Exception) {
+                publishOcrUnexpectedFailure(operationId)
             } finally {
                 session.releaseDocumentSessionLease(lease)
             }
+        }
+    }
+
+    private fun publishOcrUnexpectedFailure(operationId: Long) {
+        if (
+            ocrOperationTracker.claimCompletion(operationId, session.documentRevision) ==
+            OcrOperationTracker.CompletionClaim.CLAIMED
+        ) {
+            ocrUiState = OcrUiState.Error(OcrUiError.UNEXPECTED_FAILURE)
+            ocrTerminalStateObserverForTest?.invoke()
         }
     }
 
@@ -1892,7 +1941,8 @@ class MainActivity : FragmentActivity() {
         val documentPages = lease.session.pages
 
         clearSearchablePdfSave()
-        val operationId = searchablePdfOperationTracker.begin()
+        val documentRevision = session.documentRevision
+        val operationId = searchablePdfOperationTracker.begin(documentRevision)
         searchablePdfSaveState = SearchablePdfSaveState.Preparing
         val existingOcrResult = (ocrUiState as? OcrUiState.Success)?.result
         searchablePdfExportJob = lifecycleScope.launch {
@@ -1913,14 +1963,24 @@ class MainActivity : FragmentActivity() {
                         ocrResult = existingOcrResult,
                         progressListener = SearchablePdfExportProgressListener { progress ->
                             runOnUiThread {
-                                if (searchablePdfOperationTracker.acceptsProgress(operationId)) {
+                                if (
+                                    searchablePdfOperationTracker.acceptsProgress(
+                                        operationId,
+                                        session.documentRevision,
+                                    )
+                                ) {
                                     searchablePdfSaveState = searchablePdfSaveStateForProgress(progress)
                                 }
                             }
                         },
                     ),
                 )
-                when (searchablePdfOperationTracker.claimCompletion(operationId)) {
+                when (
+                    searchablePdfOperationTracker.claimCompletion(
+                        operationId,
+                        session.documentRevision,
+                    )
+                ) {
                     SearchablePdfOperationTracker.CompletionClaim.SUPERSEDED -> {
                         if (preparedExport is SearchablePdfPreparedExport.Ready) {
                             searchablePdfExportCoordinator.discardPreparedExport(preparedExport)
@@ -1979,7 +2039,10 @@ class MainActivity : FragmentActivity() {
             } catch (_: CancellationException) {
                 // The invalidating action owns user-visible state.
             } catch (_: Exception) {
-                if (searchablePdfOperationTracker.claimCompletion(operationId) ==
+                if (searchablePdfOperationTracker.claimCompletion(
+                        operationId,
+                        session.documentRevision,
+                    ) ==
                     SearchablePdfOperationTracker.CompletionClaim.CLAIMED
                 ) {
                     searchablePdfSaveState = SearchablePdfSaveState.Error(
@@ -2283,6 +2346,22 @@ class MainActivity : FragmentActivity() {
         pdfSaveState = PdfSaveState.Idle
         pdfShareState = PdfShareState.Idle
         pageExportState = PageExportState.Idle
+    }
+
+    private fun clearStaleOcrAndSearchablePdfOperations(documentRevision: Long) {
+        if (ocrOperationTracker.invalidateIfDocumentRevisionChanged(documentRevision)) {
+            ocrJob?.cancel()
+            ocrJob = null
+            ocrUiState = clearedOcrState()
+            ocrSelectedPageIndex = 0
+        }
+        if (searchablePdfOperationTracker.invalidateIfDocumentRevisionChanged(documentRevision)) {
+            searchablePdfExportJob?.cancel()
+            searchablePdfExportJob = null
+            searchablePdfPreparedExport?.let(searchablePdfExportCoordinator::discardPreparedExport)
+            searchablePdfPreparedExport = null
+            searchablePdfSaveState = SearchablePdfSaveState.Idle
+        }
     }
 
     private fun clearStaleNormalDocumentOperations(documentRevision: Long) {

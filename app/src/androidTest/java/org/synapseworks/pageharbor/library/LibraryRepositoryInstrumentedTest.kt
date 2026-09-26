@@ -26,8 +26,12 @@ import org.synapseworks.pageharbor.document.session.DocumentResource
 import org.synapseworks.pageharbor.document.session.DocumentResourceOwnership
 import org.synapseworks.pageharbor.document.session.DocumentSession
 import org.synapseworks.pageharbor.document.session.DocumentSourceCategory
+import org.synapseworks.pageharbor.ocr.OcrPageLayout
 import org.synapseworks.pageharbor.ocr.OcrPageResult
 import org.synapseworks.pageharbor.ocr.OcrResult
+import org.synapseworks.pageharbor.ocr.OcrTextBounds
+import org.synapseworks.pageharbor.ocr.OcrTextLine
+import org.synapseworks.pageharbor.ocr.persistence.BundledLatinOcrArtifactContract
 
 @RunWith(AndroidJUnit4::class)
 class LibraryRepositoryInstrumentedTest {
@@ -96,7 +100,7 @@ class LibraryRepositoryInstrumentedTest {
         assertEquals("Field notes revised", reopened.summary.title)
         assertEquals(DocumentPageRotation.DEGREES_90, reopened.session.pages.first().rotation)
         assertEquals(opened.session.pages.last().persistentId, reopened.session.pages.first().persistentId)
-        assertEquals(listOf("beta term", "alpha term"), database.libraryDao().pages(saved.id).map { it.ocrText })
+        assertEquals(listOf(null, "alpha term"), database.libraryDao().pages(saved.id).map { it.ocrText })
     }
 
     @Test
@@ -121,6 +125,90 @@ class LibraryRepositoryInstrumentedTest {
         assertEquals(folder.id, repository.openDocument(invoice.id).successValue().summary.folderId)
         repository.deleteFolder(folder.id).successValue()
         assertEquals(null, repository.openDocument(invoice.id).successValue().summary.folderId)
+    }
+
+    @Test
+    fun firstSavePromotesPositionedOcrToVerifiedPageArtifact() = runBlocking {
+        val saved = repository.saveSession(
+            session(page(3, "verified-first-save.jpg", 0xffccddee.toInt())),
+            "Verified first save",
+            ocrResult = OcrResult(
+                listOf(
+                    OcrPageResult(
+                        pageIndex = 0,
+                        text = "positioned emerald text",
+                        layout = OcrPageLayout(
+                            imageWidthPx = 100,
+                            imageHeightPx = 200,
+                            lines = listOf(
+                                OcrTextLine(
+                                    text = "positioned emerald text",
+                                    bounds = OcrTextBounds(
+                                        left = 10f,
+                                        top = 20f,
+                                        right = 90f,
+                                        bottom = 60f,
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ).successValue()
+
+        val dao = database.libraryDao()
+        val page = dao.pages(saved.id).single()
+        val snapshot = requireNotNull(dao.ocrPageSnapshot(saved.id, page.pageId))
+        val artifact = requireNotNull(
+            dao.ocrArtifact(page.pageId, requireNotNull(snapshot.activeArtifactRevision)),
+        )
+        val line = dao.ocrLines(page.pageId, artifact.artifactRevision).single()
+
+        assertEquals(LibraryOcrArtifactVerification.CURRENT_VERIFIED.name, artifact.verificationState)
+        assertEquals("positioned emerald text", artifact.rawText)
+        assertEquals(page.contentSha256, artifact.contentSha256)
+        assertEquals(snapshot.documentContentRevision, artifact.capturedDocumentContentRevision)
+        assertEquals(snapshot.pageVisualRevision, artifact.capturedPageVisualRevision)
+        assertEquals(BundledLatinOcrArtifactContract.RECOGNIZER_ID, artifact.recognizerId)
+        assertEquals(BundledLatinOcrArtifactContract.PIPELINE_VERSION, artifact.pipelineVersion)
+        assertTrue(artifact.inputFingerprint?.matches(Regex("sha256:[0-9a-f]{64}")) == true)
+        assertEquals(0.1, line.topLeftX, 0.000_001)
+        assertEquals(0.3, line.bottomRightY, 0.000_001)
+        assertEquals(
+            "positioned emerald text",
+            dao.effectiveOcrPage(saved.id, page.pageId)?.effectiveText,
+        )
+        assertEquals(
+            page.pageId,
+            dao.pageSearchPage("emerald*", Long.MAX_VALUE, "", 10).single().pageId,
+        )
+    }
+
+    @Test
+    fun firstSaveWithoutPositionedGeometryRetainsLegacyRawText() = runBlocking {
+        val rawText = "legacy fallback sapphire"
+        val saved = repository.saveSession(
+            session(page(4, "legacy-first-save.jpg", 0xffbbccdd.toInt())),
+            "Legacy first save",
+            ocrResult = OcrResult(listOf(OcrPageResult(pageIndex = 0, text = rawText))),
+        ).successValue()
+
+        val dao = database.libraryDao()
+        val page = dao.pages(saved.id).single()
+        val snapshot = requireNotNull(dao.ocrPageSnapshot(saved.id, page.pageId))
+        val artifact = requireNotNull(
+            dao.ocrArtifact(page.pageId, requireNotNull(snapshot.activeArtifactRevision)),
+        )
+
+        assertEquals(LibraryOcrArtifactVerification.LEGACY_UNVERIFIED.name, artifact.verificationState)
+        assertEquals(rawText, artifact.rawText)
+        assertEquals(rawText, page.ocrText)
+        assertEquals(rawText, dao.effectiveOcrPage(saved.id, page.pageId)?.effectiveText)
+        assertEquals(
+            page.pageId,
+            dao.pageSearchPage("sapphire*", Long.MAX_VALUE, "", 10).single().pageId,
+        )
     }
 
     @Test

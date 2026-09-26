@@ -2,6 +2,7 @@ package org.synapseworks.pageharbor.portability.workflow
 
 import android.content.Context
 import androidx.core.net.toUri
+import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -174,6 +175,7 @@ private class AndroidRoomPortabilityBackupService(
         snapshotSource = RoomLibraryBackupSnapshotSource(
             dao = dao,
             fileStore = LibraryFileStore(applicationContext),
+            spoolParent = File(applicationContext.noBackupFilesDir, "portable-backup-snapshots"),
         ),
         workspace = AndroidLibraryBackupWorkspace(applicationContext),
         operationGate = LibraryOperationCoordinator.gate,

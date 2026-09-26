@@ -9,8 +9,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import org.synapseworks.pageharbor.backup.crypto.EncryptedBackupEnvelope
-import org.synapseworks.pageharbor.backup.format.BackupArchiveReader
-import org.synapseworks.pageharbor.backup.format.BackupStagingSink
+import org.synapseworks.pageharbor.backup.engine.BackupArchiveVerifier
+import org.synapseworks.pageharbor.backup.engine.IndexedBackupArchiveVerifier
+import org.synapseworks.pageharbor.backup.format.BackupFormatLimits
 import org.synapseworks.pageharbor.backup.format.BackupManifest
 import org.synapseworks.pageharbor.backup.engine.VerifiedLibraryBackupArtifact
 
@@ -50,7 +51,10 @@ enum class BackupPublicationFailure {
 }
 
 /** Copies a verified private artifact to SAF and verifies the bytes at the final destination. */
-class BackupPublicationEngine {
+class BackupPublicationEngine(
+    private val limits: BackupFormatLimits = BackupFormatLimits(),
+    private val archiveVerifier: BackupArchiveVerifier = IndexedBackupArchiveVerifier,
+) {
     suspend fun publishUnencrypted(
         artifact: VerifiedLibraryBackupArtifact,
         destination: BackupPublicationDestination,
@@ -71,14 +75,16 @@ class BackupPublicationEngine {
                 destination.delete(),
             )
         val verified = source.use { input ->
-            BackupArchiveReader.readAndVerify(
-                CancellableInputStream(input, coroutineContext),
-                DiscardingStagingSink(coroutineContext),
+            archiveVerifier.verify(
+                source = CancellableInputStream(input, coroutineContext),
+                limits = limits,
+                checkCancellation = coroutineContext::ensureActive,
+                scratchDirectory = artifact.verificationScratchDirectory,
             )
         }
         BackupPublicationResult.Verified(
             VerifiedPublishedBackup(
-                manifest = verified.manifest,
+                manifest = verified,
                 kind = PublishedBackupKind.UNENCRYPTED_ZIP,
                 plaintextBytes = artifact.sizeBytes,
             ),
@@ -165,17 +171,6 @@ class BackupPublicationEngine {
         }
         destination.flush()
     }
-}
-
-private class DiscardingStagingSink(
-    private val coroutineContext: CoroutineContext,
-) : BackupStagingSink {
-    override fun open(relativePath: String): OutputStream =
-        CancellableDiscardingOutputStream(coroutineContext)
-
-    override fun verified() = Unit
-
-    override fun abort() = Unit
 }
 
 private class CancellableDiscardingOutputStream(

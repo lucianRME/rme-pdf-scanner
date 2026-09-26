@@ -116,6 +116,36 @@ class ActiveOperationInterruptionTest {
     }
 
     @Test
+    fun pausedOcrCannotPublishAfterPageVisualMutation() {
+        val gate = ControllableOperationGate()
+        val terminalStateCount = AtomicInteger(0)
+
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.replaceOperationsForTest(
+                    ocrEngine = GatedOcrEngine(gate, ocrResult("stale-after-filter")),
+                    onOcrTerminalState = { terminalStateCount.incrementAndGet() },
+                )
+                activity.restoreCompletedSessionForTest(scanSummary(), pageUris = listOf(testPageUri()))
+                activity.recognizeTextForTest()
+            }
+
+            gate.awaitReached()
+            scenario.onActivity { activity ->
+                assertTrue(activity.setFirstPageFilterForTest(DocumentFilter.GRAYSCALE))
+            }
+            gate.release()
+            gate.awaitExited()
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+
+            scenario.onActivity { activity ->
+                assertEquals(OcrUiState.Idle, activity.ocrStateForTest())
+            }
+            assertEquals(0, terminalStateCount.get())
+        }
+    }
+
+    @Test
     fun pausedOcrRecreationResetsToScanResultAndIgnoresLateCompletion() {
         val gate = ControllableOperationGate()
 
@@ -212,6 +242,50 @@ class ActiveOperationInterruptionTest {
             assertEquals(0, destinationRequestCount.get())
             scenario.onActivity { activity ->
                 assertEquals(PageHarborScreen.Home, activity.sessionScreenForTest())
+                assertEquals(SearchablePdfSaveState.Idle, activity.searchablePdfStateForTest())
+            }
+        }
+    }
+    }
+
+    @Test
+    fun pausedSearchablePdfCannotPublishAfterPageVisualMutation() {
+        runBlocking {
+        val gate = ControllableOperationGate()
+        val deleted = CountDownLatch(1)
+        val destinationRequestCount = AtomicInteger(0)
+        var generatedFile: File? = null
+
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.replaceOperationsForTest(
+                    searchablePdfExportCoordinator = gatedCoordinator(
+                        gate = gate,
+                        onCreated = { generatedFile = it },
+                        onDeleted = deleted::countDown,
+                    ),
+                    onSearchablePdfDestinationRequested = { destinationRequestCount.incrementAndGet() },
+                )
+                activity.restoreCompletedSessionForTest(
+                    summary = scanSummary(),
+                    ocrResult = ocrResult("searchable-stale-after-filter"),
+                    pageUris = listOf(testPageUri()),
+                )
+                activity.saveSearchablePdfForTest()
+            }
+
+            gate.awaitReached()
+            scenario.onActivity { activity ->
+                assertTrue(activity.setFirstPageFilterForTest(DocumentFilter.GRAYSCALE))
+            }
+            gate.release()
+            gate.awaitExited()
+
+            assertTrue("Stale prepared output was not cleaned", deleted.await(10, TimeUnit.SECONDS))
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            assertEquals(0, destinationRequestCount.get())
+            assertFalse(generatedFile?.exists() ?: true)
+            scenario.onActivity { activity ->
                 assertEquals(SearchablePdfSaveState.Idle, activity.searchablePdfStateForTest())
             }
         }

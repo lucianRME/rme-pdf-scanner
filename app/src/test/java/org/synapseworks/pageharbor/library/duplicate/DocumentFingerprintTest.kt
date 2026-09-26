@@ -67,18 +67,23 @@ class DocumentFingerprintTest {
     @Test
     fun detectorPrefersLogicalExactAndTreatsSourceOnlyMatchAsPossible() {
         val fingerprint = DocumentFingerprintV1.calculate(listOf(firstPage))
+        val ocrDigest = "dd".repeat(32)
         val incoming = IncomingDocumentIdentity(
             fingerprint = fingerprint,
             sourceSha256 = setOf("aa".repeat(32)),
             pageCount = 1,
             contentByteLength = 1_024,
             orderedMimeTypes = listOf("image/jpeg"),
+            ocrStateDigestVersion = 1,
+            ocrStateSha256 = ocrDigest,
         )
         val sourceOnly = candidate("source", sourceHash = "aa".repeat(32))
         val logical = candidate(
             id = "logical",
             hashVersion = fingerprint.version,
             contentHash = fingerprint.sha256,
+            ocrDigestVersion = 1,
+            ocrDigestHash = ocrDigest,
         )
 
         assertEquals(
@@ -88,6 +93,48 @@ class DocumentFingerprintTest {
         assertEquals(
             DuplicateMatch(DuplicateKind.POSSIBLE, "source"),
             DuplicateDetector.classify(incoming.copy(fingerprint = null), listOf(sourceOnly)),
+        )
+    }
+
+    @Test
+    fun exactOcrStateWinsAfterEarlierSameContentPossibilities() {
+        val fingerprint = DocumentFingerprintV1.calculate(listOf(firstPage))
+        val matchingDigest = "ab".repeat(32)
+        val incoming = IncomingDocumentIdentity(
+            fingerprint = fingerprint,
+            pageCount = 1,
+            contentByteLength = 1_024,
+            orderedMimeTypes = listOf("image/jpeg"),
+            ocrStateDigestVersion = 1,
+            ocrStateSha256 = matchingDigest,
+        )
+        val missingDigest = candidate(
+            id = "missing",
+            hashVersion = fingerprint.version,
+            contentHash = fingerprint.sha256,
+        )
+        val differentDigest = candidate(
+            id = "different",
+            hashVersion = fingerprint.version,
+            contentHash = fingerprint.sha256,
+            ocrDigestVersion = 1,
+            ocrDigestHash = "cd".repeat(32),
+        )
+        val exact = candidate(
+            id = "exact",
+            hashVersion = fingerprint.version,
+            contentHash = fingerprint.sha256,
+            ocrDigestVersion = 1,
+            ocrDigestHash = matchingDigest,
+        )
+
+        assertEquals(
+            DuplicateMatch(DuplicateKind.EXACT, "exact"),
+            DuplicateDetector.classify(incoming, listOf(missingDigest, differentDigest, exact)),
+        )
+        assertEquals(
+            DuplicateMatch(DuplicateKind.POSSIBLE, "missing"),
+            DuplicateDetector.classify(incoming, listOf(missingDigest, differentDigest)),
         )
     }
 
@@ -128,6 +175,8 @@ class DocumentFingerprintTest {
         contentHash: String? = null,
         sourceHash: String? = null,
         bytes: Long? = 1_024,
+        ocrDigestVersion: Int? = null,
+        ocrDigestHash: String? = null,
     ) = DuplicateCandidate(
         documentId = id,
         contentHashVersion = hashVersion,
@@ -136,5 +185,7 @@ class DocumentFingerprintTest {
         pageCount = 1,
         contentByteLength = bytes,
         orderedMimeTypes = listOf("image/jpeg"),
+        ocrStateDigestVersion = ocrDigestVersion,
+        ocrStateSha256 = ocrDigestHash,
     )
 }

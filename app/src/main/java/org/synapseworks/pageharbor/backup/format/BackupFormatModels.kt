@@ -3,14 +3,21 @@ package org.synapseworks.pageharbor.backup.format
 import java.io.InputStream
 import java.io.OutputStream
 
-const val RME_BACKUP_FORMAT_VERSION: Int = 1
-const val RME_BACKUP_READER_VERSION: Int = 1
+const val RME_BACKUP_FORMAT_VERSION_V1: Int = 1
+const val RME_BACKUP_FORMAT_VERSION_V2: Int = 2
+const val RME_BACKUP_FORMAT_VERSION: Int = RME_BACKUP_FORMAT_VERSION_V2
+const val RME_BACKUP_READER_VERSION: Int = 2
 
 const val RME_BACKUP_MANIFEST_PATH: String = "manifest.json"
 const val RME_BACKUP_FOLDERS_PATH: String = "metadata/folders.jsonl"
 const val RME_BACKUP_DOCUMENTS_PATH: String = "metadata/documents.jsonl"
 const val RME_BACKUP_PAGES_PATH: String = "metadata/pages.jsonl"
 const val RME_BACKUP_SOURCE_ASSETS_PATH: String = "metadata/source-assets.jsonl"
+const val RME_BACKUP_OCR_DOCUMENT_STATES_PATH: String = "metadata/ocr-document-states.jsonl"
+const val RME_BACKUP_OCR_PAGE_STATES_PATH: String = "metadata/ocr-page-states.jsonl"
+const val RME_BACKUP_OCR_ARTIFACTS_PATH: String = "metadata/ocr-artifacts.jsonl"
+const val RME_BACKUP_OCR_CORRECTIONS_PATH: String = "metadata/ocr-corrections.jsonl"
+const val RME_BACKUP_OCR_LINES_DIRECTORY: String = "ocr-lines"
 const val RME_BACKUP_CHECKSUMS_PATH: String = "checksums.sha256"
 
 data class BackupManifest(
@@ -23,6 +30,7 @@ data class BackupManifest(
     val summary: BackupSummary,
     val metadata: BackupMetadataPaths,
     val integrity: BackupIntegrity,
+    val ocr: BackupOcrManifest? = null,
 )
 
 data class BackupProducer(
@@ -49,6 +57,42 @@ data class BackupMetadataPaths(
 data class BackupIntegrity(
     val algorithm: String,
     val checksumsEntry: String,
+)
+
+data class BackupOcrManifest(
+    val documentStatesPath: String,
+    val pageStatesPath: String,
+    val artifactsPath: String,
+    val correctionsPath: String,
+    val documentStateCount: Int,
+    val pageStateCount: Int,
+    val artifactCount: Int,
+    val correctionCount: Int,
+    val lineCount: Int,
+    val lineByteLength: Long,
+    val lineChunks: List<BackupOcrLineChunkDescriptor>,
+) {
+    companion object {
+        fun empty(): BackupOcrManifest = BackupOcrManifest(
+            documentStatesPath = RME_BACKUP_OCR_DOCUMENT_STATES_PATH,
+            pageStatesPath = RME_BACKUP_OCR_PAGE_STATES_PATH,
+            artifactsPath = RME_BACKUP_OCR_ARTIFACTS_PATH,
+            correctionsPath = RME_BACKUP_OCR_CORRECTIONS_PATH,
+            documentStateCount = 0,
+            pageStateCount = 0,
+            artifactCount = 0,
+            correctionCount = 0,
+            lineCount = 0,
+            lineByteLength = 0,
+            lineChunks = emptyList(),
+        )
+    }
+}
+
+data class BackupOcrLineChunkDescriptor(
+    val path: String,
+    val recordCount: Int,
+    val byteLength: Long,
 )
 
 data class BackupFolderRecord(
@@ -109,26 +153,16 @@ interface BackupRecordSource {
     fun pages(): Sequence<BackupPageRecord>
 
     fun sourceAssets(): Sequence<BackupSourceAssetRecord>
-}
 
-class SnapshotBackupRecordSource(
-    folders: Collection<BackupFolderRecord>,
-    documents: Collection<BackupDocumentRecord>,
-    pages: Collection<BackupPageRecord>,
-    sourceAssets: Collection<BackupSourceAssetRecord>,
-) : BackupRecordSource {
-    private val folderSnapshot = folders.toList()
-    private val documentSnapshot = documents.toList()
-    private val pageSnapshot = pages.toList()
-    private val sourceAssetSnapshot = sourceAssets.toList()
+    fun ocrDocumentStates(): Sequence<BackupOcrDocumentStateRecord> = emptySequence()
 
-    override fun folders(): Sequence<BackupFolderRecord> = folderSnapshot.asSequence()
+    fun ocrPageStates(): Sequence<BackupOcrPageStateRecord> = emptySequence()
 
-    override fun documents(): Sequence<BackupDocumentRecord> = documentSnapshot.asSequence()
+    fun ocrArtifacts(): Sequence<BackupOcrArtifactRecord> = emptySequence()
 
-    override fun pages(): Sequence<BackupPageRecord> = pageSnapshot.asSequence()
+    fun ocrCorrections(): Sequence<BackupOcrCorrectionRecord> = emptySequence()
 
-    override fun sourceAssets(): Sequence<BackupSourceAssetRecord> = sourceAssetSnapshot.asSequence()
+    fun ocrLines(): Sequence<BackupOcrLineRecord> = emptySequence()
 }
 
 /** Opens one declared page or source asset. The writer closes every returned stream. */
@@ -145,6 +179,12 @@ fun interface BackupAssetStreamOpener {
 interface BackupStagingSink {
     fun open(relativePath: String): OutputStream
 
+    /** Stores bounded v2 metadata chunks separately from document assets. */
+    fun openMetadata(relativePath: String): OutputStream = open(relativePath)
+
+    /** Reopens a verified metadata chunk. Verification-only sinks may return null. */
+    fun openVerifiedMetadata(relativePath: String): InputStream? = null
+
     fun verified()
 
     fun abort()
@@ -156,9 +196,25 @@ data class VerifiedBackup(
     val documents: List<BackupDocumentRecord>,
     val pages: List<BackupPageRecord>,
     val sourceAssets: List<BackupSourceAssetRecord>,
+    val ocr: VerifiedBackupOcr? = null,
 )
+
+data class VerifiedBackupOcr(
+    val documentStates: List<BackupOcrDocumentStateRecord>,
+    val pageStates: List<BackupOcrPageStateRecord>,
+    val artifacts: List<BackupOcrArtifactRecord>,
+    val corrections: List<BackupOcrCorrectionRecord>,
+    val lines: BackupOcrLineSource,
+)
+
+interface BackupOcrLineSource {
+    val recordCount: Int
+
+    fun records(): Sequence<BackupOcrLineRecord>
+}
 
 data class BackupWriteResult(
     val entryCount: Int,
     val contentByteLength: Long,
+    val manifest: BackupManifest,
 )

@@ -1,6 +1,8 @@
 package org.synapseworks.pageharbor.library
 
 import android.content.Context
+import android.os.SystemClock
+import android.util.Log
 import androidx.room.Room
 import androidx.room.withTransaction
 import androidx.test.core.app.ApplicationProvider
@@ -103,8 +105,63 @@ class LargeLibraryQueryInstrumentedTest {
         assertTrue(prefixMatches.zipWithNext().all { (first, second) ->
             first.modifiedAtMillis > second.modifiedAtMillis
         })
-
         val sampleDocumentId = documentId(SAMPLE_DOCUMENT_INDEX)
+
+        val titleStartedAt = SystemClock.elapsedRealtime()
+        val firstTitlePage = repository.searchHits("quartz title", limit = SEARCH_RESULT_LIMIT)
+        val titleQueryMillis = SystemClock.elapsedRealtime() - titleStartedAt
+        assertTrue(firstTitlePage.isNotEmpty())
+        assertTrue(firstTitlePage.size <= SEARCH_RESULT_LIMIT)
+
+        val pageStartedAt = SystemClock.elapsedRealtime()
+        val firstOcrPage = repository.searchHits("quartz ledger", limit = SEARCH_RESULT_LIMIT)
+        val pageQueryMillis = SystemClock.elapsedRealtime() - pageStartedAt
+        assertTrue(firstOcrPage.any { it.pageId != null })
+        assertTrue(firstOcrPage.size <= SEARCH_RESULT_LIMIT)
+
+        val commonHits = repository.searchHits("searchable record", limit = SEARCH_RESULT_LIMIT)
+        assertEquals(SEARCH_RESULT_LIMIT, commonHits.size)
+        val correctedPageId = "$sampleDocumentId-page-1"
+        val correctionSnapshot = requireNotNull(
+            database.libraryDao().ocrPageSnapshot(sampleDocumentId, correctedPageId),
+        )
+        val correctionStartedAt = SystemClock.elapsedRealtime()
+        assertEquals(
+            LibraryOcrCommitResult.APPLIED,
+            repository.saveOcrCorrection(
+                correctionSnapshot,
+                LibraryOcrCorrectionDraft(
+                    correctedText = "unique correction benchmark token",
+                    alignment = LibraryOcrCorrectionAlignment.FREEFORM,
+                ),
+            ),
+        )
+        val correctionMillis = SystemClock.elapsedRealtime() - correctionStartedAt
+        assertEquals(
+            correctedPageId,
+            repository.searchHits("unique correction benchmark", limit = SEARCH_RESULT_LIMIT)
+                .single().pageId,
+        )
+
+        val databaseBytes = database.openHelper.readableDatabase.query(
+            "SELECT (SELECT page_count FROM pragma_page_count) * " +
+                "(SELECT page_size FROM pragma_page_size)",
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            cursor.getLong(0)
+        }
+        val heapGrowth = (compactedHeapBytes() - heapBefore).coerceAtLeast(0L)
+        Log.i(
+            "LargeLibraryQuery",
+            "docs=$DOCUMENT_COUNT pages=${DOCUMENT_COUNT * PAGES_PER_DOCUMENT} " +
+                "titleMs=$titleQueryMillis pageMs=$pageQueryMillis correctionMs=$correctionMillis " +
+                "dbBytes=$databaseBytes heapGrowth=$heapGrowth",
+        )
+        assertTrue("Title first-page query took ${titleQueryMillis}ms", titleQueryMillis < MAX_QUERY_MILLIS)
+        assertTrue("OCR page-hit query took ${pageQueryMillis}ms", pageQueryMillis < MAX_QUERY_MILLIS)
+        assertTrue("Correction/index update took ${correctionMillis}ms", correctionMillis < MAX_UPDATE_MILLIS)
+        assertTrue("In-memory SQLite proxy was $databaseBytes bytes", databaseBytes < MAX_DATABASE_BYTES)
+
         assertEquals(PAGES_PER_DOCUMENT, database.libraryDao().pages(sampleDocumentId).size)
         val sampleAsset = database.libraryDao().sourceAssets(sampleDocumentId).single()
         assertEquals("ORIGINAL_DOCUMENT", sampleAsset.role)
@@ -112,7 +169,6 @@ class LargeLibraryQueryInstrumentedTest {
         assertEquals(syntheticHash(SAMPLE_DOCUMENT_INDEX), sampleAsset.sha256)
         assertTrue(libraryDirectory.listFiles().isNullOrEmpty())
 
-        val heapGrowth = (compactedHeapBytes() - heapBefore).coerceAtLeast(0L)
         assertTrue(
             "The metadata-only 1,000-document query fixture grew the managed heap by $heapGrowth bytes",
             heapGrowth < MAX_MANAGED_HEAP_GROWTH_BYTES,
@@ -194,7 +250,15 @@ class LargeLibraryQueryInstrumentedTest {
                         sourceByteCount = SYNTHETIC_PAGE_BYTES,
                         rotationDegrees = 0,
                         filterName = DocumentFilter.ORIGINAL.name,
-                        ocrText = if (position == 0) ocrText else null,
+                        ocrText = buildString {
+                            append(if (position == 0) ocrText else "ordinary searchable page $position")
+                            repeat(OCR_PARAGRAPH_REPETITIONS) {
+                                append(" local private document text block ")
+                                append(documentIndex)
+                                append(' ')
+                                append(position)
+                            }
+                        },
                         ocrError = null,
                         contentSha256 = syntheticHash(
                             (documentIndex * PAGES_PER_DOCUMENT) + position + DOCUMENT_COUNT,
@@ -267,5 +331,10 @@ class LargeLibraryQueryInstrumentedTest {
         const val SAMPLE_DOCUMENT_INDEX = 517
         const val SYNTHETIC_PAGE_BYTES = 1_024L
         const val MAX_MANAGED_HEAP_GROWTH_BYTES = 64L * 1024L * 1024L
+        const val OCR_PARAGRAPH_REPETITIONS = 20
+        const val SEARCH_RESULT_LIMIT = 30
+        const val MAX_QUERY_MILLIS = 2_000L
+        const val MAX_UPDATE_MILLIS = 1_000L
+        const val MAX_DATABASE_BYTES = 128L * 1024L * 1024L
     }
 }

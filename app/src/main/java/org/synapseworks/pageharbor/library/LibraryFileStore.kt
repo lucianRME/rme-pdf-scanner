@@ -26,6 +26,7 @@ import org.synapseworks.pageharbor.image.DocumentImageFilterEngine
 
 internal data class LibraryPageSource(
     val persistentId: String?,
+    val ocrCloneSourcePageId: String? = null,
     val contentType: String,
     val sourceCategory: String,
     val imageMetadata: DocumentImageMetadata,
@@ -46,6 +47,7 @@ internal data class LibrarySourceAssetSource(
 
 internal data class PreparedLibraryPage(
     val pageId: String,
+    val ocrCloneSourcePageId: String?,
     val position: Int,
     val relativePath: String,
     val contentType: String,
@@ -124,6 +126,7 @@ internal class LibraryFileStore(
                 }
                 prepared += PreparedLibraryPage(
                     pageId = pageId,
+                    ocrCloneSourcePageId = source.ocrCloneSourcePageId,
                     position = index,
                     relativePath = relativePath(destination),
                     contentType = source.contentType,
@@ -297,6 +300,19 @@ internal class LibraryFileStore(
     } catch (_: IllegalArgumentException) {
         CopyOutcome.Failed
     }
+
+    /** Creates the same bounded library thumbnail while a restore revision is still invisible. */
+    fun createRestoreThumbnail(
+        source: File,
+        destination: File,
+        rotationDegrees: Int,
+        filterName: String,
+    ): Boolean = createThumbnail(
+        source = source,
+        destination = destination,
+        rotation = DocumentPageRotation.entries.single { it.degrees == rotationDegrees },
+        filter = DocumentFilter.valueOf(filterName),
+    )
 
     private fun createThumbnail(
         source: File,

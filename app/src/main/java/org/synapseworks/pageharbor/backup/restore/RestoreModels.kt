@@ -3,19 +3,23 @@ package org.synapseworks.pageharbor.backup.restore
 import java.io.InputStream
 import java.util.concurrent.atomic.AtomicBoolean
 import org.synapseworks.pageharbor.backup.format.BackupDocumentRecord
-import org.synapseworks.pageharbor.backup.format.BackupFolderRecord
-import org.synapseworks.pageharbor.backup.format.BackupPageRecord
-import org.synapseworks.pageharbor.backup.format.BackupSourceAssetRecord
-import org.synapseworks.pageharbor.backup.format.VerifiedBackup
+import org.synapseworks.pageharbor.backup.format.BackupVerifiedRecordStore
+import org.synapseworks.pageharbor.backup.format.IndexedVerifiedBackup
 import org.synapseworks.pageharbor.library.duplicate.DocumentFingerprint
+import org.synapseworks.pageharbor.library.duplicate.DuplicateDetector
 import org.synapseworks.pageharbor.library.duplicate.DuplicateKind
+import org.synapseworks.pageharbor.library.duplicate.DuplicateMatch
+import org.synapseworks.pageharbor.library.duplicate.IncomingDocumentIdentity
+import org.synapseworks.pageharbor.library.duplicate.OcrStateDigest
 
 data class RestoreArchiveSource(
     val byteLength: Long?,
+    val reclaimableByteLength: Long = 0L,
     val openStream: () -> InputStream,
 ) {
     init {
         require(byteLength == null || byteLength >= 0L)
+        require(reclaimableByteLength >= 0L)
     }
 }
 
@@ -41,7 +45,8 @@ data class RestorePreview(
     val pageCount: Int,
     val sourceAssetCount: Int,
     val contentByteLength: Long,
-    val documents: List<RestorePreviewDocument>,
+    val exactDuplicateCount: Int,
+    val possibleDuplicateCount: Int,
 )
 
 enum class RestorePreparationFailure {
@@ -103,17 +108,33 @@ data class RestoreProgress(
     val totalDocumentCount: Int,
 )
 
-internal data class RestoreDocumentBundle(
+internal data class RestoreIndexedDocument(
     val document: BackupDocumentRecord,
-    val pages: List<BackupPageRecord>,
-    val sourceAssets: List<BackupSourceAssetRecord>,
     val fingerprint: DocumentFingerprint,
+    val ocrStateDigest: OcrStateDigest,
+    val pageByteLength: Long,
+    val sourceAssetByteLength: Long,
+    val firstSourceModifiedAtEpochMillis: Long?,
+)
+
+internal data class RestorePlannedDocument(
+    val source: RestoreIndexedDocument,
+    val duplicateKind: DuplicateKind,
+)
+
+internal data class RestoreIndexedDocumentRow(
+    val ordinal: Int,
+    val source: RestoreIndexedDocument,
+)
+
+internal data class RestorePlannedDocumentRow(
+    val ordinal: Int,
+    val planned: RestorePlannedDocument,
 )
 
 class PreparedRestore internal constructor(
     val preview: RestorePreview,
-    internal val verifiedBackup: VerifiedBackup,
-    internal val documents: List<RestoreDocumentBundle>,
+    internal val backup: IndexedVerifiedBackup,
     internal val stagingArea: RestoreStagingArea,
 ) : AutoCloseable {
     private val consumed = AtomicBoolean(false)
@@ -127,12 +148,6 @@ class PreparedRestore internal constructor(
         if (consumed.compareAndSet(false, true)) stagingArea.discard()
     }
 }
-
-internal data class RestoreExistingFolder(
-    val folderId: String,
-    val name: String,
-    val parentFolderId: String?,
-)
 
 internal data class RestoreFolderToCreate(
     val folderId: String,
@@ -148,7 +163,8 @@ internal data class RestoreDocumentToPrepare(
     val itemId: String,
     val targetDocumentId: String,
     val targetFolderId: String?,
-    val bundle: RestoreDocumentBundle,
+    val targetFolderSearchPath: String,
+    val source: RestoreIndexedDocument,
     val duplicateKind: DuplicateKind,
 )
 
@@ -158,31 +174,51 @@ internal data class RestoreJournalPlan(
     val createdAtEpochMillis: Long,
     val contentByteLength: Long,
     val discoveredDocumentCount: Int,
-    val documentsToImport: List<RestoreDocumentToPrepare>,
-    val skippedExactDocuments: List<RestoreDocumentBundle>,
+    val plannedDocumentCount: Int,
+    val skippedExactDocumentCount: Int,
 )
 
 internal data class RestoreActivationPlan(
     val operationId: String,
-    val folders: List<RestoreFolderToCreate>,
-    val documents: List<RestoreDocumentToPrepare>,
+    val folders: RestoreFolderPlanSource,
+    val folderCount: Int,
+    val importedDocumentCount: Int,
     val activatedAtEpochMillis: Long,
 )
+
+internal data class RestoreFolderPlanRow(
+    val ordinal: Int,
+    val folder: RestoreFolderToCreate,
+)
+
+internal interface RestoreFolderPlanSource {
+    fun plannedFoldersPage(afterOrdinal: Int, limit: Int): List<RestoreFolderPlanRow>
+}
 
 internal data class RestoreRecoveryOperation(
     val operationId: String,
 )
 
 internal interface RestoreLibraryStore {
-    suspend fun duplicateCandidates(): List<org.synapseworks.pageharbor.library.duplicate.DuplicateCandidate>
+    suspend fun classifyDuplicate(identity: IncomingDocumentIdentity): DuplicateMatch
 
-    suspend fun existingFolders(): List<RestoreExistingFolder>
+    suspend fun possibleSourceDuplicate(sourceSha256: Collection<String>): String?
+
+    suspend fun folderNameExists(parentFolderId: String?, normalizedName: String): Boolean
 
     suspend fun beginOperation(plan: RestoreJournalPlan)
 
+    suspend fun recordSkippedExactDocument(
+        operationId: String,
+        ordinal: Int,
+        source: RestoreIndexedDocument,
+    )
+
     suspend fun preparePendingDocument(
         operationId: String,
+        ordinal: Int,
         document: RestoreDocumentToPrepare,
+        records: BackupVerifiedRecordStore,
         assets: RestoreStagedAssetSource,
     )
 
@@ -206,17 +242,4 @@ internal fun interface RestoreIdSource {
 
 internal fun interface RestoreClock {
     fun nowEpochMillis(): Long
-}
-
-internal fun requiredBackupFolders(
-    folders: List<BackupFolderRecord>,
-    documents: List<RestoreDocumentBundle>,
-): Set<String> {
-    val byId = folders.associateBy(BackupFolderRecord::folderId)
-    val required = linkedSetOf<String>()
-    documents.forEach { bundle ->
-        var current = bundle.document.folderId
-        while (current != null && required.add(current)) current = byId[current]?.parentFolderId
-    }
-    return required
 }

@@ -1,5 +1,8 @@
 import java.util.Properties
 
+val productionApplicationId = "org.synapseworks.pageharbor"
+val phase2TestApplicationId = "$productionApplicationId.phase2test"
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -40,6 +43,16 @@ val releaseSigningConfigured = listOf(
     releaseKeyAlias,
     releaseKeyPassword,
 ).all { it != null }
+val productionSigningOptedIn = providers.gradleProperty("pageharbor.enableProductionSigning")
+    .orNull
+    ?.toBooleanStrictOrNull() == true
+val requestedTaskNames = gradle.startParameter.taskNames
+    .map { taskName -> taskName.substringAfterLast(':') }
+    .toSet()
+val productionPlayTaskRequested = requestedTaskNames.any { taskName ->
+    taskName == "bundleReleaseForPlay" || taskName == "assembleReleaseForPlay"
+}
+val productionSigningAuthorized = productionSigningOptedIn && productionPlayTaskRequested
 
 fun runGitCommand(vararg args: String): String? {
     if (!rootProject.layout.projectDirectory.file(".git").asFile.exists()) return null
@@ -63,9 +76,10 @@ fun gitRevisionForDebugBuild(): String {
 android {
     namespace = "org.synapseworks.pageharbor"
     compileSdk = 36
+    testBuildType = "phase2Test"
 
     defaultConfig {
-        applicationId = "org.synapseworks.pageharbor"
+        applicationId = productionApplicationId
         minSdk = 26
         targetSdk = 36
         versionCode = 16
@@ -106,6 +120,15 @@ android {
             buildConfigField("boolean", "SHOW_BUILD_DETAILS", "true")
         }
 
+        create("phase2Test") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".phase2test"
+            matchingFallbacks += listOf("debug")
+            buildConfigField("String", "GIT_REVISION", "\"${gitRevisionForDebugBuild()}\"")
+            buildConfigField("String", "BUILD_TYPE_LABEL", "\"phase2Test\"")
+            buildConfigField("boolean", "SHOW_BUILD_DETAILS", "true")
+        }
+
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -113,7 +136,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            if (releaseSigningConfigured) {
+            if (productionSigningAuthorized && releaseSigningConfigured) {
                 signingConfig = signingConfigs.getByName("playUpload")
             }
         }
@@ -142,6 +165,50 @@ android {
         compose = true
     }
 
+    sourceSets {
+        getByName("phase2Test").manifest.srcFile("src/debug/AndroidManifest.xml")
+    }
+
+}
+
+val verifyPhase2TestIdentity = tasks.register("verifyPhase2TestIdentity") {
+    group = "verification"
+    description = "Refuses device testing unless the dedicated Phase 2 target ID is isolated."
+    doLast {
+        val configured = productionApplicationId +
+            requireNotNull(android.buildTypes.getByName("phase2Test").applicationIdSuffix)
+        check(configured == phase2TestApplicationId)
+        check(configured != productionApplicationId)
+        println("expected package: $phase2TestApplicationId")
+        println("configured target applicationId: $configured")
+    }
+}
+
+tasks.register("compileDebugAndroidTestKotlin") {
+    group = "verification"
+    description = "Compatibility gate that compiles only the isolated Phase 2 instrumentation tests."
+    dependsOn(verifyPhase2TestIdentity, "compilePhase2TestAndroidTestKotlin")
+}
+
+tasks.configureEach {
+    val isPhase2TestDeviceTask = name.contains("Phase2Test") &&
+        (name.startsWith("connected") || name.startsWith("device") ||
+            name.startsWith("install") || name.startsWith("uninstall"))
+    val isOtherDeviceMutationTask = !name.contains("Phase2Test") &&
+        (name.startsWith("connected") || name.startsWith("device") ||
+            name.startsWith("install") || name.startsWith("uninstall"))
+
+    if (isPhase2TestDeviceTask) {
+        dependsOn(verifyPhase2TestIdentity)
+    }
+    if (isOtherDeviceMutationTask) {
+        doFirst {
+            throw GradleException(
+                "Phase 2 device tasks must target $phase2TestApplicationId; " +
+                    "refusing task $name because it could mutate the production package.",
+            )
+        }
+    }
 }
 
 ksp {
@@ -152,6 +219,10 @@ tasks.register("verifyReleaseSigning") {
     group = "distribution"
     description = "Verifies that production Play upload signing credentials are configured."
     doLast {
+        check(productionPlayTaskRequested && productionSigningOptedIn) {
+            "Production signing is available only through bundleReleaseForPlay or " +
+                "assembleReleaseForPlay with -Ppageharbor.enableProductionSigning=true."
+        }
         check(releaseSigningConfigured) {
             "Production release signing requires PAGEHARBOR_RELEASE_STORE_FILE, " +
                 "PAGEHARBOR_RELEASE_STORE_PASSWORD, PAGEHARBOR_RELEASE_KEY_ALIAS, and " +
@@ -210,4 +281,6 @@ dependencies {
 
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+    add("phase2TestImplementation", libs.androidx.compose.ui.tooling)
+    add("phase2TestImplementation", libs.androidx.compose.ui.test.manifest)
 }

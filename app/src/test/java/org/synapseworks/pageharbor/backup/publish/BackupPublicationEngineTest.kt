@@ -12,9 +12,10 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.synapseworks.pageharbor.backup.engine.LibraryBackupStorageEstimate
+import org.synapseworks.pageharbor.backup.engine.TestBackupArchiveVerifier
 import org.synapseworks.pageharbor.backup.engine.VerifiedLibraryBackupArtifact
-import org.synapseworks.pageharbor.backup.format.BackupArchiveWriter
 import org.synapseworks.pageharbor.backup.format.BackupFormatTestFixture
+import org.synapseworks.pageharbor.backup.format.writeBackupArchiveForTest
 
 class BackupPublicationEngineTest {
     @Test
@@ -22,7 +23,7 @@ class BackupPublicationEngineTest {
         val destination = MemoryDestination()
 
         val result = runBlocking {
-            BackupPublicationEngine().publishUnencrypted(artifact, destination)
+            testEngine().publishUnencrypted(artifact, destination)
         }
 
         result as BackupPublicationResult.Verified
@@ -38,7 +39,7 @@ class BackupPublicationEngineTest {
             val password = "portable backup password".toCharArray()
             try {
                 val result = runBlocking {
-                    BackupPublicationEngine().publishEncrypted(artifact, destination, password)
+                    testEngine().publishEncrypted(artifact, destination, password)
                 }
 
                 result as BackupPublicationResult.Verified
@@ -56,7 +57,7 @@ class BackupPublicationEngineTest {
         val destination = MemoryDestination(tamperOnRead = true)
 
         val result = runBlocking {
-            BackupPublicationEngine().publishUnencrypted(artifact, destination)
+            testEngine().publishUnencrypted(artifact, destination)
         }
 
         result as BackupPublicationResult.Failed
@@ -71,13 +72,14 @@ class BackupPublicationEngineTest {
         val file = File(root, "verified.zip")
         try {
             file.outputStream().use { output ->
-                BackupArchiveWriter.write(output, fixture.manifest, fixture.records, fixture.assets)
+                writeBackupArchiveForTest(output, fixture.manifest, fixture.records, fixture.assets)
             }
             val artifact = VerifiedLibraryBackupArtifact(
                 file = file,
                 manifest = fixture.manifest,
                 sizeBytes = file.length(),
                 storageEstimate = LibraryBackupStorageEstimate(0, 0, 0, 0, null),
+                verificationScratchDirectory = root,
                 deleteArtifact = File::delete,
             )
             block(artifact)
@@ -85,6 +87,10 @@ class BackupPublicationEngineTest {
             root.deleteRecursively()
         }
     }
+
+    private fun testEngine(): BackupPublicationEngine = BackupPublicationEngine(
+        archiveVerifier = TestBackupArchiveVerifier,
+    )
 
     private class MemoryDestination(
         private val tamperOnRead: Boolean = false,
@@ -99,8 +105,8 @@ class BackupPublicationEngineTest {
 
         override fun openInput(): InputStream {
             val value = bytes.toByteArray()
-            if (tamperOnRead && value.isNotEmpty()) value[value.lastIndex / 2] =
-                (value[value.lastIndex / 2].toInt() xor 1).toByte()
+            if (tamperOnRead && value.isNotEmpty()) value[0] =
+                (value[0].toInt() xor 1).toByte()
             return ByteArrayInputStream(value)
         }
 

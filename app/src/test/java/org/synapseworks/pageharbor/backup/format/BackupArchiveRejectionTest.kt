@@ -7,9 +7,41 @@ import org.junit.Test
 
 class BackupArchiveRejectionTest {
     @Test
-    fun traversalEntryIsRejectedBeforeItCanReachStaging() {
+    fun manifestMustBeFirstSoCapacityChecksPrecedeAssetStaging() {
+        val fixture = BackupFormatTestFixture()
+        val original = archiveEntries(fixture.writeArchive())
+        val reordered = linkedMapOf<String, ByteArray>()
+        reordered[RME_BACKUP_FOLDERS_PATH] = original.getValue(RME_BACKUP_FOLDERS_PATH)
+        original.forEach { (path, bytes) ->
+            if (path != RME_BACKUP_FOLDERS_PATH) reordered[path] = bytes
+        }
         val staging = MemoryStagingSink()
-        val archive = rawZip(mapOf("../outside" to byteArrayOf(1)))
+        var manifestAccepted = false
+
+        assertBackupFailure(BackupFormatFailure.MISSING_ENTRY) {
+            BackupArchiveReader.readAndVerify(
+                source = ByteArrayInputStream(rawZip(reordered)),
+                staging = staging,
+                onManifest = { manifestAccepted = true },
+            )
+        }
+
+        assertFalse(manifestAccepted)
+        assertTrue(staging.assets.isEmpty())
+        assertTrue(staging.aborted)
+    }
+
+    @Test
+    fun traversalEntryIsRejectedBeforeItCanReachStaging() {
+        val original = archiveEntries(BackupFormatTestFixture().writeArchive())
+        val entries = linkedMapOf<String, ByteArray>()
+        entries[RME_BACKUP_MANIFEST_PATH] = original.getValue(RME_BACKUP_MANIFEST_PATH)
+        entries["../outside"] = byteArrayOf(1)
+        original.forEach { (path, bytes) ->
+            if (path != RME_BACKUP_MANIFEST_PATH) entries[path] = bytes
+        }
+        val staging = MemoryStagingSink()
+        val archive = rawZip(entries)
 
         assertBackupFailure(BackupFormatFailure.INVALID_PATH) {
             readAndVerify(archive, staging)
@@ -113,7 +145,7 @@ class BackupArchiveRejectionTest {
         val original = archiveEntries(fixture.writeArchive())
         val futureVersion = LinkedHashMap(original).apply {
             this[RME_BACKUP_MANIFEST_PATH] = getValue(RME_BACKUP_MANIFEST_PATH).utf8()
-                .replaceFirst("\"formatVersion\":1", "\"formatVersion\":2")
+                .replaceFirst("\"formatVersion\":1", "\"formatVersion\":3")
                 .toByteArray()
         }
         assertBackupFailure(BackupFormatFailure.UNSUPPORTED_VERSION) {

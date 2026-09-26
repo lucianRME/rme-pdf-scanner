@@ -5,22 +5,17 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.FilterInputStream
 import java.io.InputStream
-import java.io.OutputStream
 import java.util.UUID
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import org.synapseworks.pageharbor.backup.format.BackupArchiveReader
 import org.synapseworks.pageharbor.backup.format.BackupArchiveWriter
-import org.synapseworks.pageharbor.backup.format.BackupAssetStreamOpener
 import org.synapseworks.pageharbor.backup.format.BackupFormatLimits
 import org.synapseworks.pageharbor.backup.format.BackupIntegrity
 import org.synapseworks.pageharbor.backup.format.BackupManifest
 import org.synapseworks.pageharbor.backup.format.BackupMetadataPaths
 import org.synapseworks.pageharbor.backup.format.BackupProducer
-import org.synapseworks.pageharbor.backup.format.BackupStagingSink
-import org.synapseworks.pageharbor.backup.format.BackupSummary
 import org.synapseworks.pageharbor.backup.format.RME_BACKUP_CHECKSUMS_PATH
 import org.synapseworks.pageharbor.backup.format.RME_BACKUP_DOCUMENTS_PATH
 import org.synapseworks.pageharbor.backup.format.RME_BACKUP_FOLDERS_PATH
@@ -28,6 +23,7 @@ import org.synapseworks.pageharbor.backup.format.RME_BACKUP_FORMAT_VERSION
 import org.synapseworks.pageharbor.backup.format.RME_BACKUP_PAGES_PATH
 import org.synapseworks.pageharbor.backup.format.RME_BACKUP_READER_VERSION
 import org.synapseworks.pageharbor.backup.format.RME_BACKUP_SOURCE_ASSETS_PATH
+import org.synapseworks.pageharbor.backup.format.PreparedBackupArchiveSource
 import org.synapseworks.pageharbor.library.LibraryOperationCoordinator
 import org.synapseworks.pageharbor.library.LibraryOperationGate
 
@@ -39,6 +35,7 @@ class LibraryBackupEngine(
     private val clock: LibraryBackupClock = LibraryBackupClock(System::currentTimeMillis),
     private val idSource: LibraryBackupIdSource = LibraryBackupIdSource { UUID.randomUUID().toString() },
     private val limits: BackupFormatLimits = BackupFormatLimits(),
+    private val archiveVerifier: BackupArchiveVerifier = IndexedBackupArchiveVerifier,
 ) {
     suspend fun create(producer: BackupProducer): LibraryBackupCreationResult =
         operationGate.withStableSnapshot {
@@ -52,83 +49,100 @@ class LibraryBackupEngine(
             snapshotSource.capture()
         } catch (cancelled: CancellationException) {
             throw cancelled
+        } catch (failure: LibraryBackupSnapshotException) {
+            return LibraryBackupCreationResult.Failed(
+                failure = LibraryBackupCreationFailure.SNAPSHOT_UNAVAILABLE,
+                cleanupSucceeded = failure.cleanupSucceeded,
+            )
         } catch (_: Exception) {
             return LibraryBackupCreationResult.Failed(LibraryBackupCreationFailure.SNAPSHOT_UNAVAILABLE)
         }
-        coroutineContext.ensureActive()
-
-        val availableTemporaryBytes = runCatching(workspace::availableBytes).getOrNull()
-        val estimate = LibraryBackupStorageEstimator.estimate(snapshot, availableTemporaryBytes)
-        val canCreate = runCatching { storagePreflight.canCreate(estimate) }.getOrDefault(false)
-        if (!canCreate) {
-            return LibraryBackupCreationResult.Failed(
-                failure = LibraryBackupCreationFailure.INSUFFICIENT_TEMPORARY_STORAGE,
-                storageEstimate = estimate,
-            )
-        }
-
-        val backupId: String
-        val manifest: BackupManifest
-        try {
-            backupId = idSource.newBackupId()
-            manifest = createManifest(backupId, clock.nowEpochMillis(), producer, snapshot)
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            return LibraryBackupCreationResult.Failed(
-                failure = LibraryBackupCreationFailure.SNAPSHOT_UNAVAILABLE,
-                storageEstimate = estimate,
-            )
-        }
         var temporaryArchive: File? = null
-        var phase = CreationPhase.CREATE_TEMPORARY_FILE
         try {
-            temporaryArchive = workspace.createTemporaryArchive(backupId)
             coroutineContext.ensureActive()
-            phase = CreationPhase.WRITE_ARCHIVE
-            FileOutputStream(temporaryArchive, false).use { output ->
-                val cancellableAssets = BackupAssetStreamOpener { path ->
-                    CancellationCheckingInputStream(snapshot.open(path), coroutineContext)
-                }
-                BackupArchiveWriter.write(
-                    destination = output,
-                    manifest = manifest,
-                    records = snapshot,
-                    assets = cancellableAssets,
-                    limits = limits,
-                )
-                output.fd.sync()
-            }
-            coroutineContext.ensureActive()
-            phase = CreationPhase.VERIFY_ARCHIVE
-            val verified = reopenAndVerify(temporaryArchive, coroutineContext)
-            check(verified.manifest == manifest)
-            coroutineContext.ensureActive()
-            val sizeBytes = temporaryArchive.length()
-            if (!temporaryArchive.isFile || sizeBytes <= 0L) {
-                throw IllegalStateException("The verified backup artifact is unavailable.")
-            }
-            return LibraryBackupCreationResult.Verified(
-                VerifiedLibraryBackupArtifact(
-                    file = temporaryArchive,
-                    manifest = manifest,
-                    sizeBytes = sizeBytes,
+            snapshot.installCancellationCheck(coroutineContext::ensureActive)
+
+            val availableTemporaryBytes = runCatching(workspace::availableBytes).getOrNull()
+            val estimate = LibraryBackupStorageEstimator.estimate(snapshot, availableTemporaryBytes)
+            val canCreate = runCatching { storagePreflight.canCreate(estimate) }.getOrDefault(false)
+            if (!canCreate) {
+                return LibraryBackupCreationResult.Failed(
+                    failure = LibraryBackupCreationFailure.INSUFFICIENT_TEMPORARY_STORAGE,
                     storageEstimate = estimate,
-                    deleteArtifact = workspace::deleteTemporaryArchive,
-                ),
-            )
-        } catch (cancelled: CancellationException) {
-            temporaryArchive?.let(workspace::deleteTemporaryArchive)
-            throw cancelled
-        } catch (_: Exception) {
-            val cleanupSucceeded = temporaryArchive?.let(workspace::deleteTemporaryArchive) ?: true
-            val failure = when (phase) {
-                CreationPhase.CREATE_TEMPORARY_FILE ->
-                    LibraryBackupCreationFailure.TEMPORARY_FILE_UNAVAILABLE
-                CreationPhase.WRITE_ARCHIVE -> LibraryBackupCreationFailure.ARCHIVE_WRITE_FAILED
-                CreationPhase.VERIFY_ARCHIVE -> LibraryBackupCreationFailure.REOPEN_VERIFICATION_FAILED
+                )
             }
-            return LibraryBackupCreationResult.Failed(failure, estimate, cleanupSucceeded)
+
+            val backupId: String
+            val manifest: BackupManifest
+            try {
+                backupId = idSource.newBackupId()
+                manifest = createManifest(backupId, clock.nowEpochMillis(), producer, snapshot)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                return LibraryBackupCreationResult.Failed(
+                    failure = LibraryBackupCreationFailure.SNAPSHOT_UNAVAILABLE,
+                    storageEstimate = estimate,
+                )
+            }
+            var finalizedManifest = manifest
+            var phase = CreationPhase.CREATE_TEMPORARY_FILE
+            try {
+                temporaryArchive = workspace.createTemporaryArchive(backupId)
+                coroutineContext.ensureActive()
+                phase = CreationPhase.WRITE_ARCHIVE
+                FileOutputStream(temporaryArchive, false).use { output ->
+                    val prepared = snapshot as? PreparedBackupArchiveSource
+                        ?: throw IllegalStateException("The backup snapshot is not disk-prepared.")
+                    finalizedManifest = BackupArchiveWriter.write(
+                        destination = output,
+                        manifest = manifest,
+                        source = prepared,
+                        scratchDirectory = workspace.scratchDirectoryFor(temporaryArchive),
+                        limits = limits,
+                    ).manifest
+                    output.fd.sync()
+                }
+                coroutineContext.ensureActive()
+                phase = CreationPhase.VERIFY_ARCHIVE
+                val verified = reopenAndVerify(temporaryArchive, coroutineContext)
+                check(verified == finalizedManifest)
+                finalizedManifest = verified
+                coroutineContext.ensureActive()
+                val sizeBytes = temporaryArchive.length()
+                if (!temporaryArchive.isFile || sizeBytes <= 0L) {
+                    throw IllegalStateException("The verified backup artifact is unavailable.")
+                }
+                return LibraryBackupCreationResult.Verified(
+                    VerifiedLibraryBackupArtifact(
+                        file = temporaryArchive,
+                        manifest = finalizedManifest,
+                        sizeBytes = sizeBytes,
+                        storageEstimate = estimate,
+                        verificationScratchDirectory = workspace.scratchDirectoryFor(temporaryArchive),
+                        deleteArtifact = workspace::deleteTemporaryArchive,
+                    ),
+                )
+            } catch (cancelled: CancellationException) {
+                temporaryArchive?.let(workspace::deleteTemporaryArchive)
+                throw cancelled
+            } catch (_: Exception) {
+                val cleanupSucceeded = temporaryArchive?.let(workspace::deleteTemporaryArchive) ?: true
+                val failure = when (phase) {
+                    CreationPhase.CREATE_TEMPORARY_FILE ->
+                        LibraryBackupCreationFailure.TEMPORARY_FILE_UNAVAILABLE
+                    CreationPhase.WRITE_ARCHIVE -> LibraryBackupCreationFailure.ARCHIVE_WRITE_FAILED
+                    CreationPhase.VERIFY_ARCHIVE -> LibraryBackupCreationFailure.REOPEN_VERIFICATION_FAILED
+                }
+                return LibraryBackupCreationResult.Failed(failure, estimate, cleanupSucceeded)
+            }
+        } finally {
+            try {
+                snapshot.close()
+            } catch (cleanupFailure: Throwable) {
+                temporaryArchive?.let(workspace::deleteTemporaryArchive)
+                throw cleanupFailure
+            }
         }
     }
 
@@ -138,10 +152,7 @@ class LibraryBackupEngine(
         producer: BackupProducer,
         snapshot: LibraryBackupSnapshot,
     ): BackupManifest {
-        val contentBytes = snapshot.pageRecords.fold(0L) { total, page -> Math.addExact(total, page.byteLength) }
-        val allContentBytes = snapshot.sourceAssetRecords.fold(contentBytes) { total, source ->
-            Math.addExact(total, source.byteLength)
-        }
+        val stats = snapshot.boundedStats
         return BackupManifest(
             formatVersion = RME_BACKUP_FORMAT_VERSION,
             minimumReaderVersion = RME_BACKUP_READER_VERSION,
@@ -149,13 +160,7 @@ class LibraryBackupEngine(
             backupId = backupId,
             createdAtEpochMillis = createdAtEpochMillis,
             producer = producer,
-            summary = BackupSummary(
-                folderCount = snapshot.folderRecords.size,
-                documentCount = snapshot.documentRecords.size,
-                pageCount = snapshot.pageRecords.size,
-                sourceAssetCount = snapshot.sourceAssetRecords.size,
-                contentByteLength = allContentBytes,
-            ),
+            summary = stats.summary,
             metadata = BackupMetadataPaths(
                 folders = RME_BACKUP_FOLDERS_PATH,
                 documents = RME_BACKUP_DOCUMENTS_PATH,
@@ -163,17 +168,19 @@ class LibraryBackupEngine(
                 sourceAssets = RME_BACKUP_SOURCE_ASSETS_PATH,
             ),
             integrity = BackupIntegrity("SHA-256", RME_BACKUP_CHECKSUMS_PATH),
+            ocr = stats.ocrManifest,
         )
     }
 
     private fun reopenAndVerify(
         archive: File,
         coroutineContext: CoroutineContext,
-    ) = FileInputStream(archive).use { source ->
-        BackupArchiveReader.readAndVerify(
+    ): BackupManifest = FileInputStream(archive).use { source ->
+        archiveVerifier.verify(
             source = CancellationCheckingInputStream(source, coroutineContext),
-            staging = VerificationOnlyStagingSink(coroutineContext),
             limits = limits,
+            checkCancellation = coroutineContext::ensureActive,
+            scratchDirectory = workspace.scratchDirectoryFor(archive),
         )
     }
 
@@ -197,24 +204,4 @@ private class CancellationCheckingInputStream(
         coroutineContext.ensureActive()
         return super.read(buffer, offset, length)
     }
-}
-
-private class VerificationOnlyStagingSink(
-    private val coroutineContext: CoroutineContext,
-) : BackupStagingSink {
-    override fun open(relativePath: String): OutputStream = object : OutputStream() {
-        override fun write(value: Int) {
-            coroutineContext.ensureActive()
-        }
-
-        override fun write(buffer: ByteArray, offset: Int, length: Int) {
-            coroutineContext.ensureActive()
-        }
-    }
-
-    override fun verified() {
-        coroutineContext.ensureActive()
-    }
-
-    override fun abort() = Unit
 }

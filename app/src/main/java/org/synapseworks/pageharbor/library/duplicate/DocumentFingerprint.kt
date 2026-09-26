@@ -29,10 +29,22 @@ object DocumentFingerprintV1 {
 
     fun calculate(pages: List<FingerprintPage>): DocumentFingerprint {
         require(pages.isNotEmpty()) { "A document fingerprint requires at least one page." }
+        return Builder(pages.size).apply { pages.forEach(::addPage) }.finish()
+    }
+
+    class Builder(private val expectedPageCount: Int) {
         val digest = MessageDigest.getInstance("SHA-256")
-        digest.update(domain)
-        digest.updateInt(pages.size)
-        pages.forEachIndexed { position, page ->
+        private var pageCount = 0
+        private var finished = false
+
+        init {
+            require(expectedPageCount > 0) { "A document fingerprint requires at least one page." }
+            digest.update(domain)
+            digest.updateInt(expectedPageCount)
+        }
+
+        fun addPage(page: FingerprintPage) {
+            check(!finished && pageCount < expectedPageCount)
             require(page.assetSha256.matches(lowercaseSha256)) {
                 "Page hashes must be lowercase SHA-256 values."
             }
@@ -40,14 +52,20 @@ object DocumentFingerprintV1 {
             require(page.rotationDegrees in setOf(0, 90, 180, 270)) {
                 "Unsupported page rotation."
             }
-            digest.updateInt(position)
+            digest.updateInt(pageCount)
             digest.update(hexToBytes(page.assetSha256))
             digest.updateLengthPrefixed(page.mimeType.lowercase(Locale.ROOT))
             digest.updateLong(page.byteLength)
             digest.updateInt(page.rotationDegrees)
             digest.updateLengthPrefixed(page.filterName)
+            pageCount += 1
         }
-        return DocumentFingerprint(VERSION, digest.digest().toHex())
+
+        fun finish(): DocumentFingerprint {
+            check(!finished && pageCount == expectedPageCount)
+            finished = true
+            return DocumentFingerprint(VERSION, digest.digest().toHex())
+        }
     }
 }
 
@@ -65,6 +83,8 @@ data class DuplicateCandidate(
     val pageCount: Int,
     val contentByteLength: Long?,
     val orderedMimeTypes: List<String> = emptyList(),
+    val ocrStateDigestVersion: Int? = null,
+    val ocrStateSha256: String? = null,
 )
 
 data class IncomingDocumentIdentity(
@@ -73,6 +93,8 @@ data class IncomingDocumentIdentity(
     val pageCount: Int,
     val contentByteLength: Long?,
     val orderedMimeTypes: List<String> = emptyList(),
+    val ocrStateDigestVersion: Int? = null,
+    val ocrStateSha256: String? = null,
 )
 
 data class DuplicateMatch(
@@ -89,30 +111,37 @@ object DuplicateDetector {
         incoming: IncomingDocumentIdentity,
         existing: Iterable<DuplicateCandidate>,
     ): DuplicateMatch {
-        val candidates = existing.toList()
-        candidates.firstOrNull { candidate ->
+        var sameContentDocumentId: String? = null
+        var sameSourceDocumentId: String? = null
+        var similarShapeDocumentId: String? = null
+        for (candidate in existing) {
             val fingerprint = incoming.fingerprint
-            fingerprint != null &&
+            val sameContent = fingerprint != null &&
                 candidate.contentHashVersion == fingerprint.version &&
                 candidate.contentSha256 == fingerprint.sha256
-        }?.let { return DuplicateMatch(DuplicateKind.EXACT, it.documentId) }
-
-        if (incoming.sourceSha256.isNotEmpty()) {
-            candidates.firstOrNull { candidate ->
+            if (sameContent) {
+                val sameOcrState = incoming.ocrStateDigestVersion != null &&
+                    incoming.ocrStateSha256 != null &&
+                    candidate.ocrStateDigestVersion == incoming.ocrStateDigestVersion &&
+                    candidate.ocrStateSha256 == incoming.ocrStateSha256
+                if (sameOcrState) return DuplicateMatch(DuplicateKind.EXACT, candidate.documentId)
+                if (sameContentDocumentId == null) sameContentDocumentId = candidate.documentId
+            } else if (sameSourceDocumentId == null && incoming.sourceSha256.isNotEmpty() &&
                 candidate.sourceSha256.any(incoming.sourceSha256::contains)
-            }?.let {
-                // The same original PDF may have different current edits. A source match is useful
-                // evidence, but only the logical page fingerprint can justify an exact skip.
-                return DuplicateMatch(DuplicateKind.POSSIBLE, it.documentId)
-            }
-        }
-
-        candidates.firstOrNull { candidate ->
-            candidate.pageCount == incoming.pageCount &&
+            ) {
+                sameSourceDocumentId = candidate.documentId
+            } else if (similarShapeDocumentId == null &&
+                candidate.pageCount == incoming.pageCount &&
                 mimeStructureMatches(incoming.orderedMimeTypes, candidate.orderedMimeTypes) &&
                 approximateLengthMatches(incoming.contentByteLength, candidate.contentByteLength)
-        }?.let { return DuplicateMatch(DuplicateKind.POSSIBLE, it.documentId) }
-
+            ) {
+                similarShapeDocumentId = candidate.documentId
+            }
+        }
+        sameContentDocumentId?.let { return DuplicateMatch(DuplicateKind.POSSIBLE, it) }
+        // The same original PDF may have different current edits. This is advisory only.
+        sameSourceDocumentId?.let { return DuplicateMatch(DuplicateKind.POSSIBLE, it) }
+        similarShapeDocumentId?.let { return DuplicateMatch(DuplicateKind.POSSIBLE, it) }
         return DuplicateMatch(DuplicateKind.DIFFERENT, null)
     }
 

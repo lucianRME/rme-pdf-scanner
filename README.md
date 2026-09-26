@@ -40,13 +40,6 @@ cd rme-pdf-scanner
 
 The debug APK is written to `app/build/outputs/apk/debug/`. Release signing credentials are not included in the repository; see [release-signing guidance](docs/RELEASE_SIGNING.md) for local verification and release builds.
 
-## Planned
-
-- **v1.5:** Import/migration of user-exported documents from CamScanner and other scanner apps.
-- **v1.6:** Broader multilingual offline OCR and manual review of OCR text.
-
-These are plans, not v1.4 features.
-
 ## Contributing and support
 
 [Issues and feature requests](https://github.com/lucianRME/rme-pdf-scanner/issues) and code contributions are welcome. Please do not attach sensitive documents to reports or test materials.

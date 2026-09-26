@@ -18,8 +18,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.synapseworks.pageharbor.backup.crypto.EncryptedBackupEnvelope
 import org.synapseworks.pageharbor.backup.format.BackupFormatTestFixture
+import org.synapseworks.pageharbor.backup.format.BackupVerifiedRecordStore
 import org.synapseworks.pageharbor.library.LibraryOperationGate
-import org.synapseworks.pageharbor.library.duplicate.DuplicateCandidate
+import org.synapseworks.pageharbor.library.duplicate.DuplicateKind
+import org.synapseworks.pageharbor.library.duplicate.DuplicateMatch
+import org.synapseworks.pageharbor.library.duplicate.IncomingDocumentIdentity
 
 class AndroidRestoreCoordinatorTest {
     @Test
@@ -146,11 +149,64 @@ class AndroidRestoreCoordinatorTest {
         assertFalse(fixture.store.journalStarted)
     }
 
+    @Test
+    fun firstOperationAfterProcessRecreationSweepsUnjournaledPrivateScratch() =
+        withCoordinator { fixture ->
+            val reference = RestoreSafReference("after-recreation")
+            fixture.saf.put(reference, PLAIN_ARCHIVE)
+            val archiveOrphan = fixture.archiveWorkspace.createOrphan()
+            val stagingOrphanId = "ffffffff-ffff-4fff-8fff-ffffffffffff"
+            fixture.assetWorkspace.create(stagingOrphanId)
+
+            val result = runBlocking { fixture.coordinator.prepare(reference) }
+
+            result as RestoreCoordinatorPrepareResult.Ready
+            assertFalse(archiveOrphan.exists())
+            assertFalse(stagingOrphanId in fixture.assetWorkspace.operationIds())
+            assertEquals(1, fixture.archiveWorkspace.orphanSweepCount)
+            result.prepared.close()
+            assertTrue(fixture.archiveWorkspace.isEmpty())
+            assertTrue(fixture.assetWorkspace.isEmpty())
+        }
+
+    @Test
+    fun knownSourceSizeFailsCapacityBeforePrivateArchiveCreation() = withCoordinator { fixture ->
+        val reference = RestoreSafReference("known-too-large-for-space")
+        fixture.saf.put(reference, PLAIN_ARCHIVE)
+        fixture.archiveWorkspace.availableBytesProvider = { 1L }
+
+        val result = runBlocking { fixture.coordinator.prepare(reference) }
+
+        result as RestoreCoordinatorPrepareResult.Failed
+        assertEquals(RestoreCoordinatorFailure.INSUFFICIENT_STORAGE, result.reason)
+        assertEquals(0, fixture.archiveWorkspace.createCount)
+        assertTrue(fixture.archiveWorkspace.isEmpty())
+    }
+
+    @Test
+    fun unknownSourceSizeIsContinuouslyGuardedWhileCopying() = withCoordinator { fixture ->
+        val reference = RestoreSafReference("unknown-size-capacity-drop")
+        fixture.saf.put(reference, PLAIN_ARCHIVE, reportSize = false)
+        var capacityChecks = 0
+        fixture.archiveWorkspace.availableBytesProvider = {
+            capacityChecks += 1
+            if (capacityChecks == 1) 128L * 1024L * 1024L else 32L * 1024L * 1024L
+        }
+
+        val result = runBlocking { fixture.coordinator.prepare(reference) }
+
+        result as RestoreCoordinatorPrepareResult.Failed
+        assertEquals(RestoreCoordinatorFailure.INSUFFICIENT_STORAGE, result.reason)
+        assertTrue(capacityChecks >= 2)
+        assertTrue(fixture.archiveWorkspace.isEmpty())
+        assertTrue(fixture.assetWorkspace.isEmpty())
+    }
+
     private fun withCoordinator(block: (CoordinatorFixture) -> Unit) {
         val archiveRoot = Files.createTempDirectory("rme-restore-archive-coordinator").toFile()
         try {
             val store = CoordinatorRestoreStore()
-            val assetWorkspace = CoordinatorAssetWorkspace()
+            val assetWorkspace = TestIndexedRestoreWorkspace()
             val gate = LibraryOperationGate()
             store.gate = gate
             val engine = LibraryRestoreEngine(
@@ -203,23 +259,28 @@ private data class CoordinatorFixture(
     val coordinator: AndroidRestoreCoordinator,
     val saf: FakeRestoreSafAccess,
     val archiveWorkspace: TrackingArchiveWorkspace,
-    val assetWorkspace: CoordinatorAssetWorkspace,
+    val assetWorkspace: TestIndexedRestoreWorkspace,
     val store: CoordinatorRestoreStore,
 )
 
 private class FakeRestoreSafAccess : RestoreSafAccess {
     private val sources = linkedMapOf<RestoreSafReference, ArrayDeque<() -> InputStream>>()
+    private val byteLengths = linkedMapOf<RestoreSafReference, Long?>()
     val completedReads = mutableListOf<Int>()
 
-    fun put(reference: RestoreSafReference, bytes: ByteArray) {
+    fun put(reference: RestoreSafReference, bytes: ByteArray, reportSize: Boolean = true) {
         sources[reference] = ArrayDeque<() -> InputStream>().apply {
             repeat(8) { add { ByteArrayInputStream(bytes) } }
         }
+        byteLengths[reference] = bytes.size.toLong().takeIf { reportSize }
     }
 
     fun putSequence(reference: RestoreSafReference, sequence: List<() -> InputStream>) {
         sources[reference] = ArrayDeque(sequence)
+        byteLengths[reference] = null
     }
+
+    override fun byteLength(reference: RestoreSafReference): Long? = byteLengths[reference]
 
     override fun open(reference: RestoreSafReference): InputStream {
         val source = sources[reference]?.removeFirstOrNull()?.invoke() ?: throw IOException()
@@ -243,6 +304,10 @@ private class TrackingArchiveWorkspace(root: java.io.File) : RestoreArchiveWorks
     private val delegate = FileRestoreArchiveWorkspace(root)
     private val created = linkedSetOf<java.io.File>()
     var createCount = 0
+    var orphanSweepCount = 0
+    var availableBytesProvider: () -> Long? = { Long.MAX_VALUE }
+
+    override fun availableBytes(): Long? = availableBytesProvider()
 
     override fun create(): java.io.File = delegate.create().also {
         createCount += 1
@@ -253,60 +318,14 @@ private class TrackingArchiveWorkspace(root: java.io.File) : RestoreArchiveWorks
         if (deleted) created -= file
     }
 
+    override fun discardOrphans(): Boolean = delegate.discardOrphans().also { cleaned ->
+        orphanSweepCount += 1
+        if (cleaned) created.removeAll { !it.exists() }
+    }
+
+    fun createOrphan(): java.io.File = delegate.create().also(created::add)
+
     fun isEmpty(): Boolean = created.isEmpty()
-}
-
-private class CoordinatorAssetWorkspace : RestoreStagingWorkspace {
-    private val areas = linkedMapOf<String, CoordinatorAssetArea>()
-
-    override fun availableBytes(): Long = Long.MAX_VALUE
-
-    override fun create(operationId: String): RestoreStagingArea = CoordinatorAssetArea(operationId) {
-        areas.remove(operationId)
-    }.also { areas[operationId] = it }
-
-    override fun discard(operationId: String): Boolean {
-        areas.remove(operationId)
-        return true
-    }
-
-    fun isEmpty(): Boolean = areas.isEmpty()
-}
-
-private class CoordinatorAssetArea(
-    override val operationId: String,
-    private val onDiscard: () -> Unit,
-) : RestoreStagingArea {
-    private val assets = linkedMapOf<String, ByteArrayOutputStream>()
-    private var verified = false
-    private var discarded = false
-
-    override fun open(relativePath: String): OutputStream = ByteArrayOutputStream().also {
-        check(!verified && !discarded)
-        assets[relativePath] = it
-    }
-
-    override fun openAsset(relativePath: String): InputStream {
-        check(verified && !discarded)
-        return ByteArrayInputStream(assets.getValue(relativePath).toByteArray())
-    }
-
-    override fun verified() {
-        verified = true
-    }
-
-    override fun abort() {
-        discard()
-    }
-
-    override fun discard(): Boolean {
-        if (!discarded) {
-            discarded = true
-            assets.clear()
-            onDiscard()
-        }
-        return true
-    }
 }
 
 private class CoordinatorRestoreStore : RestoreLibraryStore {
@@ -314,23 +333,48 @@ private class CoordinatorRestoreStore : RestoreLibraryStore {
     var journalStarted = false
     private val pending = mutableListOf<RestoreDocumentToPrepare>()
 
-    override suspend fun duplicateCandidates(): List<DuplicateCandidate> = emptyList()
+    override suspend fun classifyDuplicate(identity: IncomingDocumentIdentity): DuplicateMatch =
+        DuplicateMatch(DuplicateKind.DIFFERENT, null)
 
-    override suspend fun existingFolders(): List<RestoreExistingFolder> = emptyList()
+    override suspend fun possibleSourceDuplicate(sourceSha256: Collection<String>): String? = null
+
+    override suspend fun folderNameExists(parentFolderId: String?, normalizedName: String): Boolean = false
 
     override suspend fun beginOperation(plan: RestoreJournalPlan) {
         journalStarted = true
     }
 
+    override suspend fun recordSkippedExactDocument(
+        operationId: String,
+        ordinal: Int,
+        source: RestoreIndexedDocument,
+    ) = Unit
+
     override suspend fun preparePendingDocument(
         operationId: String,
+        ordinal: Int,
         document: RestoreDocumentToPrepare,
+        records: BackupVerifiedRecordStore,
         assets: RestoreStagedAssetSource,
     ) {
         check(gate?.isOperationActive == true)
-        document.bundle.pages.forEach { assets.openAsset(it.relativePath).use { stream -> stream.readBytes() } }
-        document.bundle.sourceAssets.forEach {
-            assets.openAsset(it.relativePath).use { stream -> stream.readBytes() }
+        var afterPosition = -1
+        while (true) {
+            val pages = records.pagesPage(document.source.document.documentId, afterPosition, 8)
+            if (pages.isEmpty()) break
+            pages.forEach { page ->
+                assets.openAsset(page.relativePath).use { stream -> stream.readBytes() }
+            }
+            afterPosition = pages.last().position
+        }
+        var afterSourceId: String? = null
+        while (true) {
+            val sources = records.sourceAssetsPage(document.source.document.documentId, afterSourceId, 8)
+            if (sources.isEmpty()) break
+            sources.forEach { source ->
+                assets.openAsset(source.relativePath).use { stream -> stream.readBytes() }
+            }
+            afterSourceId = sources.last().sourceId
         }
         pending += document
     }

@@ -13,6 +13,7 @@ class VerifiedLibraryBackupArtifact internal constructor(
     val manifest: BackupManifest,
     val sizeBytes: Long,
     val storageEstimate: LibraryBackupStorageEstimate,
+    internal val verificationScratchDirectory: File,
     private val deleteArtifact: (File) -> Boolean,
 ) : AutoCloseable {
     val state: LibraryBackupArtifactState = LibraryBackupArtifactState.VERIFIED
@@ -54,6 +55,8 @@ data class LibraryBackupStorageEstimate(
     val zipEntryCount: Long,
     val temporaryArchiveUpperBoundBytes: Long,
     val availableTemporaryBytes: Long?,
+    /** Bytes already consumed by the captured operation-owned snapshot before preflight runs. */
+    val existingSnapshotSpoolBytes: Long = 0L,
 )
 
 fun interface LibraryBackupStoragePreflight {
