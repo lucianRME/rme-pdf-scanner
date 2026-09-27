@@ -415,6 +415,13 @@ class LibraryRepository internal constructor(
         }
     }
 
+    suspend fun captureOcrPageSnapshot(
+        documentId: String,
+        pageId: String,
+    ): LibraryOcrPageSnapshot? = operationGate.withStableSnapshot {
+        dao.ocrPageSnapshot(documentId, pageId)
+    }
+
     suspend fun commitOcrArtifact(
         expected: LibraryOcrPageSnapshot,
         draft: LibraryOcrArtifactDraft,
@@ -447,6 +454,13 @@ class LibraryRepository internal constructor(
         pageId: String,
     ): LibraryEffectiveOcrPage? = operationGate.withStableSnapshot {
         dao.effectiveOcrPage(documentId, pageId)
+    }
+
+    suspend fun ocrReviewPage(
+        documentId: String,
+        pageId: String,
+    ): LibraryOcrReviewPage? = operationGate.withStableSnapshot {
+        dao.ocrReviewPage(documentId, pageId)
     }
 
     suspend fun ocrBackupPage(
@@ -506,6 +520,13 @@ class LibraryRepository internal constructor(
         dao.completeOcrBatchItem(claim, draft, nowMillis())
     }
 
+    suspend fun skipOcrBatchItem(
+        claim: OcrBatchClaim,
+        safeReasonCode: String,
+    ): OcrBatchCompletionResult = operationGate.withMutation {
+        dao.skipOcrBatchItem(claim, safeReasonCode, nowMillis())
+    }
+
     suspend fun failOcrBatchItem(
         claim: OcrBatchClaim,
         safeErrorCode: String,
@@ -524,6 +545,40 @@ class LibraryRepository internal constructor(
         operationGate.withMutation {
             dao.requestOcrBatchItemRetry(jobId, itemId, nowMillis())
         }
+
+    suspend fun refreshOcrBatchItemForRetry(jobId: String, itemId: String): Boolean =
+        operationGate.withMutation {
+            dao.refreshOcrBatchItemForRetry(jobId, itemId, nowMillis())
+        }
+
+    suspend fun ocrBatchJob(jobId: String): OcrBatchJobEntity? =
+        operationGate.withStableSnapshot { dao.ocrBatchJob(jobId) }
+
+    suspend fun ocrBatchItems(jobId: String): List<OcrBatchItemEntity> =
+        operationGate.withStableSnapshot { dao.ocrBatchItems(jobId) }
+
+    suspend fun nextOcrBatchItem(jobId: String): OcrBatchItemEntity? =
+        operationGate.withStableSnapshot { dao.nextOcrBatchItem(jobId) }
+
+    suspend fun ocrBatchProgress(jobId: String): OcrBatchProgressSnapshot =
+        operationGate.withStableSnapshot { dao.ocrBatchProgress(jobId) }
+
+    suspend fun retryableOcrBatchItems(
+        jobId: String,
+        limit: Int,
+    ): List<OcrBatchItemEntity> = operationGate.withStableSnapshot {
+        dao.retryableOcrBatchItems(jobId, limit)
+    }
+
+    suspend fun latestRecoverableOcrBatchJob(): OcrBatchJobEntity? =
+        operationGate.withStableSnapshot { dao.latestRecoverableOcrBatchJob() }
+
+    suspend fun markInterruptedOcrBatchJobs(): Int = operationGate.withMutation {
+        dao.markInterruptedOcrBatchJobs(nowMillis())
+    }
+
+    suspend fun documentTitle(documentId: String): String? =
+        operationGate.withStableSnapshot { dao.documentTitle(documentId) }
 
     suspend fun cancelOcrBatchJob(jobId: String): Boolean = operationGate.withMutation {
         dao.cancelOcrBatchJob(jobId, nowMillis())

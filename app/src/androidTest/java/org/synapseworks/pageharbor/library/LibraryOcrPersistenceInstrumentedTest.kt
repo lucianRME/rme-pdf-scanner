@@ -4,7 +4,9 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -19,11 +21,13 @@ class LibraryOcrPersistenceInstrumentedTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private lateinit var database: LibraryDatabase
     private lateinit var dao: LibraryDao
+    private val queryCount = AtomicInteger()
 
     @Before
     fun setUp() {
         database = Room.inMemoryDatabaseBuilder(context, LibraryDatabase::class.java)
             .allowMainThreadQueries()
+            .setQueryCallback({ _, _ -> queryCount.incrementAndGet() }, { command -> command.run() })
             .build()
         dao = database.libraryDao()
     }
@@ -252,6 +256,71 @@ class LibraryOcrPersistenceInstrumentedTest {
         assertTrue(effective.activeArtifactRevision != effective.artifactRevision)
         assertEquals(LibraryOcrCorrectionAlignment.FREEFORM, effective.alignment)
         assertTrue(effective.lines.isEmpty())
+
+        val review = requireNotNull(dao.ocrReviewPage(DOCUMENT_ID, stored.pageId))
+        assertEquals("raw two", review.rawText)
+        assertEquals("corrected one", review.effectiveText)
+        assertEquals("LATIN", review.actualScript)
+        assertTrue(review.hasCorrection)
+        assertEquals(
+            stored.pageId,
+            dao.pageSearchPage("corrected*", Long.MAX_VALUE, "", 10).single().pageId,
+        )
+        assertTrue(dao.pageSearchPage("two*", Long.MAX_VALUE, "", 10).isEmpty())
+
+        val beforeRevert = requireNotNull(dao.ocrPageSnapshot(DOCUMENT_ID, stored.pageId))
+        assertEquals(
+            LibraryOcrCommitResult.APPLIED,
+            dao.revertOcrCorrection(beforeRevert, modifiedAt = 50),
+        )
+        assertEquals("raw two", dao.ocrReviewPage(DOCUMENT_ID, stored.pageId)?.effectiveText)
+        assertTrue(dao.pageSearchPage("corrected*", Long.MAX_VALUE, "", 10).isEmpty())
+        assertEquals(
+            stored.pageId,
+            dao.pageSearchPage("two*", Long.MAX_VALUE, "", 10).single().pageId,
+        )
+    }
+
+    @Test
+    fun correctionSurvivesDatabaseCloseAndReopen() = runBlocking {
+        val name = "phase4-ocr-review-${System.nanoTime()}.db"
+        var persistent = Room.databaseBuilder(context, LibraryDatabase::class.java, name).build()
+        try {
+            val firstDao = persistent.libraryDao()
+            val stored = page("page-reopen", 0, "hash-reopen", null)
+            firstDao.replaceDocument(document(), listOf(stored), "")
+            val initial = requireNotNull(firstDao.ocrPageSnapshot(DOCUMENT_ID, stored.pageId))
+            assertEquals(
+                LibraryOcrCommitResult.APPLIED,
+                firstDao.commitOcrArtifact(initial, draft(initial, "raw before restart"), 20),
+            )
+            val beforeCorrection = requireNotNull(
+                firstDao.ocrPageSnapshot(DOCUMENT_ID, stored.pageId),
+            )
+            assertEquals(
+                LibraryOcrCommitResult.APPLIED,
+                firstDao.saveOcrCorrection(
+                    beforeCorrection,
+                    LibraryOcrCorrectionDraft(
+                        "edited after restart",
+                        LibraryOcrCorrectionAlignment.FREEFORM,
+                    ),
+                    30,
+                ),
+            )
+            persistent.close()
+
+            persistent = Room.databaseBuilder(context, LibraryDatabase::class.java, name).build()
+            val reopened = requireNotNull(
+                persistent.libraryDao().ocrReviewPage(DOCUMENT_ID, stored.pageId),
+            )
+            assertEquals("raw before restart", reopened.rawText)
+            assertEquals("edited after restart", reopened.effectiveText)
+            assertTrue(reopened.hasCorrection)
+        } finally {
+            if (persistent.isOpen) persistent.close()
+            context.deleteDatabase(name)
+        }
     }
 
     @Test
@@ -380,6 +449,231 @@ class LibraryOcrPersistenceInstrumentedTest {
         assertEquals(OcrBatchItemState.WAITING_FOR_MODEL.name, dao.ocrBatchItems("job-2").single().state)
         assertTrue(dao.requestOcrBatchItemRetry("job-2", "item-2", 36))
         assertEquals(OcrBatchItemState.RETRY_PENDING.name, dao.ocrBatchItems("job-2").single().state)
+    }
+
+    @Test
+    fun batchSkipAndRetryRefreshAffectOnlyEligibleItems() = runBlocking {
+        val stored = page("page-1", 0, "hash-1", null)
+        dao.replaceDocument(document(), listOf(stored), "")
+        assertTrue(dao.freezeOcrBatchTargets(job("job-skip"), listOf(target("item-skip"))))
+        val claim = requireNotNull(dao.claimOcrBatchItem("job-skip", "item-skip", 1, "claim", 10))
+        assertEquals(
+            OcrBatchCompletionResult.APPLIED,
+            dao.skipOcrBatchItem(claim, "CURRENT_OCR", 11),
+        )
+        assertEquals(OcrBatchJobState.COMPLETED.name, dao.ocrBatchJob("job-skip")?.state)
+        assertEquals(0, dao.ocrBatchProgress("job-skip").retryableItems)
+        assertTrue(dao.retryableOcrBatchItems("job-skip", 100).isEmpty())
+
+        assertTrue(dao.freezeOcrBatchTargets(job("job-stale"), listOf(target("item-stale"))))
+        val staleClaim = requireNotNull(
+            dao.claimOcrBatchItem("job-stale", "item-stale", 1, "stale-claim", 20),
+        )
+        dao.replaceDocument(document(modifiedAt = 21), listOf(stored.copy(rotationDegrees = 90)), "")
+        assertEquals(
+            OcrBatchCompletionResult.STALE_INPUT,
+            dao.completeOcrBatchItem(staleClaim, draft(staleClaim.expected, "obsolete"), 22),
+        )
+        assertEquals(1, dao.ocrBatchProgress("job-stale").retryableItems)
+        assertTrue(dao.refreshOcrBatchItemForRetry("job-stale", "item-stale", 23))
+        val refreshedJob = requireNotNull(dao.ocrBatchJob("job-stale"))
+        val refreshed = requireNotNull(
+            dao.claimOcrBatchItem(
+                "job-stale",
+                "item-stale",
+                refreshedJob.runGeneration,
+                "fresh-claim",
+                24,
+            ),
+        )
+        assertEquals(1L, refreshed.expected.pageVisualRevision)
+        assertEquals(
+            OcrBatchCompletionResult.APPLIED,
+            dao.completeOcrBatchItem(refreshed, draft(refreshed.expected, "fresh searchable"), 25),
+        )
+        assertEquals(
+            stored.pageId,
+            dao.pageSearchPage("searchable*", Long.MAX_VALUE, "", 10).single().pageId,
+        )
+    }
+
+    @Test
+    fun rerunCommitKeepsCorrectionEffectiveAndUpdatesOnlyRawArtifact() = runBlocking {
+        val stored = page("page-1", 0, "hash-1", null)
+        dao.replaceDocument(document(), listOf(stored), "")
+        val initial = requireNotNull(dao.ocrPageSnapshot(DOCUMENT_ID, stored.pageId))
+        assertEquals(
+            LibraryOcrCommitResult.APPLIED,
+            dao.commitOcrArtifact(initial, draft(initial, "old raw"), 10),
+        )
+        val correctedSnapshot = requireNotNull(dao.ocrPageSnapshot(DOCUMENT_ID, stored.pageId))
+        assertEquals(
+            LibraryOcrCommitResult.APPLIED,
+            dao.saveOcrCorrection(
+                correctedSnapshot,
+                LibraryOcrCorrectionDraft(
+                    correctedText = "kept correction",
+                    alignment = LibraryOcrCorrectionAlignment.FREEFORM,
+                ),
+                11,
+            ),
+        )
+        assertTrue(dao.freezeOcrBatchTargets(job("job-rerun"), listOf(target("item-rerun"))))
+        val claim = requireNotNull(
+            dao.claimOcrBatchItem("job-rerun", "item-rerun", 1, "claim-rerun", 12),
+        )
+        assertEquals(
+            OcrBatchCompletionResult.APPLIED,
+            dao.completeOcrBatchItem(claim, draft(claim.expected, "new raw"), 13),
+        )
+        val review = requireNotNull(dao.ocrReviewPage(DOCUMENT_ID, stored.pageId))
+        assertEquals("new raw", review.rawText)
+        assertEquals("kept correction", review.effectiveText)
+        assertEquals("kept correction", dao.effectiveOcrPage(DOCUMENT_ID, stored.pageId)?.effectiveText)
+        assertTrue(dao.pageSearchPage("new*", Long.MAX_VALUE, "", 10).isEmpty())
+        assertEquals(
+            stored.pageId,
+            dao.pageSearchPage("kept*", Long.MAX_VALUE, "", 10).single().pageId,
+        )
+    }
+
+    @Test
+    fun batchPopulationScalesInBoundedChunksForFiveFiftyAndOneHundredDocuments() = runBlocking {
+        val runtime = Runtime.getRuntime()
+        val heapBefore = runtime.totalMemory() - runtime.freeMemory()
+        repeat(100) { documentIndex ->
+            val documentId = "scale-document-$documentIndex"
+            val pages = List(2) { pageIndex ->
+                page(
+                    id = "scale-page-$documentIndex-$pageIndex",
+                    position = pageIndex,
+                    hash = "scale-hash-$documentIndex-$pageIndex",
+                    raw = null,
+                ).copy(documentId = documentId)
+            }
+            dao.replaceDocument(
+                document(pageCount = 2).copy(documentId = documentId, title = "Scale $documentIndex"),
+                pages,
+                "",
+            )
+        }
+        listOf(5, 50, 100).forEach { documentCount ->
+            val started = android.os.SystemClock.elapsedRealtime()
+            val queriesBefore = queryCount.get()
+            val targets = ArrayList<OcrBatchTarget>(documentCount * 2)
+            repeat(documentCount) { documentIndex ->
+                repeat(2) { pageIndex ->
+                    val ordinal = targets.size
+                    targets += OcrBatchTarget(
+                        itemId = "scale-item-$documentCount-$ordinal",
+                        documentId = "scale-document-$documentIndex",
+                        pageId = "scale-page-$documentIndex-$pageIndex",
+                        ordinal = ordinal,
+                        requestedScriptSelection = "LATIN",
+                        resolvedScript = "LATIN",
+                    )
+                }
+            }
+            val scaleJob = job("scale-job-$documentCount").copy(selectionPolicy = "MISSING_ONLY")
+            assertTrue(dao.freezeOcrBatchTargets(scaleJob, targets))
+            val planningElapsed = android.os.SystemClock.elapsedRealtime() - started
+            assertEquals(documentCount * 2, dao.ocrBatchJob(scaleJob.jobId)?.totalItemCount)
+            assertEquals(documentCount, dao.ocrBatchProgress(scaleJob.jobId).documentTotal)
+            val processingStarted = android.os.SystemClock.elapsedRealtime()
+            var processed = 0
+            while (true) {
+                val next = dao.nextOcrBatchItem(scaleJob.jobId) ?: break
+                val claim = requireNotNull(
+                    dao.claimOcrBatchItem(
+                        scaleJob.jobId,
+                        next.itemId,
+                        1,
+                        "scale-claim-$documentCount-$processed",
+                        200L + processed,
+                    ),
+                )
+                assertEquals(
+                    OcrBatchCompletionResult.APPLIED,
+                    dao.skipOcrBatchItem(claim, "CURRENT_OCR", 200L + processed),
+                )
+                processed += 1
+            }
+            val processingElapsed = android.os.SystemClock.elapsedRealtime() - processingStarted
+            val queryDelta = queryCount.get() - queriesBefore
+            assertEquals(targets.size, processed)
+            assertEquals(OcrBatchJobState.COMPLETED.name, dao.ocrBatchJob(scaleJob.jobId)?.state)
+            println(
+                "OCR_BATCH_SCALE documents=$documentCount pages=${targets.size} " +
+                    "planningMs=$planningElapsed processingMs=$processingElapsed queries=$queryDelta",
+            )
+        }
+        repeat(3) {
+            System.gc()
+            System.runFinalization()
+            delay(100)
+        }
+        val heapAfter = runtime.totalMemory() - runtime.freeMemory()
+        val cursor = database.openHelper.readableDatabase.query("PRAGMA page_count")
+        val pageCount = cursor.use { if (it.moveToFirst()) it.getLong(0) else -1L }
+        println("OCR_BATCH_SCALE heapDeltaBytes=${heapAfter - heapBefore} dbPages=$pageCount")
+        assertTrue(pageCount > 0)
+    }
+
+    @Test
+    fun terminalBatchMetadataFootprintRemainsBoundedThroughOneThousandTargets() = runBlocking {
+        repeat(500) { documentIndex ->
+            val documentId = "footprint-document-$documentIndex"
+            val pages = List(2) { pageIndex ->
+                page(
+                    id = "footprint-page-$documentIndex-$pageIndex",
+                    position = pageIndex,
+                    hash = "footprint-hash-$documentIndex-$pageIndex",
+                    raw = null,
+                ).copy(documentId = documentId)
+            }
+            dao.replaceDocument(
+                document(pageCount = 2).copy(
+                    documentId = documentId,
+                    title = "Footprint $documentIndex",
+                ),
+                pages,
+                "",
+            )
+        }
+
+        val readableDatabase = database.openHelper.readableDatabase
+        val pageSize = readableDatabase.query("PRAGMA page_size").use { cursor ->
+            if (cursor.moveToFirst()) cursor.getLong(0) else error("Missing SQLite page size")
+        }
+        listOf(20, 200, 1_000).forEach { targetCount ->
+            val pageCountBefore = readableDatabase.query("PRAGMA page_count").use { cursor ->
+                if (cursor.moveToFirst()) cursor.getLong(0) else error("Missing SQLite page count")
+            }
+            val targets = List(targetCount) { ordinal ->
+                val documentIndex = ordinal / 2
+                val pageIndex = ordinal % 2
+                OcrBatchTarget(
+                    itemId = "footprint-item-$targetCount-$ordinal",
+                    documentId = "footprint-document-$documentIndex",
+                    pageId = "footprint-page-$documentIndex-$pageIndex",
+                    ordinal = ordinal,
+                    requestedScriptSelection = "LATIN",
+                    resolvedScript = "LATIN",
+                )
+            }
+            val jobId = "footprint-job-$targetCount"
+            assertTrue(dao.freezeOcrBatchTargets(job(jobId), targets))
+            assertTrue(dao.cancelOcrBatchJob(jobId, 1_000L + targetCount))
+            assertEquals(OcrBatchJobState.CANCELLED.name, dao.ocrBatchJob(jobId)?.state)
+            assertEquals(targetCount, dao.ocrBatchItems(jobId).size)
+            val pageCountAfter = readableDatabase.query("PRAGMA page_count").use { cursor ->
+                if (cursor.moveToFirst()) cursor.getLong(0) else error("Missing SQLite page count")
+            }
+            println(
+                "OCR_BATCH_METADATA targets=$targetCount " +
+                    "allocatedBytes=${(pageCountAfter - pageCountBefore) * pageSize}",
+            )
+        }
     }
 
     @Test

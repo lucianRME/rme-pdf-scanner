@@ -226,7 +226,9 @@ fun ScanResultScreen(
                     onAdd = { activeSheet = DocumentSheet.Add },
                     onEdit = { editPanel = DocumentEditPanel.Tools },
                     onOcr = {
-                        if (ocrUiState is OcrUiState.Success) onViewRecognizedText()
+                        if (libraryDocument != null || ocrUiState is OcrUiState.Success) {
+                            onViewRecognizedText()
+                        }
                         else onRecognizeText()
                     },
                     onShare = onSharePdf,
@@ -341,7 +343,7 @@ fun ScanResultScreen(
             pageExportEnabled = sessionActionsEnabled && !exporting,
             secondaryActionsEnabled = sessionActionsEnabled,
             libraryDocument = libraryDocument,
-            ocrAvailable = ocrUiState is OcrUiState.Success,
+            ocrAvailable = libraryDocument != null || ocrUiState is OcrUiState.Success,
             onDismiss = { activeSheet = null },
             onSaveToLibrary = {
                 activeSheet = null

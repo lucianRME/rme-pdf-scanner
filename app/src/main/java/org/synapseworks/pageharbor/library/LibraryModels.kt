@@ -273,6 +273,27 @@ data class LibraryEffectiveOcrLine(
     val writingOrientation: String?,
 )
 
+/**
+ * One bounded page snapshot for the OCR review UI.
+ *
+ * [rawText] and [actualScript] always describe the latest active recognition artifact. A
+ * correction can remain pinned to an older artifact after re-recognition, so review must not use
+ * [LibraryEffectiveOcrPage.rawText] as a synonym for the latest raw result.
+ */
+data class LibraryOcrReviewPage(
+    val snapshot: LibraryOcrPageSnapshot,
+    val rawText: String?,
+    val effectiveText: String?,
+    val correctedText: String?,
+    val actualScript: String?,
+    val recognizedAtMillis: Long?,
+    val correctionBaseArtifactRevision: Long?,
+    val rawLines: List<String>,
+) {
+    val hasCorrection: Boolean
+        get() = correctedText != null
+}
+
 data class LibrarySearchHit(
     val documentId: String,
     val pageId: String?,
@@ -309,6 +330,12 @@ data class OcrBatchClaim(
     val expected: LibraryOcrPageSnapshot,
     val expectedInputFingerprintVersion: Int?,
     val expectedInputFingerprint: String?,
+)
+
+data class OcrBatchProgressSnapshot(
+    val documentTotal: Int,
+    val completedDocuments: Int,
+    val retryableItems: Int,
 )
 
 data class LibraryOcrRestorePageState(

@@ -329,6 +329,35 @@ abstract class LibraryDao {
         return row.toEffectiveOcrPage(effectiveLines)
     }
 
+    /** Loads only one page for review and keeps latest-raw provenance separate from correction. */
+    @Transaction
+    open suspend fun ocrReviewPage(
+        documentId: String,
+        pageId: String,
+    ): LibraryOcrReviewPage? {
+        val snapshot = ocrPageSnapshot(documentId, pageId) ?: return null
+        val activeRevision = snapshot.activeArtifactRevision
+        val active = activeRevision?.let { revision -> ocrArtifact(pageId, revision) }
+        val correction = ocrCorrection(pageId)
+        val effective = effectiveOcrPage(documentId, pageId)
+        return LibraryOcrReviewPage(
+            snapshot = snapshot,
+            rawText = active?.rawText,
+            effectiveText = correction?.correctedText ?: active?.rawText,
+            correctedText = correction?.correctedText,
+            actualScript = active?.actualScript,
+            recognizedAtMillis = active?.recognizedAtMillis,
+            correctionBaseArtifactRevision = correction?.baseArtifactRevision,
+            rawLines = if (activeRevision == null) {
+                emptyList()
+            } else {
+                ocrLines(pageId, activeRevision).map(LibraryPageOcrLineEntity::rawText)
+            },
+        ).also {
+            check(effective?.effectiveText == it.effectiveText)
+        }
+    }
+
     @Query("SELECT * FROM library_source_assets WHERE document_id = :documentId ORDER BY created_at, asset_id")
     abstract suspend fun sourceAssets(documentId: String): List<LibrarySourceAssetEntity>
 
@@ -1624,6 +1653,79 @@ abstract class LibraryDao {
     @Query("SELECT * FROM ocr_batch_items WHERE job_id = :jobId ORDER BY ordinal")
     abstract suspend fun ocrBatchItems(jobId: String): List<OcrBatchItemEntity>
 
+    @Query(
+        """
+        SELECT * FROM ocr_batch_items
+        WHERE job_id = :jobId
+          AND state IN ('PENDING', 'RETRY_PENDING', 'WAITING_FOR_MODEL')
+        ORDER BY ordinal
+        LIMIT 1
+        """,
+    )
+    abstract suspend fun nextOcrBatchItem(jobId: String): OcrBatchItemEntity?
+
+    @Query(
+        """
+        SELECT
+          COUNT(DISTINCT document_id) AS documentTotal,
+          COUNT(DISTINCT CASE WHEN NOT EXISTS (
+            SELECT 1 FROM ocr_batch_items AS pending
+            WHERE pending.job_id = items.job_id
+              AND pending.document_id = items.document_id
+              AND pending.state NOT IN ('COMPLETED', 'FAILED', 'SKIPPED')
+          ) THEN document_id END) AS completedDocuments,
+          COALESCE(SUM(CASE WHEN (state = 'FAILED' OR
+            (state = 'SKIPPED' AND safe_error_code = 'STALE_INPUT')) AND EXISTS (
+              SELECT 1 FROM library_pages AS retry_page
+              JOIN library_documents AS retry_document
+                ON retry_document.document_id = retry_page.document_id
+              WHERE retry_page.page_id = items.page_id
+                AND retry_page.document_id = items.document_id
+                AND retry_document.library_state = 'ACTIVE'
+            ) THEN 1 ELSE 0 END), 0) AS retryableItems
+        FROM ocr_batch_items AS items
+        WHERE job_id = :jobId
+        """,
+    )
+    abstract suspend fun ocrBatchProgress(jobId: String): OcrBatchProgressSnapshot
+
+    @Query(
+        """
+        SELECT * FROM ocr_batch_items
+        WHERE job_id = :jobId
+          AND (state = 'FAILED' OR (state = 'SKIPPED' AND safe_error_code = 'STALE_INPUT'))
+          AND EXISTS (
+            SELECT 1 FROM library_pages AS retry_page
+            JOIN library_documents AS retry_document
+              ON retry_document.document_id = retry_page.document_id
+            WHERE retry_page.page_id = ocr_batch_items.page_id
+              AND retry_page.document_id = ocr_batch_items.document_id
+              AND retry_document.library_state = 'ACTIVE'
+          )
+        ORDER BY ordinal
+        LIMIT :limit
+        """,
+    )
+    abstract suspend fun retryableOcrBatchItems(
+        jobId: String,
+        limit: Int,
+    ): List<OcrBatchItemEntity>
+
+    @Query(
+        """
+        SELECT * FROM ocr_batch_jobs
+        WHERE target_population_complete = 1
+          AND cancel_requested = 0
+          AND state IN ('READY', 'PROCESSING', 'INTERRUPTED')
+        ORDER BY updated_at DESC
+        LIMIT 1
+        """,
+    )
+    abstract suspend fun latestRecoverableOcrBatchJob(): OcrBatchJobEntity?
+
+    @Query("SELECT title FROM library_documents WHERE document_id = :documentId LIMIT 1")
+    abstract suspend fun documentTitle(documentId: String): String?
+
     @Query("SELECT * FROM ocr_batch_items WHERE item_id = :itemId AND job_id = :jobId LIMIT 1")
     protected abstract suspend fun ocrBatchItem(jobId: String, itemId: String): OcrBatchItemEntity?
 
@@ -1989,6 +2091,29 @@ abstract class LibraryDao {
         return OcrBatchCompletionResult.APPLIED
     }
 
+    @Transaction
+    open suspend fun skipOcrBatchItem(
+        claim: OcrBatchClaim,
+        safeReasonCode: String,
+        modifiedAt: Long,
+    ): OcrBatchCompletionResult {
+        require(safeReasonCode.isSafeOcrErrorCode())
+        if (
+            finishClaimedOcrBatchItem(
+                claim.jobId,
+                claim.itemId,
+                claim.runGeneration,
+                claim.claimToken,
+                OcrBatchItemState.SKIPPED.name,
+                safeReasonCode,
+            ) != 1
+        ) {
+            return OcrBatchCompletionResult.STALE_CLAIM
+        }
+        check(settleOcrBatchJob(claim.jobId, claim.runGeneration, modifiedAt) == 1)
+        return OcrBatchCompletionResult.APPLIED
+    }
+
     @Query(
         """
         UPDATE ocr_batch_jobs
@@ -2039,6 +2164,28 @@ abstract class LibraryDao {
 
     @Query(
         """
+        UPDATE ocr_batch_items
+        SET state = 'RETRY_PENDING', safe_error_code = NULL,
+            claim_generation = NULL, claim_token = NULL,
+            expected_document_content_revision = :documentContentRevision,
+            expected_page_visual_revision = :pageVisualRevision,
+            expected_ocr_state_revision = :ocrStateRevision,
+            expected_active_artifact_revision = :activeArtifactRevision
+        WHERE job_id = :jobId AND item_id = :itemId
+          AND (state = 'FAILED' OR (state = 'SKIPPED' AND safe_error_code = 'STALE_INPUT'))
+        """,
+    )
+    protected abstract suspend fun refreshOcrBatchItemForRetryRow(
+        jobId: String,
+        itemId: String,
+        documentContentRevision: Long,
+        pageVisualRevision: Long,
+        ocrStateRevision: Long,
+        activeArtifactRevision: Long?,
+    ): Int
+
+    @Query(
+        """
         UPDATE ocr_batch_jobs
         SET state = 'READY',
             failed_item_count = (
@@ -2069,6 +2216,31 @@ abstract class LibraryDao {
         val job = ocrBatchJob(jobId) ?: return false
         if (job.cancelRequested || job.state == OcrBatchJobState.CANCELLED.name) return false
         if (requestOcrBatchItemRetryRow(jobId, itemId) != 1) return false
+        check(reopenOcrBatchJob(jobId, updatedAt) == 1)
+        return true
+    }
+
+    /** Retries only failed/stale work and refreshes its compare-and-set snapshot to current input. */
+    @Transaction
+    open suspend fun refreshOcrBatchItemForRetry(
+        jobId: String,
+        itemId: String,
+        updatedAt: Long,
+    ): Boolean {
+        val job = ocrBatchJob(jobId) ?: return false
+        if (job.cancelRequested || job.state == OcrBatchJobState.CANCELLED.name) return false
+        val item = ocrBatchItem(jobId, itemId) ?: return false
+        val snapshot = ocrPageSnapshot(item.documentId, item.pageId) ?: return false
+        if (
+            refreshOcrBatchItemForRetryRow(
+                jobId = jobId,
+                itemId = itemId,
+                documentContentRevision = snapshot.documentContentRevision,
+                pageVisualRevision = snapshot.pageVisualRevision,
+                ocrStateRevision = snapshot.ocrStateRevision,
+                activeArtifactRevision = snapshot.activeArtifactRevision,
+            ) != 1
+        ) return false
         check(reopenOcrBatchJob(jobId, updatedAt) == 1)
         return true
     }

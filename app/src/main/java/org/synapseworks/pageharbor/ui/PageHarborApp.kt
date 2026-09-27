@@ -39,6 +39,9 @@ import org.synapseworks.pageharbor.ocr.OcrOperationSelection
 import org.synapseworks.pageharbor.ocr.OcrScript
 import org.synapseworks.pageharbor.ocr.OcrScriptRecommendation
 import org.synapseworks.pageharbor.ocr.OcrScriptSelection
+import org.synapseworks.pageharbor.ocr.review.OcrReviewUiState
+import org.synapseworks.pageharbor.ocr.batch.OcrBatchMode
+import org.synapseworks.pageharbor.ocr.batch.OcrBatchUiState
 import org.synapseworks.pageharbor.library.LibrarySortOrder
 import org.synapseworks.pageharbor.library.LibraryUiState
 import org.synapseworks.pageharbor.security.AppLockAuthenticatedChangeResult
@@ -67,6 +70,9 @@ import org.synapseworks.pageharbor.ui.portability.RestorePreviewScreen
 import org.synapseworks.pageharbor.ui.security.AppLockSettingsScreen
 import org.synapseworks.pageharbor.ui.ocr.OcrLanguageSettingsScreen
 import org.synapseworks.pageharbor.ui.ocr.OcrOperationDialog
+import org.synapseworks.pageharbor.ui.ocr.OcrReviewScreen
+import org.synapseworks.pageharbor.ui.ocr.OcrBatchSetupDialog
+import org.synapseworks.pageharbor.ui.ocr.OcrBatchStatusDialog
 import org.synapseworks.pageharbor.ui.theme.PageHarborTheme
 
 @Composable
@@ -94,6 +100,13 @@ fun PageHarborApp(
     onMoveLibraryDocument: (String, String?) -> Unit = { _, _ -> },
     onDeleteLibraryDocument: (String) -> Unit = {},
     onMergeLibraryDocuments: (List<String>, String) -> Unit = { _, _ -> },
+    ocrBatchState: OcrBatchUiState = OcrBatchUiState.Hidden,
+    onOpenOcrBatch: (List<String>) -> Unit = {},
+    onOcrBatchModeChange: (OcrBatchMode) -> Unit = {},
+    onStartOcrBatch: ((OcrOperationSelection, Boolean) -> Unit)? = null,
+    onCancelOcrBatch: () -> Unit = {},
+    onRetryOcrBatch: () -> Unit = {},
+    onDismissOcrBatch: () -> Unit = {},
     onCreateLibraryFolder: (String) -> Unit = {},
     onRenameLibraryFolder: (String, String) -> Unit = { _, _ -> },
     onDeleteLibraryFolder: (String) -> Unit = {},
@@ -118,6 +131,18 @@ fun PageHarborApp(
     onRecognizeTextWithLanguage: ((OcrOperationSelection, Boolean) -> Unit)? = null,
     onClearRecognizedText: () -> Unit = {},
     onCopyRecognizedText: ((String) -> Unit)? = null,
+    ocrReviewState: OcrReviewUiState = OcrReviewUiState(),
+    onOpenOcrReview: () -> Unit = {},
+    onCloseOcrReview: () -> Unit = {},
+    onOcrReviewBeginEdit: () -> Unit = {},
+    onOcrReviewDraftChange: (String) -> Unit = {},
+    onOcrReviewSave: () -> Unit = {},
+    onOcrReviewCancelEdit: () -> Unit = {},
+    onOcrReviewRevert: () -> Unit = {},
+    onOcrReviewPageSelected: (String) -> Unit = {},
+    onOcrReviewRerunPage: ((OcrOperationSelection, Boolean) -> Unit)? = null,
+    onOcrReviewRerunDocument: ((OcrOperationSelection, Boolean) -> Unit)? = null,
+    onOcrReviewCancelRerun: () -> Unit = {},
     onViewSourceCode: () -> Unit = {},
     onRateRme: () -> Unit = {},
     onSuggestFeature: () -> Unit = {},
@@ -153,7 +178,7 @@ fun PageHarborApp(
     darkTheme: Boolean = isSystemInDarkTheme(),
 ) {
     PageHarborTheme(darkTheme = darkTheme) {
-        var currentScreen by remember { mutableStateOf(screen) }
+        var currentScreen by rememberSaveable { mutableStateOf(screen) }
         val snackbarHostState = remember { SnackbarHostState() }
         val coroutineScope = rememberCoroutineScope()
         val context = LocalContext.current
@@ -243,10 +268,11 @@ fun PageHarborApp(
             showOcrLanguageSettings,
             ocrOperationPrompt,
             libraryTransientUiBusy,
+            ocrReviewState.active,
         ) {
             val isBusy = showPrivacyInfo || showAbout || showAppLockSettings ||
                 showOcrLanguageSettings || ocrOperationPrompt != null ||
-                libraryTransientUiBusy
+                libraryTransientUiBusy || ocrReviewState.active
             onReviewUiBusyChanged(isBusy)
             if (isBusy) exitController.reset()
         }
@@ -409,6 +435,27 @@ fun PageHarborApp(
             onRefresh = onOcrModelRefreshRequested,
             onBack = { showOcrLanguageSettings = false },
         )
+        ocrReviewState.active -> OcrReviewScreen(
+            state = ocrReviewState,
+            onBack = onCloseOcrReview,
+            onBeginEdit = onOcrReviewBeginEdit,
+            onDraftChange = onOcrReviewDraftChange,
+            onSaveCorrection = onOcrReviewSave,
+            onCancelEdit = onOcrReviewCancelEdit,
+            onRevertCorrection = onOcrReviewRevert,
+            onSelectPage = onOcrReviewPageSelected,
+            onRerunPage = {
+                if (onOcrReviewRerunPage != null) {
+                    ocrOperationPrompt = OcrOperationPrompt.RERUN_PAGE
+                }
+            },
+            onRerunDocument = {
+                if (onOcrReviewRerunDocument != null) {
+                    ocrOperationPrompt = OcrOperationPrompt.RERUN_DOCUMENT
+                }
+            },
+            onCancelRerun = onOcrReviewCancelRerun,
+        )
         currentScreen == PageHarborScreen.OcrResult && ocrUiState is OcrUiState.Success -> {
             OcrResultScreen(
                 result = ocrUiState.result,
@@ -489,7 +536,10 @@ fun PageHarborApp(
                     onRecognizeText()
                 }
             },
-            onViewRecognizedText = { navigateTo(PageHarborScreen.OcrResult) },
+            onViewRecognizedText = {
+                if (libraryDocument != null) onOpenOcrReview()
+                else navigateTo(PageHarborScreen.OcrResult)
+            },
             onScanAgain = onScanDocument,
             onImportFiles = onImportFiles,
             onCancelImport = onCancelImport,
@@ -517,6 +567,7 @@ fun PageHarborApp(
             onMoveDocument = onMoveLibraryDocument,
             onDeleteDocument = onDeleteLibraryDocument,
             onMergeDocuments = onMergeLibraryDocuments,
+            onRecognizeSelectedDocuments = onOpenOcrBatch,
             onCreateFolder = onCreateLibraryFolder,
             onRenameFolder = onRenameLibraryFolder,
             onDeleteFolder = onDeleteLibraryFolder,
@@ -572,10 +623,34 @@ fun PageHarborApp(
                             onRecognizeTextWithLanguage?.invoke(selection, useAsDefault)
                         OcrOperationPrompt.SEARCHABLE_PDF ->
                             onSaveSearchablePdfWithLanguage?.invoke(selection, useAsDefault)
+                        OcrOperationPrompt.RERUN_PAGE ->
+                            onOcrReviewRerunPage?.invoke(selection, useAsDefault)
+                        OcrOperationPrompt.RERUN_DOCUMENT ->
+                            onOcrReviewRerunDocument?.invoke(selection, useAsDefault)
+                        OcrOperationPrompt.BATCH ->
+                            onStartOcrBatch?.invoke(selection, useAsDefault)
                     }
                 },
             )
         }
+
+        val batchSetup = ocrBatchState as? OcrBatchUiState.Setup
+        if (batchSetup != null && ocrOperationPrompt != OcrOperationPrompt.BATCH) {
+            OcrBatchSetupDialog(
+                state = batchSetup,
+                onModeChange = onOcrBatchModeChange,
+                onChooseLanguage = {
+                    if (onStartOcrBatch != null) ocrOperationPrompt = OcrOperationPrompt.BATCH
+                },
+                onDismiss = onDismissOcrBatch,
+            )
+        }
+        OcrBatchStatusDialog(
+            state = ocrBatchState,
+            onCancel = onCancelOcrBatch,
+            onRetryFailed = onRetryOcrBatch,
+            onDone = onDismissOcrBatch,
+        )
 
         LaunchedEffect(scannerSpikeState) {
             when (scannerSpikeState) {
@@ -758,4 +833,10 @@ fun PageHarborApp(
     }
 }
 
-private enum class OcrOperationPrompt { RECOGNIZE_TEXT, SEARCHABLE_PDF }
+private enum class OcrOperationPrompt {
+    RECOGNIZE_TEXT,
+    SEARCHABLE_PDF,
+    RERUN_PAGE,
+    RERUN_DOCUMENT,
+    BATCH,
+}

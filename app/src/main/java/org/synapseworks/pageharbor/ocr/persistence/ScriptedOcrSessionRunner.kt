@@ -24,8 +24,41 @@ data class ScriptedOcrSessionResult(
     val persistenceOutcomes: List<LibraryOcrPageOutcomeDraft>?,
 )
 
+data class ScriptedOcrPageResult(
+    val outcome: OcrPageRecognitionOutcome,
+    val persistence: OcrPagePersistenceMapping?,
+)
+
 /** One exact-script path for scanned, imported, reopened, and first-save session pages. */
 class ScriptedOcrSessionRunner(private val engine: OcrPageRecognitionEngine) {
+    suspend fun recognizePage(
+        page: OcrPage,
+        script: OcrScript,
+        pagePosition: Int,
+        sessionDocumentRevision: Long? = null,
+        savedSnapshot: LibraryOcrPageSnapshot? = null,
+        recognizedAtMillis: Long,
+    ): ScriptedOcrPageResult {
+        require(sessionDocumentRevision != null || savedSnapshot != null)
+        val descriptor = descriptor(
+            index = pagePosition,
+            script = script,
+            sessionRevision = sessionDocumentRevision,
+            snapshot = savedSnapshot,
+        )
+        val outcome = engine.recognize(OcrPageRecognitionRequest(descriptor, page))
+        return ScriptedOcrPageResult(
+            outcome = outcome,
+            persistence = savedSnapshot?.let { expected ->
+                OcrPageRecognitionPersistenceMapper.map(
+                    result = outcome,
+                    expected = expected,
+                    recognizedAtMillis = recognizedAtMillis,
+                )
+            },
+        )
+    }
+
     suspend fun recognize(
         pages: List<OcrPage>,
         script: OcrScript,
@@ -38,22 +71,25 @@ class ScriptedOcrSessionRunner(private val engine: OcrPageRecognitionEngine) {
         var mappingsAreComplete = savedSnapshots != null
         val pageResults = pages.mapIndexed { index, page ->
             val snapshot = savedSnapshots?.get(index)
-            val descriptor = descriptor(index, script, sessionDocumentRevision, snapshot)
-            val outcome = engine.recognize(OcrPageRecognitionRequest(descriptor, page))
+            val pageResult = recognizePage(
+                page = page,
+                script = script,
+                pagePosition = index,
+                sessionDocumentRevision = sessionDocumentRevision,
+                savedSnapshot = snapshot,
+                recognizedAtMillis = recognizedAtMillis,
+            )
             if (snapshot != null) {
-                when (val persistence = OcrPageRecognitionPersistenceMapper.map(
-                    result = outcome,
-                    expected = snapshot,
-                    recognizedAtMillis = recognizedAtMillis,
-                )) {
+                when (val persistence = pageResult.persistence) {
                     is OcrPagePersistenceMapping.Ready -> mapped += persistence.outcome
                     OcrPagePersistenceMapping.NoChange,
                     OcrPagePersistenceMapping.Stale,
                     OcrPagePersistenceMapping.InvalidResult,
+                    null,
                     -> mappingsAreComplete = false
                 }
             }
-            outcome.toLegacyResult(index)
+            pageResult.outcome.toLegacyResult(index)
         }
         return ScriptedOcrSessionResult(
             result = OcrResult(pageResults),
@@ -64,7 +100,7 @@ class ScriptedOcrSessionRunner(private val engine: OcrPageRecognitionEngine) {
     private fun descriptor(
         index: Int,
         script: OcrScript,
-        sessionRevision: Long,
+        sessionRevision: Long?,
         snapshot: LibraryOcrPageSnapshot?,
     ): OcrPageRecognitionDescriptor {
         val address = if (snapshot == null) {

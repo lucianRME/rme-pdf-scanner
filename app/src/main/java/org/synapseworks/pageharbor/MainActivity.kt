@@ -111,6 +111,9 @@ import org.synapseworks.pageharbor.ocr.OcrScriptSelection
 import org.synapseworks.pageharbor.ocr.ScriptedOcrEngine
 import org.synapseworks.pageharbor.ocr.SharedPreferencesOcrLanguagePreferenceStore
 import org.synapseworks.pageharbor.ocr.resolve
+import org.synapseworks.pageharbor.ocr.review.OcrReviewRerunScope
+import org.synapseworks.pageharbor.ocr.review.OcrReviewViewModel
+import org.synapseworks.pageharbor.ocr.batch.OcrBatchViewModel
 import org.synapseworks.pageharbor.ocr.OcrUiError
 import org.synapseworks.pageharbor.ocr.OcrUiState
 import org.synapseworks.pageharbor.ocr.canStartOcr
@@ -191,6 +194,8 @@ private const val STATE_INBOUND_MIGRATION_RESTORE_EXISTING_TASK =
 class MainActivity : FragmentActivity() {
     private val session: PageHarborSessionViewModel by viewModels()
     private val library: LibraryViewModel by viewModels()
+    private val ocrReview: OcrReviewViewModel by viewModels()
+    private val ocrBatch: OcrBatchViewModel by viewModels()
     private val reviewEligibility: ReviewEligibilityViewModel by viewModels()
     private val appLock: AppLockViewModel by viewModels()
     private val portability: PortabilityWorkflowViewModel by viewModels()
@@ -533,6 +538,8 @@ class MainActivity : FragmentActivity() {
         }
         setContent {
             val libraryUiState by library.uiState.collectAsState()
+            val ocrReviewState by ocrReview.state.collectAsState()
+            val ocrBatchState by ocrBatch.state.collectAsState()
             val appLockState by appLock.state.collectAsState()
             val portabilityEngineState by portability.state.collectAsState()
             val migrationEngineState by migration.state.collectAsState()
@@ -600,6 +607,25 @@ class MainActivity : FragmentActivity() {
                     onMoveLibraryDocument = ::moveLibraryDocument,
                     onDeleteLibraryDocument = ::deleteLibraryDocument,
                     onMergeLibraryDocuments = library::mergeDocuments,
+                    ocrBatchState = ocrBatchState,
+                    onOpenOcrBatch = ocrBatch::openSetup,
+                    onOcrBatchModeChange = ocrBatch::setMode,
+                    onStartOcrBatch = { selection, useAsDefault ->
+                        val requested = when (selection) {
+                            OcrOperationSelection.UseDefault -> ocrDefaultSelection
+                            is OcrOperationSelection.Override ->
+                                OcrScriptSelection.Explicit(selection.script)
+                        }
+                        val recommendation = currentOcrRecommendation()
+                        ocrBatch.start(
+                            requestedSelection = requested,
+                            resolvedScript = resolveOcrOperation(selection, useAsDefault),
+                            localeRecommendation = recommendation.script,
+                        )
+                    },
+                    onCancelOcrBatch = ocrBatch::cancel,
+                    onRetryOcrBatch = ocrBatch::retryFailed,
+                    onDismissOcrBatch = ocrBatch::dismiss,
                     onCreateLibraryFolder = library::createFolder,
                     onRenameLibraryFolder = library::renameFolder,
                     onDeleteLibraryFolder = ::deleteLibraryFolder,
@@ -627,6 +653,38 @@ class MainActivity : FragmentActivity() {
                         recognizeText(resolveOcrOperation(selection, useAsDefault))
                     },
                     onClearRecognizedText = ::clearRecognizedText,
+                    ocrReviewState = ocrReviewState,
+                    onOpenOcrReview = {
+                        session.documentSession.libraryDocument?.let { document ->
+                            ocrReview.open(
+                                documentId = document.documentId,
+                                title = document.title,
+                                preferredPageId = session.documentPages
+                                    .getOrNull(ocrSelectedPageIndex)
+                                    ?.persistentId,
+                            )
+                        }
+                    },
+                    onCloseOcrReview = ocrReview::close,
+                    onOcrReviewBeginEdit = ocrReview::beginEdit,
+                    onOcrReviewDraftChange = ocrReview::updateDraft,
+                    onOcrReviewSave = ocrReview::saveCorrection,
+                    onOcrReviewCancelEdit = ocrReview::cancelEdit,
+                    onOcrReviewRevert = ocrReview::revertCorrection,
+                    onOcrReviewPageSelected = ocrReview::selectPage,
+                    onOcrReviewRerunPage = { selection, useAsDefault ->
+                        ocrReview.rerunOcr(
+                            OcrReviewRerunScope.PAGE,
+                            resolveOcrOperation(selection, useAsDefault),
+                        )
+                    },
+                    onOcrReviewRerunDocument = { selection, useAsDefault ->
+                        ocrReview.rerunOcr(
+                            OcrReviewRerunScope.DOCUMENT,
+                            resolveOcrOperation(selection, useAsDefault),
+                        )
+                    },
+                    onOcrReviewCancelRerun = ocrReview::cancelRerun,
                     onViewSourceCode = ::openSourceCode,
                     onRateRme = ::openPlayListing,
                     onSuggestFeature = ::suggestFeature,

@@ -35,6 +35,7 @@ import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.CreateNewFolder
@@ -48,6 +49,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MoveToInbox
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PrivacyTip
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Search
@@ -155,6 +157,7 @@ fun LibraryHomeScreen(
     onMoveDocument: (String, String?) -> Unit,
     onDeleteDocument: (String) -> Unit,
     onMergeDocuments: (List<String>, String) -> Unit,
+    onRecognizeSelectedDocuments: (List<String>) -> Unit = {},
     onCreateFolder: (String) -> Unit,
     onRenameFolder: (String, String) -> Unit,
     onDeleteFolder: (String) -> Unit,
@@ -343,6 +346,7 @@ fun LibraryHomeScreen(
                 onDeleteFolder = { confirmFolderDelete = true },
                 onClearMerge = { mergeSelection = emptyList() },
                 onMerge = { namingDialog = NamingDialog.MergeDocuments },
+                onRecognizeText = { onRecognizeSelectedDocuments(mergeSelection) },
                 onOpenDocument = onOpenDocument,
                 onToggleMerge = { document ->
                     mergeSelection = mergeSelection.toggle(document.id)
@@ -727,6 +731,7 @@ private fun DocumentsDestination(
     onDeleteFolder: () -> Unit,
     onClearMerge: () -> Unit,
     onMerge: () -> Unit,
+    onRecognizeText: () -> Unit,
     onOpenDocument: (String) -> Unit,
     onToggleMerge: (LibraryDocumentSummary) -> Unit,
     onRenameDocument: (LibraryDocumentSummary) -> Unit,
@@ -762,6 +767,18 @@ private fun DocumentsDestination(
             horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.large),
             verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.large),
         ) {
+            if (mergeSelection.isNotEmpty()) {
+                item(key = "documents-selection", span = { GridItemSpan(maxLineSpan) }) {
+                    MergeBar(
+                        selectedCount = mergeSelection.size,
+                        enabled = !working,
+                        stackActions = stackControls,
+                        onClear = onClearMerge,
+                        onMerge = onMerge,
+                        onRecognizeText = onRecognizeText,
+                    )
+                }
+            }
             item(key = "documents-search", span = { GridItemSpan(maxLineSpan) }) {
                 LibrarySearchField(
                     modifier = Modifier.fillMaxWidth(),
@@ -789,17 +806,6 @@ private fun DocumentsDestination(
                     onRenameFolder = onRenameFolder,
                     onDeleteFolder = onDeleteFolder,
                 )
-            }
-            if (mergeSelection.isNotEmpty()) {
-                item(key = "documents-merge", span = { GridItemSpan(maxLineSpan) }) {
-                    MergeBar(
-                        selectedCount = mergeSelection.size,
-                        enabled = !working,
-                        stackActions = stackControls,
-                        onClear = onClearMerge,
-                        onMerge = onMerge,
-                    )
-                }
             }
             if (uiState.documents.isEmpty()) {
                 item(key = "documents-empty", span = { GridItemSpan(maxLineSpan) }) {
@@ -1672,7 +1678,9 @@ private fun MergeBar(
     stackActions: Boolean,
     onClear: () -> Unit,
     onMerge: () -> Unit,
+    onRecognizeText: () -> Unit,
 ) {
+    val recognizeLabel = stringResource(R.string.ocr_batch_recognize_selected)
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.primaryContainer,
@@ -1687,12 +1695,25 @@ private fun MergeBar(
                     text = stringResource(R.string.library_merge_selected_count, selectedCount),
                     style = MaterialTheme.typography.titleMedium,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
-                    TextButton(onClick = onClear) {
+                Column(verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall)) {
+                    TextButton(modifier = Modifier.fillMaxWidth(), onClick = onClear) {
                         Text(stringResource(R.string.library_clear_selection))
                     }
-                    Button(enabled = enabled && selectedCount >= 2, onClick = onMerge) {
+                    Button(
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = enabled && selectedCount >= 2,
+                        onClick = onMerge,
+                    ) {
                         Text(stringResource(R.string.library_merge_action))
+                    }
+                    FilledTonalButton(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics { contentDescription = recognizeLabel },
+                        enabled = enabled,
+                        onClick = onRecognizeText,
+                    ) {
+                        Text(recognizeLabel)
                     }
                 }
             }
@@ -1712,6 +1733,13 @@ private fun MergeBar(
                 }
                 Button(enabled = enabled && selectedCount >= 2, onClick = onMerge) {
                     Text(stringResource(R.string.library_merge_action))
+                }
+                FilledTonalButton(
+                    modifier = Modifier.semantics { contentDescription = recognizeLabel },
+                    enabled = enabled,
+                    onClick = onRecognizeText,
+                ) {
+                    Text(recognizeLabel)
                 }
             }
         }
@@ -1868,6 +1896,20 @@ private fun DocumentDetails(
                 )
             }
             Spacer(modifier = Modifier.weight(1f))
+            IconButton(enabled = enabled, onClick = onToggleMerge) {
+                Icon(
+                    imageVector = if (mergePosition == null) {
+                        Icons.Default.RadioButtonUnchecked
+                    } else {
+                        Icons.Default.CheckCircle
+                    },
+                    contentDescription = if (mergePosition == null) {
+                        stringResource(R.string.library_add_to_merge)
+                    } else {
+                        stringResource(R.string.library_remove_from_merge, mergePosition + 1)
+                    },
+                )
+            }
             DocumentOverflowMenu(
                 documentTitle = document.title,
                 mergePosition = mergePosition,
@@ -1892,6 +1934,11 @@ private fun DocumentOverflowMenu(
     onDelete: () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val selectionAction = if (mergePosition == null) {
+        stringResource(R.string.library_add_to_merge)
+    } else {
+        stringResource(R.string.library_remove_from_merge, mergePosition + 1)
+    }
     Box {
         IconButton(enabled = enabled, onClick = { expanded = true }) {
             Icon(
@@ -1901,14 +1948,9 @@ private fun DocumentOverflowMenu(
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(
+                modifier = Modifier.semantics { contentDescription = selectionAction },
                 text = {
-                    Text(
-                        if (mergePosition == null) {
-                            stringResource(R.string.library_add_to_merge)
-                        } else {
-                            stringResource(R.string.library_remove_from_merge, mergePosition + 1)
-                        },
-                    )
+                    Text(selectionAction)
                 },
                 onClick = {
                     expanded = false
