@@ -296,11 +296,27 @@ data class LibraryOcrReviewPage(
 
 data class LibrarySearchHit(
     val documentId: String,
+    val documentTitle: String,
     val pageId: String?,
     val currentPagePosition: Int?,
     val matchType: LibrarySearchMatch,
     val snippet: String?,
 )
+
+sealed interface LibrarySearchState {
+    data object Idle : LibrarySearchState
+
+    data class TooShort(val query: String) : LibrarySearchState
+
+    data class Loading(val query: String) : LibrarySearchState
+
+    data class Results(
+        val query: String,
+        val hits: List<LibrarySearchHit>,
+        val canLoadMore: Boolean,
+        val hasMoreResults: Boolean = canLoadMore,
+    ) : LibrarySearchState
+}
 
 data class OcrBatchTarget(
     val itemId: String,
@@ -392,6 +408,27 @@ internal fun String.toFtsPrefixQuery(): String? {
     // Tokens contain only letters and numbers. Whitespace is FTS4's portable implicit-AND
     // syntax; the explicit AND operator is not enabled by every Android SQLite build.
     return tokens.joinToString(" ") { token -> "$token*" }
+}
+
+internal fun String.isUsefulLibrarySearchQuery(): Boolean {
+    val tokens = SEARCH_TOKEN_REGEX.findAll(normalizeSearchText(this)).map { it.value }.toList()
+    if (tokens.isEmpty()) return false
+    return tokens.any { token ->
+        token.codePoints().anyMatch(::isCjkSearchCodePoint) || token.codePointCount(0, token.length) >= 2
+    }
+}
+
+internal fun matchesLibrarySearchText(value: String, query: String): Boolean {
+    val normalizedValue = normalizeSearchText(value)
+    val valueTokens = SEARCH_TOKEN_REGEX.findAll(normalizedValue).map { it.value }.toList()
+    val queryTokens = SEARCH_TOKEN_REGEX.findAll(normalizeSearchText(query)).map { it.value }.toList()
+    return queryTokens.isNotEmpty() && queryTokens.all { queryToken ->
+        if (queryToken.codePoints().anyMatch(::isCjkSearchCodePoint)) {
+            normalizedValue.contains(queryToken)
+        } else {
+            valueTokens.any { valueToken -> valueToken.startsWith(queryToken) }
+        }
+    }
 }
 
 internal fun searchAuxiliaryTerms(value: String): String = buildList {

@@ -87,13 +87,20 @@ class LibraryRepository internal constructor(
         ) { documentRows, pageRows ->
             (documentRows + pageRows)
                 .sortedWith(
-                    compareByDescending<LibrarySearchRow> { it.modifiedAtMillis }
+                    compareBy<LibrarySearchRow> { row ->
+                        when (row.resolvedSearchMatch(raw)) {
+                            LibrarySearchMatch.TITLE -> 0
+                            LibrarySearchMatch.FOLDER -> 1
+                            LibrarySearchMatch.OCR -> 2
+                        }
+                    }
+                        .thenByDescending { it.modifiedAtMillis }
                         .thenBy { it.title.lowercase(Locale.ROOT) }
                         .thenBy { it.pagePosition ?: -1 },
                 )
                 .distinctBy(LibrarySearchRow::documentId)
                 .take(OBSERVED_SEARCH_LIMIT)
-                .map(LibrarySearchRow::toSummary)
+                .map { row -> row.toSummary(raw) }
         }
     }
 
@@ -120,25 +127,55 @@ class LibraryRepository internal constructor(
             afterPageId,
             boundedLimit,
         )
-        return (documentRows + pageRows)
-            .sortedWith(
-                compareByDescending<LibrarySearchRow> { it.modifiedAtMillis }
-                    .thenBy(LibrarySearchRow::documentId)
-                    .thenBy { it.pagePosition ?: -1 },
-            )
-            .distinctBy { row -> Triple(row.documentId, row.pageId, row.matchType) }
-            .take(boundedLimit)
-            .map { row ->
-                LibrarySearchHit(
-                    documentId = row.documentId,
-                    pageId = row.pageId,
-                    currentPagePosition = row.pagePosition,
-                    matchType = runCatching { LibrarySearchMatch.valueOf(row.matchType) }
-                        .getOrDefault(LibrarySearchMatch.OCR),
-                    snippet = row.matchSnippet?.trim()?.takeIf(String::isNotBlank),
-                )
-            }
+        return rankedSearchHits(raw, documentRows, pageRows, boundedLimit)
     }
+
+    fun observeSearchHits(
+        query: String,
+        limit: Int = DEFAULT_SEARCH_PAGE_SIZE,
+    ): Flow<List<LibrarySearchHit>>? {
+        val raw = query.trim()
+        val fts = raw.toFtsPrefixQuery() ?: return null
+        val boundedLimit = limit.coerceIn(1, MAX_SEARCH_PAGE_SIZE)
+        return combine(
+            dao.observeDocumentSearch(fts, raw, boundedLimit),
+            dao.observePageSearch(fts, boundedLimit),
+        ) { documentRows, pageRows ->
+            rankedSearchHits(raw, documentRows, pageRows, boundedLimit)
+        }
+    }
+
+    private fun rankedSearchHits(
+        rawQuery: String,
+        documentRows: List<LibrarySearchRow>,
+        pageRows: List<LibrarySearchRow>,
+        boundedLimit: Int,
+    ): List<LibrarySearchHit> = (documentRows + pageRows)
+        .sortedWith(
+            compareBy<LibrarySearchRow> { row ->
+                when (row.resolvedSearchMatch(rawQuery)) {
+                    LibrarySearchMatch.TITLE -> 0
+                    LibrarySearchMatch.FOLDER -> 1
+                    LibrarySearchMatch.OCR -> 2
+                }
+            }
+                .thenByDescending { it.modifiedAtMillis }
+                .thenBy { it.title.lowercase(Locale.ROOT) }
+                .thenBy(LibrarySearchRow::documentId)
+                .thenBy { it.pagePosition ?: -1 },
+        )
+        .distinctBy { row -> Triple(row.documentId, row.pageId, row.matchType) }
+        .take(boundedLimit)
+        .map { row ->
+            LibrarySearchHit(
+                documentId = row.documentId,
+                documentTitle = row.title,
+                pageId = row.pageId,
+                currentPagePosition = row.pagePosition,
+                matchType = row.resolvedSearchMatch(rawQuery),
+                snippet = row.matchSnippet?.trim()?.takeIf(String::isNotBlank),
+            )
+        }
 
     suspend fun saveSession(
         session: DocumentSession,
@@ -1063,7 +1100,7 @@ private fun LibraryDocumentListingRow.toSummary(): LibraryDocumentSummary = Libr
         .getOrDefault(LibraryOcrStatus.NOT_INDEXED),
 )
 
-private fun LibrarySearchRow.toSummary(): LibraryDocumentSummary = LibraryDocumentSummary(
+private fun LibrarySearchRow.toSummary(query: String): LibraryDocumentSummary = LibraryDocumentSummary(
     id = documentId,
     title = title,
     createdAtMillis = createdAtMillis,
@@ -1074,12 +1111,22 @@ private fun LibrarySearchRow.toSummary(): LibraryDocumentSummary = LibraryDocume
     thumbnailRelativePath = thumbnailRelativePath,
     ocrStatus = runCatching { LibraryOcrStatus.valueOf(ocrStatus) }
         .getOrDefault(LibraryOcrStatus.NOT_INDEXED),
-    searchMatch = runCatching { LibrarySearchMatch.valueOf(matchType) }
-        .getOrDefault(LibrarySearchMatch.OCR),
+    searchMatch = resolvedSearchMatch(query),
     searchSnippet = matchSnippet?.trim()?.takeIf(String::isNotBlank),
     matchingPageId = pageId,
     matchingPagePosition = pagePosition,
 )
+
+private fun LibrarySearchRow.resolvedSearchMatch(query: String): LibrarySearchMatch {
+    val stored = runCatching { LibrarySearchMatch.valueOf(matchType) }
+        .getOrDefault(LibrarySearchMatch.OCR)
+    if (stored == LibrarySearchMatch.OCR) return stored
+    return if (matchesLibrarySearchText(title, query)) {
+        LibrarySearchMatch.TITLE
+    } else {
+        LibrarySearchMatch.FOLDER
+    }
+}
 
 private fun LibraryDocumentEntity.toSummary(folderName: String?): LibraryDocumentSummary =
     LibraryDocumentSummary(
@@ -1120,4 +1167,6 @@ private fun logicalDocumentSha256(pages: List<LibraryPageEntity>): String {
 private const val ORIGINAL_DOCUMENT_ASSET_ROLE = "ORIGINAL_DOCUMENT"
 private const val OBSERVED_SEARCH_LIMIT = 150
 private const val DEFAULT_SEARCH_PAGE_SIZE = 30
-private const val MAX_SEARCH_PAGE_SIZE = 50
+internal const val LIBRARY_SEARCH_INITIAL_LIMIT = 30
+internal const val LIBRARY_SEARCH_MAX_LIMIT = 200
+private const val MAX_SEARCH_PAGE_SIZE = LIBRARY_SEARCH_MAX_LIMIT + 1

@@ -99,6 +99,7 @@ class OcrBatchViewModelInstrumentedTest {
                 11,
             ),
         )
+        val failedPage = "document-b-page-0"
         val engine = OcrPageRecognitionEngine { request ->
             if (request.descriptor.address.pageId == "document-b-page-0") {
                 OcrPageRecognitionOutcome.Failure(
@@ -122,6 +123,35 @@ class OcrBatchViewModelInstrumentedTest {
         assertEquals(
             "document-a-page-1",
             dao.pageSearchPage("searchable*", Long.MAX_VALUE, "", 10).single().pageId,
+        )
+    }
+
+    @Test
+    fun failedRerunPreservesPriorValidSearchState() = runBlocking {
+        storeDocument("document-failed-rerun", 1)
+        val dao = database.libraryDao()
+        val pageId = "document-failed-rerun-page-0"
+        val snapshot = requireNotNull(dao.ocrPageSnapshot("document-failed-rerun", pageId))
+        assertEquals(
+            LibraryOcrCommitResult.APPLIED,
+            dao.commitOcrArtifact(snapshot, artifact(snapshot, "prior valid searchable state"), 12),
+        )
+        val viewModel = viewModel(
+            engine = OcrPageRecognitionEngine { request ->
+                OcrPageRecognitionOutcome.Failure(
+                    request.descriptor,
+                    org.synapseworks.pageharbor.ocr.OcrFailureReason.IMAGE_UNREADABLE,
+                )
+            },
+        )
+        viewModel.openSetup(listOf("document-failed-rerun"))
+        viewModel.setMode(OcrBatchMode.RERUN)
+        viewModel.start(OcrScriptSelection.Explicit(OcrScript.LATIN), OcrScript.LATIN, OcrScript.LATIN)
+
+        assertEquals(1, awaitFinished(viewModel).summary.failedPages)
+        assertEquals(
+            pageId,
+            dao.pageSearchPage("prior*", Long.MAX_VALUE, "", 10).single().pageId,
         )
     }
 

@@ -8,11 +8,16 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -55,6 +60,7 @@ data class LibraryUiState(
     val query: String = "",
     val selectedFolderId: String? = null,
     val sortOrder: LibrarySortOrder = LibrarySortOrder.MODIFIED_DESC,
+    val searchState: LibrarySearchState = LibrarySearchState.Idle,
     val actionState: LibraryActionState = LibraryActionState.Idle,
 )
 
@@ -76,17 +82,16 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val query = MutableStateFlow("")
     private val selectedFolderId = MutableStateFlow<String?>(null)
     private val sortOrder = MutableStateFlow(LibrarySortOrder.MODIFIED_DESC)
+    private val searchLimit = MutableStateFlow(LIBRARY_SEARCH_INITIAL_LIMIT)
     private val actionState = MutableStateFlow<LibraryActionState>(LibraryActionState.Idle)
     private val nextEventId = AtomicLong(0L)
 
-    private val documents = combine(query, selectedFolderId, sortOrder) { query, folderId, sort ->
-        Triple(query, folderId, sort)
-    }.flatMapLatest { (query, folderId, sort) ->
-        if (query.isBlank()) {
-            repository.observeDocuments(folderId, sort)
-        } else {
-            repository.observeSearch(query) ?: flowOf(emptyList())
-        }
+    private val documents = combine(selectedFolderId, sortOrder) { folderId, sort ->
+        folderId to sort
+    }.flatMapLatest { (folderId, sort) -> repository.observeDocuments(folderId, sort) }
+
+    private val searchState = librarySearchStateFlow(query, searchLimit) { value, limit ->
+        repository.observeSearchHits(value, limit = limit) ?: flowOf(emptyList())
     }
 
     private val recentDocuments = repository.observeDocuments(
@@ -101,7 +106,8 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     )
     private val controls = combine(query, selectedFolderId, sortOrder, ::LibraryControls)
 
-    val uiState = combine(content, controls, actionState) { content, controls, action ->
+    val uiState = combine(content, controls, searchState, actionState) {
+            content, controls, search, action ->
         LibraryUiState(
             documents = content.documents,
             recentDocuments = content.recentDocuments,
@@ -110,6 +116,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             query = controls.query,
             selectedFolderId = controls.folderId,
             sortOrder = controls.sortOrder,
+            searchState = search,
             actionState = action,
         )
     }.stateIn(
@@ -119,11 +126,21 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     )
 
     fun updateQuery(value: String) {
-        query.value = value.take(160)
+        val updated = value.take(160)
+        if (updated != query.value) searchLimit.value = LIBRARY_SEARCH_INITIAL_LIMIT
+        query.value = updated
+    }
+
+    fun loadMoreSearchResults() {
+        if (query.value.isUsefulLibrarySearchQuery()) {
+            searchLimit.value = (searchLimit.value + LIBRARY_SEARCH_INITIAL_LIMIT)
+                .coerceAtMost(LIBRARY_SEARCH_MAX_LIMIT)
+        }
     }
 
     fun selectFolder(folderId: String?) {
         selectedFolderId.value = folderId
+        searchLimit.value = LIBRARY_SEARCH_INITIAL_LIMIT
         query.value = ""
     }
 
@@ -317,6 +334,43 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             )
         }
         return result
+    }
+}
+
+private const val SEARCH_DEBOUNCE_MILLIS = 250L
+
+@OptIn(ExperimentalCoroutinesApi::class)
+internal fun librarySearchStateFlow(
+    query: Flow<String>,
+    limit: Flow<Int>,
+    debounceMillis: Long = SEARCH_DEBOUNCE_MILLIS,
+    search: (query: String, limit: Int) -> Flow<List<LibrarySearchHit>>,
+): Flow<LibrarySearchState> = combine(query, limit) { value, requestedLimit ->
+    value.trim() to requestedLimit
+}.flatMapLatest { (value, requestedLimit) ->
+    flow {
+        when {
+            value.isBlank() -> emit(LibrarySearchState.Idle)
+            !value.isUsefulLibrarySearchQuery() -> emit(LibrarySearchState.TooShort(value))
+            else -> {
+                emit(LibrarySearchState.Loading(value))
+                delay(debounceMillis)
+                search(value, requestedLimit + 1).collect { hits ->
+                    val hasMoreResults = hits.size > requestedLimit
+                    emit(
+                        LibrarySearchState.Results(
+                            query = value,
+                            hits = hits.take(requestedLimit),
+                            canLoadMore = hasMoreResults &&
+                                requestedLimit < LIBRARY_SEARCH_MAX_LIMIT,
+                            hasMoreResults = hasMoreResults,
+                        ),
+                    )
+                }
+            }
+        }
+    }.catch {
+        emit(LibrarySearchState.Results(value, emptyList(), canLoadMore = false))
     }
 }
 

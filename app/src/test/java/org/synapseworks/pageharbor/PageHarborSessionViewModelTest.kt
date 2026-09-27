@@ -21,6 +21,7 @@ import org.synapseworks.pageharbor.document.session.DocumentResourceCleaner
 import org.synapseworks.pageharbor.document.session.DocumentResourceOwnership
 import org.synapseworks.pageharbor.document.session.DocumentSourceCategory
 import org.synapseworks.pageharbor.document.session.DocumentSession
+import org.synapseworks.pageharbor.document.session.LibraryDocumentReference
 import org.synapseworks.pageharbor.document.session.OwnedTemporaryFile
 import org.synapseworks.pageharbor.document.session.PendingResourceRegistrationResult
 import org.synapseworks.pageharbor.image.DocumentFilter
@@ -31,6 +32,56 @@ import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.ui.PageHarborScreen
 
 class PageHarborSessionViewModelTest {
+    @Test
+    fun librarySearchOpenResolvesStablePageIdAgainstCurrentOrder() {
+        val viewModel = PageHarborSessionViewModel()
+        val reordered = librarySession("page-three", "page-one", "page-two")
+
+        assertEquals(true, viewModel.openLibraryDocument(reordered, "page-two"))
+
+        assertEquals("page-two", viewModel.openedPagePersistentId)
+        assertEquals(2, viewModel.ocrSelectedPageIndex)
+        assertEquals(1L, viewModel.openedPageRequestId)
+    }
+
+    @Test
+    fun librarySearchOpenFallsBackSafelyWhenMatchedPageWasDeleted() {
+        val viewModel = PageHarborSessionViewModel()
+
+        assertEquals(true, viewModel.openLibraryDocument(librarySession("page-one"), "deleted"))
+
+        assertEquals(null, viewModel.openedPagePersistentId)
+        assertEquals(0, viewModel.ocrSelectedPageIndex)
+        assertEquals(PageHarborScreen.ScanResult, viewModel.screen)
+    }
+
+    @Test
+    fun librarySearchOpenHandlesFirstAndLastStablePagesAcrossRequests() {
+        val viewModel = PageHarborSessionViewModel()
+
+        assertEquals(
+            true,
+            viewModel.openLibraryDocument(
+                librarySession("page-one", "page-two", "page-three"),
+                "page-one",
+            ),
+        )
+        assertEquals("page-one", viewModel.openedPagePersistentId)
+        assertEquals(0, viewModel.ocrSelectedPageIndex)
+        val firstRequestId = viewModel.openedPageRequestId
+
+        assertEquals(
+            true,
+            viewModel.openLibraryDocument(
+                librarySession("page-three", "page-two", "page-one"),
+                "page-one",
+            ),
+        )
+        assertEquals("page-one", viewModel.openedPagePersistentId)
+        assertEquals(2, viewModel.ocrSelectedPageIndex)
+        assertEquals(firstRequestId + 1L, viewModel.openedPageRequestId)
+    }
+
     @Test
     fun imageImportCreatesTheSameSharedSessionUsedByScannerPages() {
         val session = PageHarborSessionViewModel()
@@ -772,6 +823,21 @@ class PageHarborSessionViewModelTest {
                 sourceCategory = DocumentSourceCategory.RENDERED_PDF_PAGE,
             ),
         ),
+    )
+
+    private fun librarySession(vararg persistentIds: String): DocumentSession = DocumentSession(
+        pages = persistentIds.mapIndexed { index, persistentId ->
+            DocumentPage(
+                id = DocumentPageId(index.toLong() + 10L),
+                source = DocumentResource(
+                    reference = "content://library/$persistentId",
+                    ownership = DocumentResourceOwnership.USER_OR_EXTERNAL,
+                ),
+                sourceCategory = DocumentSourceCategory.SELECTED_IMAGE,
+                persistentId = persistentId,
+            )
+        },
+        libraryDocument = LibraryDocumentReference("document", "Search result"),
     )
 
     private fun importSuccess(

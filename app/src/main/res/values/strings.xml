@@ -287,6 +287,14 @@
     <string name="library_document_folder">Folder: %1$s</string>
     <string name="library_search_match_title">Title match</string>
     <string name="library_search_match_ocr">Recognized-text match</string>
+    <string name="library_search_match_metadata">Document details match</string>
+    <string name="library_search_loading">Searching this device…</string>
+    <string name="library_search_more_characters">Type at least two letters or numbers.</string>
+    <string name="library_search_page">Page %1$d</string>
+    <string name="library_search_page_with_count">%1$s · %2$d matching pages</string>
+    <string name="library_search_show_more">Show more results</string>
+    <string name="library_search_limit_reached">Showing the first %1$d results. Refine your search to narrow the list.</string>
+    <string name="library_search_result_accessibility">%1$s. %2$s. %3$s. Open result.</string>
     <string name="library_open_action">Open</string>
     <string name="library_add_to_merge">Select for actions</string>
     <string name="library_remove_from_merge">Remove from selection · position %1$d</string>

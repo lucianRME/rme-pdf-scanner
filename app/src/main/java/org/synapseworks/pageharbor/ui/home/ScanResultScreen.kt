@@ -112,6 +112,8 @@ fun ScanResultScreen(
     searchablePdfSaveState: SearchablePdfSaveState,
     documentPages: List<DocumentPage>,
     libraryDocument: LibraryDocumentReference?,
+    openedPageRequestId: Long,
+    openedPagePersistentId: String?,
     libraryFolders: List<LibraryFolder>,
     libraryActionState: LibraryActionState,
     importUiState: DocumentImportUiState,
@@ -138,6 +140,7 @@ fun ScanResultScreen(
     onDiscard: () -> Unit,
 ) {
     var selectedPageId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var handledOpenPageRequestId by rememberSaveable { mutableStateOf<Long?>(null) }
     var showLibrarySaveDialog by rememberSaveable { mutableStateOf(false) }
     var showPageToolsDialog by rememberSaveable { mutableStateOf(false) }
     var showRenameDialog by rememberSaveable { mutableStateOf(false) }
@@ -145,8 +148,13 @@ fun ScanResultScreen(
     var showDeleteDialog by rememberSaveable { mutableStateOf(false) }
     var activeSheet by rememberSaveable { mutableStateOf<DocumentSheet?>(null) }
     var editPanel by rememberSaveable { mutableStateOf(DocumentEditPanel.None) }
-    LaunchedEffect(documentPages) {
-        if (documentPages.none { it.id.value == selectedPageId }) {
+    LaunchedEffect(documentPages, openedPageRequestId) {
+        if (handledOpenPageRequestId != openedPageRequestId) {
+            selectedPageId = openedPagePersistentId?.let { stableId ->
+                documentPages.firstOrNull { page -> page.persistentId == stableId }?.id?.value
+            } ?: documentPages.firstOrNull()?.id?.value
+            handledOpenPageRequestId = openedPageRequestId
+        } else if (documentPages.none { it.id.value == selectedPageId }) {
             selectedPageId = documentPages.firstOrNull()?.id?.value
         }
     }

@@ -596,6 +596,8 @@ class MainActivity : FragmentActivity() {
                     scannedPageUris = scannedPageUris,
                     documentPages = session.documentPages,
                     libraryDocument = session.documentSession.libraryDocument,
+                    openedPageRequestId = session.openedPageRequestId,
+                    openedPagePersistentId = session.openedPagePersistentId,
                     importUiState = session.importUiState,
                     libraryUiState = libraryUiState,
                     libraryThumbnailUri = library::thumbnailUri,
@@ -603,6 +605,7 @@ class MainActivity : FragmentActivity() {
                     onLibraryFolderSelected = library::selectFolder,
                     onLibrarySortOrderChange = library::updateSortOrder,
                     onOpenLibraryDocument = ::openLibraryDocument,
+                    onLoadMoreLibrarySearchResults = library::loadMoreSearchResults,
                     onRenameLibraryDocument = ::renameLibraryDocument,
                     onMoveLibraryDocument = ::moveLibraryDocument,
                     onDeleteLibraryDocument = ::deleteLibraryDocument,
@@ -1436,14 +1439,14 @@ class MainActivity : FragmentActivity() {
         PortabilityWorkflowKind.WHOLE_LIBRARY_EXPORT -> "Export library"
     }
 
-    private fun openLibraryDocument(documentId: String) {
+    private fun openLibraryDocument(documentId: String, pageId: String? = null) {
         lifecycleScope.launch {
             when (val opened = library.openDocument(documentId)) {
                 is LibraryResult.Success -> {
                     clearRecognizedText()
                     clearSearchablePdfSave()
                     clearNormalDocumentOperations()
-                    if (session.openLibraryDocument(opened.value.session) &&
+                    if (session.openLibraryDocument(opened.value.session, pageId) &&
                         !session.hasActiveDocumentSessionLeases()
                     ) {
                         library.cleanupDocumentRevisions(documentId)

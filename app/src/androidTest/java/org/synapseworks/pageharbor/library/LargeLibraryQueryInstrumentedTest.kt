@@ -8,6 +8,8 @@ import androidx.room.withTransaction
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.File
+import java.util.concurrent.Executor
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -25,12 +27,18 @@ class LargeLibraryQueryInstrumentedTest {
     private val libraryDirectory = File(context.cacheDir, "large-library-query-test")
     private lateinit var database: LibraryDatabase
     private lateinit var repository: LibraryRepository
+    private val measuredQueryCount = AtomicInteger()
+    @Volatile private var measureQueries = false
 
     @Before
     fun setUp() {
         libraryDirectory.deleteRecursively()
         database = Room.inMemoryDatabaseBuilder(context, LibraryDatabase::class.java)
             .allowMainThreadQueries()
+            .setQueryCallback(
+                { _, _ -> if (measureQueries) measuredQueryCount.incrementAndGet() },
+                Executor(Runnable::run),
+            )
             .build()
         repository = LibraryRepository(
             context = context,
@@ -51,6 +59,7 @@ class LargeLibraryQueryInstrumentedTest {
         val heapBefore = compactedHeapBytes()
 
         seedLargeLibrary()
+        assertIndexedSearchPlan()
 
         val byModified = repository.observeDocuments(null, LibrarySortOrder.MODIFIED_DESC).first()
         val byCreated = repository.observeDocuments(null, LibrarySortOrder.CREATED_DESC).first()
@@ -209,63 +218,81 @@ class LargeLibraryQueryInstrumentedTest {
                 }
             }
 
-            repeat(DOCUMENT_COUNT) { documentIndex ->
-                val id = documentId(documentIndex)
-                val rootIndex = documentIndex / DOCUMENTS_PER_ROOT
-                val leafIndex = (documentIndex / DOCUMENTS_PER_LEAF) % LEAVES_PER_ROOT
-                val ocrText = if (documentIndex % OCR_MATCH_INTERVAL == 0) {
-                    "archive quartz ledger record ${documentIndex.toString().padStart(4, '0')}"
-                } else {
-                    "ordinary searchable record ${documentIndex.toString().padStart(4, '0')}"
+        }
+        var firstIndex = 0
+        SEARCH_SCALE_CHECKPOINTS.forEach { checkpoint ->
+            database.withTransaction {
+                (firstIndex until checkpoint).forEach { documentIndex ->
+                    insertSyntheticDocument(dao, documentIndex)
                 }
-                val document = LibraryDocumentEntity(
-                    documentId = id,
-                    title = if (documentIndex == TITLE_MATCH_INDEX) {
-                        "Quartz title ${documentIndex.toString().padStart(4, '0')}"
-                    } else {
-                        "Document ${documentIndex.toString().padStart(4, '0')}"
-                    },
-                    createdAtMillis = createdAt(documentIndex),
-                    modifiedAtMillis = modifiedAt(documentIndex),
-                    pageCount = PAGES_PER_DOCUMENT,
-                    folderId = leafFolderId(rootIndex, leafIndex),
-                    thumbnailRelativePath = "documents/$id/thumbnail.webp",
-                    ocrStatus = LibraryOcrStatus.INDEXED.name,
-                    contentHashVersion = 1,
-                    contentSha256 = syntheticHash(documentIndex),
-                    contentByteCount = PAGES_PER_DOCUMENT * SYNTHETIC_PAGE_BYTES,
-                    sourceModifiedAtMillis = 9_000L + documentIndex,
-                    importedAtMillis = 10_000L + documentIndex,
-                )
-                val pages = List(PAGES_PER_DOCUMENT) { position ->
-                    LibraryPageEntity(
-                        pageId = "$id-page-$position",
-                        documentId = id,
-                        position = position,
-                        relativePath = "documents/$id/pages/$position.webp",
-                        contentType = "image/webp",
-                        sourceCategory = DocumentSourceCategory.RENDERED_PDF_PAGE.name,
-                        width = 1_200,
-                        height = 1_600,
-                        sourceByteCount = SYNTHETIC_PAGE_BYTES,
-                        rotationDegrees = 0,
-                        filterName = DocumentFilter.ORIGINAL.name,
-                        ocrText = buildString {
-                            append(if (position == 0) ocrText else "ordinary searchable page $position")
-                            repeat(OCR_PARAGRAPH_REPETITIONS) {
-                                append(" local private document text block ")
-                                append(documentIndex)
-                                append(' ')
-                                append(position)
-                            }
-                        },
-                        ocrError = null,
-                        contentSha256 = syntheticHash(
-                            (documentIndex * PAGES_PER_DOCUMENT) + position + DOCUMENT_COUNT,
-                        ),
-                    )
-                }
-                val sourceAsset = LibrarySourceAssetEntity(
+            }
+            benchmarkSearchScale(checkpoint)
+            firstIndex = checkpoint
+        }
+    }
+
+    private suspend fun insertSyntheticDocument(dao: LibraryDao, documentIndex: Int) {
+        val id = documentId(documentIndex)
+        val rootIndex = documentIndex / DOCUMENTS_PER_ROOT
+        val leafIndex = (documentIndex / DOCUMENTS_PER_LEAF) % LEAVES_PER_ROOT
+        val ocrText = if (documentIndex % OCR_MATCH_INTERVAL == 0) {
+            "archive quartz ledger record ${documentIndex.toString().padStart(4, '0')}"
+        } else {
+            "ordinary searchable record ${documentIndex.toString().padStart(4, '0')}"
+        }
+        val document = LibraryDocumentEntity(
+            documentId = id,
+            title = if (documentIndex == TITLE_MATCH_INDEX) {
+                "Quartz title ${documentIndex.toString().padStart(4, '0')}"
+            } else {
+                "Document ${documentIndex.toString().padStart(4, '0')}"
+            },
+            createdAtMillis = createdAt(documentIndex),
+            modifiedAtMillis = modifiedAt(documentIndex),
+            pageCount = PAGES_PER_DOCUMENT,
+            folderId = leafFolderId(rootIndex, leafIndex),
+            thumbnailRelativePath = "documents/$id/thumbnail.webp",
+            ocrStatus = LibraryOcrStatus.INDEXED.name,
+            contentHashVersion = 1,
+            contentSha256 = syntheticHash(documentIndex),
+            contentByteCount = PAGES_PER_DOCUMENT * SYNTHETIC_PAGE_BYTES,
+            sourceModifiedAtMillis = 9_000L + documentIndex,
+            importedAtMillis = 10_000L + documentIndex,
+        )
+        val pages = List(PAGES_PER_DOCUMENT) { position ->
+            LibraryPageEntity(
+                pageId = "$id-page-$position",
+                documentId = id,
+                position = position,
+                relativePath = "documents/$id/pages/$position.webp",
+                contentType = "image/webp",
+                sourceCategory = DocumentSourceCategory.RENDERED_PDF_PAGE.name,
+                width = 1_200,
+                height = 1_600,
+                sourceByteCount = SYNTHETIC_PAGE_BYTES,
+                rotationDegrees = 0,
+                filterName = DocumentFilter.ORIGINAL.name,
+                ocrText = buildString {
+                    append(if (position == 0) ocrText else "ordinary searchable page $position")
+                    repeat(OCR_PARAGRAPH_REPETITIONS) {
+                        append(" local private document text block ")
+                        append(documentIndex)
+                        append(' ')
+                        append(position)
+                    }
+                },
+                ocrError = null,
+                contentSha256 = syntheticHash(
+                    (documentIndex * PAGES_PER_DOCUMENT) + position + DOCUMENT_COUNT,
+                ),
+            )
+        }
+        dao.replaceDocument(
+            document = document,
+            pages = pages,
+            ocrText = ocrText,
+            sourceAssets = listOf(
+                LibrarySourceAssetEntity(
                     assetId = "$id-source",
                     documentId = id,
                     role = "ORIGINAL_DOCUMENT",
@@ -276,14 +303,74 @@ class LargeLibraryQueryInstrumentedTest {
                     sourceModifiedAtMillis = 9_000L + documentIndex,
                     createdAtMillis = 10_000L + documentIndex,
                     matchesCurrentRevision = true,
-                )
-                dao.replaceDocument(
-                    document = document,
-                    pages = pages,
-                    ocrText = ocrText,
-                    sourceAssets = listOf(sourceAsset),
-                )
+                ),
+            ),
+        )
+    }
+
+    private suspend fun benchmarkSearchScale(documentCount: Int) {
+        val heapBefore = compactedHeapBytes()
+        listOf("searchable record", "record 0096", "no such local token").forEach { query ->
+            measuredQueryCount.set(0)
+            measureQueries = true
+            val startedAt = SystemClock.elapsedRealtime()
+            val hits = try {
+                repository.searchHits(query, limit = SEARCH_RESULT_LIMIT)
+            } finally {
+                measureQueries = false
             }
+            val elapsed = SystemClock.elapsedRealtime() - startedAt
+            val queries = measuredQueryCount.get()
+            Log.i(
+                "LargeLibraryQuery",
+                "scaleDocs=$documentCount pages=${documentCount * PAGES_PER_DOCUMENT} " +
+                    "query='$query' durationMs=$elapsed results=${hits.size} sqlQueries=$queries",
+            )
+            assertTrue("Scale query took ${elapsed}ms at $documentCount documents", elapsed < MAX_QUERY_MILLIS)
+            assertTrue("Search returned too many results", hits.size <= SEARCH_RESULT_LIMIT)
+            assertTrue("Expected a bounded query count but observed $queries", queries in 1..4)
+        }
+        val heapGrowth = (compactedHeapBytes() - heapBefore).coerceAtLeast(0L)
+        Log.i("LargeLibraryQuery", "scaleDocs=$documentCount heapGrowth=$heapGrowth")
+        assertTrue(heapGrowth < MAX_MANAGED_HEAP_GROWTH_BYTES)
+    }
+
+    private fun assertIndexedSearchPlan() {
+        val plans = listOf(
+            "document" to """
+                SELECT d.document_id
+                FROM library_document_search_v3 AS search
+                JOIN library_document_search_content_v3 AS c ON c.rowid = search.rowid
+                JOIN library_documents AS d ON d.row_id = c.rowid
+                WHERE d.library_state = 'ACTIVE'
+                  AND library_document_search_v3 MATCH 'searchable*'
+                ORDER BY d.modified_at DESC, d.document_id ASC
+                LIMIT 30
+            """.trimIndent(),
+            "page" to """
+                SELECT d.document_id, p.page_id
+                FROM library_page_search_v3 AS search
+                JOIN library_page_search_content_v3 AS c ON c.rowid = search.rowid
+                JOIN library_pages AS p ON p.page_id = c.page_id
+                JOIN library_documents AS d ON d.document_id = p.document_id
+                WHERE d.library_state = 'ACTIVE'
+                  AND library_page_search_v3 MATCH 'searchable*'
+                ORDER BY d.modified_at DESC, p.page_id ASC
+                LIMIT 30
+            """.trimIndent(),
+        )
+        plans.forEach { (name, sql) ->
+            val details = mutableListOf<String>()
+            database.openHelper.readableDatabase.query("EXPLAIN QUERY PLAN $sql").use { cursor ->
+                while (cursor.moveToNext()) details += cursor.getString(3)
+            }
+            Log.i("LargeLibraryQuery", "${name}QueryPlan=${details.joinToString(" | ")}")
+            assertTrue(details.any { it.contains("VIRTUAL TABLE INDEX", ignoreCase = true) })
+            assertTrue(details.none { detail ->
+                detail.startsWith("SCAN c", ignoreCase = true) ||
+                    detail.startsWith("SCAN p", ignoreCase = true) ||
+                    detail.startsWith("SCAN d", ignoreCase = true)
+            })
         }
     }
 
@@ -317,6 +404,7 @@ class LargeLibraryQueryInstrumentedTest {
 
     private companion object {
         const val DOCUMENT_COUNT = 1_000
+        val SEARCH_SCALE_CHECKPOINTS = listOf(100, 500, DOCUMENT_COUNT)
         const val PAGES_PER_DOCUMENT = 3
         const val ROOT_FOLDER_COUNT = 5
         const val LEAVES_PER_ROOT = 10

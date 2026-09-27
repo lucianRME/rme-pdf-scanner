@@ -3,6 +3,7 @@ package org.synapseworks.pageharbor
 import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
@@ -99,6 +100,10 @@ class PageHarborSessionViewModel internal constructor(
     var ocrUiState: OcrUiState by mutableStateOf(OcrUiState.Idle)
     var lastOcrScript: OcrScript? by mutableStateOf(null)
     var ocrSelectedPageIndex: Int by mutableIntStateOf(0)
+    var openedPageRequestId: Long by mutableLongStateOf(0L)
+        private set
+    var openedPagePersistentId: String? by mutableStateOf(null)
+        private set
     var searchablePdfSaveState: SearchablePdfSaveState by mutableStateOf(SearchablePdfSaveState.Idle)
     var lastAcquisitionError: DocumentAcquisitionError? by mutableStateOf(null)
         private set
@@ -376,7 +381,7 @@ class PageHarborSessionViewModel internal constructor(
     }
 
     /** Replaces the active work with one durable library document without deleting library files. */
-    fun openLibraryDocument(session: DocumentSession): Boolean {
+    fun openLibraryDocument(session: DocumentSession, preferredPageId: String? = null): Boolean {
         if (session.pages.isEmpty() || session.libraryDocument == null || activeAcquisition != null) {
             return false
         }
@@ -394,7 +399,12 @@ class PageHarborSessionViewModel internal constructor(
         lastAcquisitionError = null
         importUiState = DocumentImportUiState.Idle
         ocrUiState = OcrUiState.Idle
-        ocrSelectedPageIndex = 0
+        val resolvedPageIndex = preferredPageId?.let { stableId ->
+            session.pages.indexOfFirst { page -> page.persistentId == stableId }.takeIf { it >= 0 }
+        }
+        openedPagePersistentId = resolvedPageIndex?.let { session.pages[it].persistentId }
+        openedPageRequestId += 1L
+        ocrSelectedPageIndex = resolvedPageIndex ?: 0
         resetTransientState()
         screen = PageHarborScreen.ScanResult
         return true

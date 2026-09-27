@@ -9,7 +9,10 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.File
 import java.io.FileOutputStream
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -116,6 +119,9 @@ class LibraryRepositoryInstrumentedTest {
         ).successValue()
 
         assertEquals(invoice.id, repository.observeSearch("march")!!.first().single().id)
+        val exactTitle = repository.searchHits("March invoice", limit = 10).first()
+        assertEquals(invoice.id, exactTitle.documentId)
+        assertEquals(LibrarySearchMatch.TITLE, exactTitle.matchType)
         val ocrMatch = repository.observeSearch("consult")!!.first().single()
         assertEquals(invoice.id, ocrMatch.id)
         assertEquals(LibrarySearchMatch.OCR, ocrMatch.searchMatch)
@@ -123,8 +129,96 @@ class LibraryRepositoryInstrumentedTest {
         val folder = repository.createFolder("Taxes").successValue()
         repository.moveDocument(invoice.id, folder.id).successValue()
         assertEquals(folder.id, repository.openDocument(invoice.id).successValue().summary.folderId)
+        val metadataMatch = repository.searchHits("taxes", limit = 10).single()
+        assertEquals(invoice.id, metadataMatch.documentId)
+        assertEquals(LibrarySearchMatch.FOLDER, metadataMatch.matchType)
         repository.deleteFolder(folder.id).successValue()
         assertEquals(null, repository.openDocument(invoice.id).successValue().summary.folderId)
+    }
+
+    @Test
+    fun boundedSearchKeepsTitleFirstAndEveryStablePageAtItsCurrentPosition() = runBlocking {
+        val saved = repository.saveSession(
+            session(
+                page(10, "first-search.jpg", 0xff112233.toInt()),
+                page(11, "second-search.jpg", 0xff223344.toInt()),
+                page(12, "third-search.jpg", 0xff334455.toInt()),
+            ),
+            "Needle contract",
+            ocrResult = OcrResult(
+                listOf(
+                    OcrPageResult(0, "ordinary first page"),
+                    OcrPageResult(1, "needle amount due 42.16"),
+                    OcrPageResult(2, "needle invoice date September"),
+                ),
+            ),
+        ).successValue()
+        val opened = repository.openDocument(saved.id).successValue().session
+        val stableIds = opened.pages.map { requireNotNull(it.persistentId) }
+
+        val initial = repository.searchHits("needle", limit = 10)
+        assertEquals(LibrarySearchMatch.TITLE, initial.first().matchType)
+        assertEquals(
+            listOf(stableIds[1] to 1, stableIds[2] to 2),
+            initial.filter { it.matchType == LibrarySearchMatch.OCR }
+                .map { it.pageId to it.currentPagePosition },
+        )
+        assertTrue(initial.filter { it.matchType == LibrarySearchMatch.OCR }.all { hit ->
+            hit.snippet?.contains("needle", ignoreCase = true) == true
+        })
+
+        val reordered = requireNotNull(
+            opened.reorder(listOf(opened.pages[2].id, opened.pages[0].id, opened.pages[1].id)),
+        )
+        repository.saveSession(reordered, "Needle contract").successValue()
+
+        val afterReorder = repository.searchHits("needle", limit = 10)
+            .filter { it.matchType == LibrarySearchMatch.OCR }
+        assertEquals(
+            listOf(stableIds[2] to 0, stableIds[1] to 2),
+            afterReorder.map { it.pageId to it.currentPagePosition },
+        )
+
+        val reorderedOpened = repository.openDocument(saved.id).successValue().session
+        val withoutFormerThird = requireNotNull(
+            reorderedOpened.remove(reorderedOpened.pages.first().id),
+        )
+        repository.saveSession(withoutFormerThird, "Needle contract").successValue()
+        val afterDelete = repository.searchHits("needle", limit = 10)
+            .filter { it.matchType == LibrarySearchMatch.OCR }
+        assertEquals(listOf(stableIds[1]), afterDelete.map { it.pageId })
+        assertEquals(1, afterDelete.single().currentPagePosition)
+    }
+
+    @Test
+    fun activeBoundedSearchObservesEffectiveOcrCorrectionWithoutRetyping() = runBlocking {
+        val saved = repository.saveSession(
+            session(page(20, "reactive-search.jpg", 0xff556677.toInt())),
+            "Reactive search",
+            ocrResult = OcrResult(listOf(OcrPageResult(0, "original searchable phrase"))),
+        ).successValue()
+        val pageId = database.libraryDao().pages(saved.id).single().pageId
+        val snapshot = requireNotNull(database.libraryDao().ocrPageSnapshot(saved.id, pageId))
+        val correctedEmission = async {
+            repository.observeSearchHits("corrected phrase", limit = 10)!!
+                .filter(List<LibrarySearchHit>::isNotEmpty)
+                .first()
+        }
+
+        assertEquals(
+            LibraryOcrCommitResult.APPLIED,
+            repository.saveOcrCorrection(
+                snapshot,
+                LibraryOcrCorrectionDraft(
+                    correctedText = "corrected phrase amount 42.16",
+                    alignment = LibraryOcrCorrectionAlignment.FREEFORM,
+                ),
+            ),
+        )
+
+        val hits = withTimeout(2_000L) { correctedEmission.await() }
+        assertEquals(pageId, hits.single().pageId)
+        assertTrue(repository.searchHits("original searchable", limit = 10).isEmpty())
     }
 
     @Test

@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -125,6 +126,8 @@ import org.synapseworks.pageharbor.library.LibraryError
 import org.synapseworks.pageharbor.library.LibraryFolder
 import org.synapseworks.pageharbor.library.LibraryOcrStatus
 import org.synapseworks.pageharbor.library.LibrarySearchMatch
+import org.synapseworks.pageharbor.library.LibrarySearchHit
+import org.synapseworks.pageharbor.library.LibrarySearchState
 import org.synapseworks.pageharbor.library.LibrarySortOrder
 import org.synapseworks.pageharbor.library.LibraryUiState
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
@@ -152,7 +155,8 @@ fun LibraryHomeScreen(
     onQueryChange: (String) -> Unit,
     onFolderSelected: (String?) -> Unit,
     onSortOrderChange: (LibrarySortOrder) -> Unit,
-    onOpenDocument: (String) -> Unit,
+    onOpenDocument: (String, String?) -> Unit,
+    onLoadMoreSearchResults: () -> Unit,
     onRenameDocument: (String, String) -> Unit,
     onMoveDocument: (String, String?) -> Unit,
     onDeleteDocument: (String) -> Unit,
@@ -320,6 +324,7 @@ fun LibraryHomeScreen(
                 onViewScanResult = onViewScanResult,
                 onViewAllDocuments = { onDestinationSelected(LibraryDestination.Documents) },
                 onOpenDocument = onOpenDocument,
+                onLoadMoreSearchResults = onLoadMoreSearchResults,
                 onRenameDocument = { namingDialog = NamingDialog.RenameDocument(it) },
                 onMoveDocument = { movingDocument = it },
                 onDeleteDocument = { deletingDocument = it },
@@ -348,6 +353,7 @@ fun LibraryHomeScreen(
                 onMerge = { namingDialog = NamingDialog.MergeDocuments },
                 onRecognizeText = { onRecognizeSelectedDocuments(mergeSelection) },
                 onOpenDocument = onOpenDocument,
+                onLoadMoreSearchResults = onLoadMoreSearchResults,
                 onToggleMerge = { document ->
                     mergeSelection = mergeSelection.toggle(document.id)
                 },
@@ -552,7 +558,8 @@ private fun HomeDestination(
     onCancelImport: () -> Unit,
     onViewScanResult: () -> Unit,
     onViewAllDocuments: () -> Unit,
-    onOpenDocument: (String) -> Unit,
+    onOpenDocument: (String, String?) -> Unit,
+    onLoadMoreSearchResults: () -> Unit,
     onRenameDocument: (LibraryDocumentSummary) -> Unit,
     onMoveDocument: (LibraryDocumentSummary) -> Unit,
     onDeleteDocument: (LibraryDocumentSummary) -> Unit,
@@ -572,11 +579,7 @@ private fun HomeDestination(
         } else {
             uiState.recentDocuments
         }
-        val displayedDocuments = if (uiState.query.isBlank()) {
-            recentDocuments.take(HOME_RECENT_DOCUMENT_LIMIT)
-        } else {
-            uiState.documents
-        }
+        val displayedDocuments = recentDocuments.take(HOME_RECENT_DOCUMENT_LIMIT)
         val showActiveStatus = scannerSpikeState == ScannerSpikeState.Preparing ||
             hasActiveSession || importUiState is DocumentImportUiState.Processing
 
@@ -616,7 +619,15 @@ private fun HomeDestination(
                     )
                 }
             }
-            if (displayedDocuments.isEmpty()) {
+            if (uiState.query.isNotBlank()) {
+                librarySearchResults(
+                    uiState = uiState,
+                    enabled = !working,
+                    keyPrefix = "home",
+                    onOpenDocument = onOpenDocument,
+                    onLoadMore = onLoadMoreSearchResults,
+                )
+            } else if (displayedDocuments.isEmpty()) {
                 item(key = "home-empty", span = { GridItemSpan(maxLineSpan) }) {
                     HomeEmptyState(
                         query = uiState.query,
@@ -628,13 +639,7 @@ private fun HomeDestination(
                 item(key = "home-section-heading", span = { GridItemSpan(maxLineSpan) }) {
                     Text(
                         modifier = Modifier.semantics { heading() },
-                        text = stringResource(
-                            if (uiState.query.isBlank()) {
-                                R.string.home_recent_documents
-                            } else {
-                                R.string.home_search_results
-                            },
-                        ),
+                        text = stringResource(R.string.home_recent_documents),
                         style = MaterialTheme.typography.titleLarge,
                     )
                 }
@@ -645,7 +650,7 @@ private fun HomeDestination(
                         expanded = useGrid,
                         mergePosition = mergeSelection.indexOf(document.id).takeIf { it >= 0 },
                         enabled = !working,
-                        onOpen = { onOpenDocument(document.id) },
+                        onOpen = { onOpenDocument(document.id, null) },
                         onToggleMerge = { onToggleMerge(document) },
                         onRename = { onRenameDocument(document) },
                         onMove = { onMoveDocument(document) },
@@ -732,7 +737,8 @@ private fun DocumentsDestination(
     onClearMerge: () -> Unit,
     onMerge: () -> Unit,
     onRecognizeText: () -> Unit,
-    onOpenDocument: (String) -> Unit,
+    onOpenDocument: (String, String?) -> Unit,
+    onLoadMoreSearchResults: () -> Unit,
     onToggleMerge: (LibraryDocumentSummary) -> Unit,
     onRenameDocument: (LibraryDocumentSummary) -> Unit,
     onMoveDocument: (LibraryDocumentSummary) -> Unit,
@@ -786,49 +792,257 @@ private fun DocumentsDestination(
                     onQueryChange = onQueryChange,
                 )
             }
-            item(key = "documents-folders", span = { GridItemSpan(maxLineSpan) }) {
-                FolderControls(
-                    folders = uiState.folders,
-                    breadcrumb = uiState.folderBreadcrumb,
-                    selectedFolderId = uiState.selectedFolderId,
+            if (uiState.query.isNotBlank()) {
+                librarySearchResults(
+                    uiState = uiState,
                     enabled = !working,
-                    onFolderSelected = onFolderSelected,
+                    keyPrefix = "documents",
+                    onOpenDocument = onOpenDocument,
+                    onLoadMore = onLoadMoreSearchResults,
                 )
-            }
-            item(key = "documents-heading", span = { GridItemSpan(maxLineSpan) }) {
-                DocumentSectionHeader(
-                    documentCount = uiState.documents.size,
-                    sortOrder = uiState.sortOrder,
-                    selectedFolder = selectedFolder,
-                    working = working,
-                    stackControls = stackControls,
-                    onSortOrderChange = onSortOrderChange,
-                    onRenameFolder = onRenameFolder,
-                    onDeleteFolder = onDeleteFolder,
-                )
-            }
-            if (uiState.documents.isEmpty()) {
-                item(key = "documents-empty", span = { GridItemSpan(maxLineSpan) }) {
-                    LibraryEmptyState(
-                        query = uiState.query,
-                        selectedFolderName = selectedFolder?.name,
+            } else {
+                item(key = "documents-folders", span = { GridItemSpan(maxLineSpan) }) {
+                    FolderControls(
+                        folders = uiState.folders,
+                        breadcrumb = uiState.folderBreadcrumb,
+                        selectedFolderId = uiState.selectedFolderId,
+                        enabled = !working,
+                        onFolderSelected = onFolderSelected,
                     )
+                }
+                item(key = "documents-heading", span = { GridItemSpan(maxLineSpan) }) {
+                    DocumentSectionHeader(
+                        documentCount = uiState.documents.size,
+                        sortOrder = uiState.sortOrder,
+                        selectedFolder = selectedFolder,
+                        working = working,
+                        stackControls = stackControls,
+                        onSortOrderChange = onSortOrderChange,
+                        onRenameFolder = onRenameFolder,
+                        onDeleteFolder = onDeleteFolder,
+                    )
+                }
+                if (uiState.documents.isEmpty()) {
+                    item(key = "documents-empty", span = { GridItemSpan(maxLineSpan) }) {
+                        LibraryEmptyState(
+                            query = uiState.query,
+                            selectedFolderName = selectedFolder?.name,
+                        )
+                    }
+                } else {
+                    items(uiState.documents, key = { "documents-${it.id}" }) { document ->
+                        LibraryDocumentItem(
+                            document = document,
+                            thumbnailUri = thumbnailUri(document.thumbnailRelativePath),
+                            expanded = useGrid,
+                            mergePosition = mergeSelection.indexOf(document.id).takeIf { it >= 0 },
+                            enabled = !working,
+                            onOpen = { onOpenDocument(document.id, null) },
+                            onToggleMerge = { onToggleMerge(document) },
+                            onRename = { onRenameDocument(document) },
+                            onMove = { onMoveDocument(document) },
+                            onDelete = { onDeleteDocument(document) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun LazyGridScope.librarySearchResults(
+    uiState: LibraryUiState,
+    enabled: Boolean,
+    keyPrefix: String,
+    onOpenDocument: (String, String?) -> Unit,
+    onLoadMore: () -> Unit,
+) {
+    val query = uiState.query.trim()
+    val currentState = when (val state = uiState.searchState) {
+        is LibrarySearchState.Loading -> if (state.query == query) state else {
+            LibrarySearchState.Loading(query)
+        }
+        is LibrarySearchState.Results -> if (state.query == query) state else {
+            LibrarySearchState.Loading(query)
+        }
+        is LibrarySearchState.TooShort -> if (state.query == query) state else {
+            LibrarySearchState.Loading(query)
+        }
+        LibrarySearchState.Idle -> LibrarySearchState.Loading(query)
+    }
+
+    item(key = "$keyPrefix-search-heading", span = { GridItemSpan(maxLineSpan) }) {
+        Text(
+            modifier = Modifier.semantics { heading() },
+            text = stringResource(R.string.home_search_results),
+            style = MaterialTheme.typography.titleLarge,
+        )
+    }
+    when (currentState) {
+        LibrarySearchState.Idle -> Unit
+        is LibrarySearchState.Loading -> item(
+            key = "$keyPrefix-search-loading",
+            span = { GridItemSpan(maxLineSpan) },
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 64.dp)
+                    .semantics { liveRegion = LiveRegionMode.Polite },
+                horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                Text(stringResource(R.string.library_search_loading))
+            }
+        }
+        is LibrarySearchState.TooShort -> item(
+            key = "$keyPrefix-search-short",
+            span = { GridItemSpan(maxLineSpan) },
+        ) {
+            Text(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = PageHarborSpacing.large)
+                    .semantics { liveRegion = LiveRegionMode.Polite },
+                text = stringResource(R.string.library_search_more_characters),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+        }
+        is LibrarySearchState.Results -> {
+            if (currentState.hits.isEmpty()) {
+                item(
+                    key = "$keyPrefix-search-empty",
+                    span = { GridItemSpan(maxLineSpan) },
+                ) {
+                    LibraryEmptyState(query = query, selectedFolderName = null)
                 }
             } else {
-                items(uiState.documents, key = { "documents-${it.id}" }) { document ->
-                    LibraryDocumentItem(
-                        document = document,
-                        thumbnailUri = thumbnailUri(document.thumbnailRelativePath),
-                        expanded = useGrid,
-                        mergePosition = mergeSelection.indexOf(document.id).takeIf { it >= 0 },
-                        enabled = !working,
-                        onOpen = { onOpenDocument(document.id) },
-                        onToggleMerge = { onToggleMerge(document) },
-                        onRename = { onRenameDocument(document) },
-                        onMove = { onMoveDocument(document) },
-                        onDelete = { onDeleteDocument(document) },
+                val pageMatchCounts = if (currentState.hasMoreResults) {
+                    emptyMap()
+                } else {
+                    currentState.hits
+                        .filter { it.matchType == LibrarySearchMatch.OCR }
+                        .groupingBy(LibrarySearchHit::documentId)
+                        .eachCount()
+                }
+                items(
+                    items = currentState.hits,
+                    key = { hit ->
+                        "$keyPrefix-search-${hit.matchType}-${hit.documentId}-${hit.pageId.orEmpty()}"
+                    },
+                ) { hit ->
+                    LibrarySearchResultItem(
+                        hit = hit,
+                        matchingPageCount = pageMatchCounts[hit.documentId] ?: 0,
+                        enabled = enabled,
+                        onOpen = { onOpenDocument(hit.documentId, hit.pageId) },
                     )
                 }
+                if (currentState.canLoadMore) {
+                    item(
+                        key = "$keyPrefix-search-more",
+                        span = { GridItemSpan(maxLineSpan) },
+                    ) {
+                        TextButton(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp),
+                            enabled = enabled,
+                            onClick = onLoadMore,
+                        ) {
+                            Text(stringResource(R.string.library_search_show_more))
+                        }
+                    }
+                } else if (currentState.hasMoreResults) {
+                    item(
+                        key = "$keyPrefix-search-limit",
+                        span = { GridItemSpan(maxLineSpan) },
+                    ) {
+                        Text(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(PageHarborSpacing.medium),
+                            text = stringResource(
+                                R.string.library_search_limit_reached,
+                                currentState.hits.size,
+                            ),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LibrarySearchResultItem(
+    hit: LibrarySearchHit,
+    matchingPageCount: Int,
+    enabled: Boolean,
+    onOpen: () -> Unit,
+) {
+    val detail = when (hit.matchType) {
+        LibrarySearchMatch.TITLE -> stringResource(R.string.library_search_match_title)
+        LibrarySearchMatch.FOLDER -> stringResource(R.string.library_search_match_metadata)
+        LibrarySearchMatch.OCR -> {
+            val page = stringResource(
+                R.string.library_search_page,
+                (hit.currentPagePosition ?: 0) + 1,
+            )
+            if (matchingPageCount > 1) {
+                stringResource(R.string.library_search_page_with_count, page, matchingPageCount)
+            } else {
+                page
+            }
+        }
+    }
+    val spokenDescription = stringResource(
+        R.string.library_search_result_accessibility,
+        hit.documentTitle,
+        detail,
+        hit.snippet.orEmpty(),
+    )
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 64.dp)
+            .semantics(mergeDescendants = true) { contentDescription = spokenDescription },
+        enabled = enabled,
+        onClick = onOpen,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(PageHarborSpacing.medium),
+            verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall),
+        ) {
+            Text(
+                text = hit.documentTitle,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = detail,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            hit.snippet?.let { snippet ->
+                Text(
+                    text = snippet,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
@@ -2288,7 +2502,8 @@ private fun LibraryScreenPreview() {
             onQueryChange = {},
             onFolderSelected = {},
             onSortOrderChange = {},
-            onOpenDocument = {},
+            onOpenDocument = { _, _ -> },
+            onLoadMoreSearchResults = {},
             onRenameDocument = { _, _ -> },
             onMoveDocument = { _, _ -> },
             onDeleteDocument = {},
