@@ -1,26 +1,45 @@
 package org.synapseworks.pageharbor.document.importing
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
+import android.os.SystemClock
+import android.util.Log
 import androidx.core.content.FileProvider
 import androidx.test.platform.app.InstrumentationRegistry
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import java.io.File
 import java.io.FileOutputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
+import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
+import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import com.tom_roush.pdfbox.pdmodel.encryption.AccessPermission
 import com.tom_roush.pdfbox.pdmodel.encryption.StandardProtectionPolicy
+import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
+import com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject
+import com.tom_roush.pdfbox.text.PDFTextStripper
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.synapseworks.pageharbor.PageHarborSessionViewModel
+import org.synapseworks.pageharbor.document.searchablepdf.LocalSearchablePdfExportCoordinator
+import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfExportRequest
+import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfPreparedExport
 import org.synapseworks.pageharbor.document.session.DocumentSourceCategory
 import org.synapseworks.pageharbor.document.session.PendingResourceRegistrationResult
+import org.synapseworks.pageharbor.ocr.OcrEngine
+import org.synapseworks.pageharbor.ocr.OcrPage
+import org.synapseworks.pageharbor.ocr.OcrPageLayout
+import org.synapseworks.pageharbor.ocr.OcrPageResult
+import org.synapseworks.pageharbor.ocr.OcrResult
+import org.synapseworks.pageharbor.ocr.OcrTextBounds
+import org.synapseworks.pageharbor.ocr.OcrTextLine
 
 class DocumentImportProcessorInstrumentedTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -136,6 +155,179 @@ class DocumentImportProcessorInstrumentedTest {
             (importTemporaryFiles() - before).forEach(File::delete)
             pdf.delete()
         }
+    }
+
+    @Test
+    fun importedPdfWithSourceTextRetainsRenderedVisualAndUsesRmeOcrForSearch() = runBlocking {
+        PDFBoxResourceLoader.init(context)
+        val pdf = textLayerPdfFixture("source-text")
+        val before = importTemporaryFiles()
+        val session = PageHarborSessionViewModel()
+        try {
+            PDDocument.load(pdf).use { source ->
+                assertEquals(SOURCE_PDF_TEXT, PDFTextStripper().getText(source).trim())
+            }
+            val result = prepare(session, listOf(uri(pdf)))
+            assertTrue(result is DocumentImportPreparationResult.Success)
+            result as DocumentImportPreparationResult.Success
+            session.completeImportRequest(result)
+
+            val imported = session.documentPages.single()
+            val importedUri = Uri.parse(imported.source.reference)
+            val width = requireNotNull(imported.imageMetadata.width)
+            val height = requireNotNull(imported.imageMetadata.height)
+            assertEquals(DocumentSourceCategory.RENDERED_PDF_PAGE, imported.sourceCategory)
+            val effectiveText = "Corrected imported content 中文"
+            val coordinator = LocalSearchablePdfExportCoordinator(
+                context = context,
+                ocrEngine = object : OcrEngine {
+                    override fun recognize(pages: List<OcrPage>): OcrResult =
+                        error("Supplied effective OCR must be used")
+                },
+            )
+            val prepared = coordinator.prepare(
+                SearchablePdfExportRequest(
+                    pageUris = listOf(importedUri),
+                    ocrResult = OcrResult(
+                        listOf(
+                            OcrPageResult(
+                                pageIndex = 0,
+                                text = effectiveText,
+                                layout = OcrPageLayout(
+                                    imageWidthPx = width,
+                                    imageHeightPx = height,
+                                    lines = listOf(
+                                        OcrTextLine(
+                                            effectiveText,
+                                            OcrTextBounds(
+                                                left = width * 0.1f,
+                                                top = height * 0.1f,
+                                                right = width * 0.9f,
+                                                bottom = height * 0.18f,
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+            assertTrue(prepared is SearchablePdfPreparedExport.Ready)
+            prepared as SearchablePdfPreparedExport.Ready
+            try {
+                val importedBitmap = context.contentResolver.openInputStream(importedUri).use { input ->
+                    requireNotNull(BitmapFactory.decodeStream(input))
+                }
+                try {
+                    PDDocument.load(prepared.temporaryFile).use { exported ->
+                        assertEquals(effectiveText, PDFTextStripper().getText(exported).trim())
+                        assertFalse(PDFTextStripper().getText(exported).contains(SOURCE_PDF_TEXT))
+                        val page = exported.getPage(0)
+                        val image = page.resources.xObjectNames
+                            .map(page.resources::getXObject)
+                            .filterIsInstance<PDImageXObject>()
+                            .single()
+                            .image
+                        try {
+                            assertEquals(importedBitmap.width, image.width)
+                            assertEquals(importedBitmap.height, image.height)
+                            assertEquals(
+                                importedBitmap.getPixel(importedBitmap.width / 2, importedBitmap.height / 2),
+                                image.getPixel(image.width / 2, image.height / 2),
+                            )
+                        } finally {
+                            image.recycle()
+                        }
+                    }
+                } finally {
+                    importedBitmap.recycle()
+                }
+            } finally {
+                coordinator.discardPreparedExport(prepared)
+            }
+        } finally {
+            session.clearScan()
+            (importTemporaryFiles() - before).forEach(File::delete)
+            pdf.delete()
+        }
+    }
+
+    @Test
+    fun twentyPageImportedPdfRendersAndExportsWithBoundedPageResources() = runBlocking {
+        val pdf = pdfFixture("long-import", List(20) { 160 to 220 })
+        val before = importTemporaryFiles()
+        val session = PageHarborSessionViewModel()
+        var approximatePeakManagedBytes = usedManagedHeap()
+        val importStartedAt = SystemClock.elapsedRealtime()
+        try {
+            val result = prepare(session, listOf(uri(pdf)), capacity = 20)
+            val importDurationMillis = SystemClock.elapsedRealtime() - importStartedAt
+            assertTrue(result is DocumentImportPreparationResult.Success)
+            result as DocumentImportPreparationResult.Success
+            assertEquals(20, result.input.pages.size)
+            approximatePeakManagedBytes = maxOf(approximatePeakManagedBytes, usedManagedHeap())
+            session.completeImportRequest(result)
+
+            val pageUris = session.documentPages.map { page -> Uri.parse(page.source.reference) }
+            val ocrPages = session.documentPages.mapIndexed { index, page ->
+                val width = requireNotNull(page.imageMetadata.width)
+                val height = requireNotNull(page.imageMetadata.height)
+                val text = "Imported page ${index + 1}"
+                OcrPageResult(
+                    pageIndex = index,
+                    text = text,
+                    layout = OcrPageLayout(
+                        imageWidthPx = width,
+                        imageHeightPx = height,
+                        lines = listOf(
+                            OcrTextLine(
+                                text,
+                                OcrTextBounds(12f, 12f, width - 12f, 40f),
+                            ),
+                        ),
+                    ),
+                )
+            }
+            val coordinator = LocalSearchablePdfExportCoordinator(
+                context = context,
+                ocrEngine = object : OcrEngine {
+                    override fun recognize(pages: List<OcrPage>): OcrResult =
+                        error("Supplied OCR must be used")
+                },
+            )
+            val exportStartedAt = SystemClock.elapsedRealtime()
+            val prepared = coordinator.prepare(
+                SearchablePdfExportRequest(
+                    pageUris = pageUris,
+                    ocrResult = OcrResult(ocrPages),
+                ),
+            )
+            val exportDurationMillis = SystemClock.elapsedRealtime() - exportStartedAt
+            assertTrue(prepared is SearchablePdfPreparedExport.Ready)
+            prepared as SearchablePdfPreparedExport.Ready
+            try {
+                approximatePeakManagedBytes = maxOf(approximatePeakManagedBytes, usedManagedHeap())
+                PDDocument.load(prepared.temporaryFile).use { exported ->
+                    assertEquals(20, exported.numberOfPages)
+                    val extracted = PDFTextStripper().getText(exported)
+                    assertTrue(extracted.indexOf("Imported page 1") < extracted.indexOf("Imported page 20"))
+                }
+                Log.i(
+                    PERFORMANCE_LOG_TAG,
+                    "pages=20 importMs=$importDurationMillis exportMs=$exportDurationMillis " +
+                        "approxManagedBytes=$approximatePeakManagedBytes " +
+                        "outputBytes=${prepared.temporaryFile.length()}",
+                )
+            } finally {
+                coordinator.discardPreparedExport(prepared)
+            }
+        } finally {
+            session.clearScan()
+            (importTemporaryFiles() - before).forEach(File::delete)
+            pdf.delete()
+        }
+        Unit
     }
 
     @Test
@@ -353,6 +545,27 @@ class DocumentImportProcessorInstrumentedTest {
         return file
     }
 
+    private fun textLayerPdfFixture(name: String): File {
+        val file = File(fixtureRoot, "import-fixture-$name.pdf")
+        PDDocument().use { document ->
+            val page = PDPage(PDRectangle(300f, 400f))
+            document.addPage(page)
+            PDPageContentStream(document, page).use { content ->
+                content.setNonStrokingColor(225, 235, 245)
+                content.addRect(0f, 0f, 300f, 400f)
+                content.fill()
+                content.beginText()
+                content.setNonStrokingColor(20, 30, 40)
+                content.setFont(PDType1Font.HELVETICA, 18f)
+                content.newLineAtOffset(36f, 320f)
+                content.showText(SOURCE_PDF_TEXT)
+                content.endText()
+            }
+            document.save(file)
+        }
+        return file
+    }
+
     private fun fixture(name: String, bytes: ByteArray): File = File(fixtureRoot, name).apply {
         writeBytes(bytes)
     }
@@ -372,4 +585,13 @@ class DocumentImportProcessorInstrumentedTest {
 
     private fun newImportPageFiles(before: Set<File>): Set<File> =
         (importTemporaryFiles() - before).filter { it.name.startsWith("import-page-") }.toSet()
+
+    private fun usedManagedHeap(): Long = Runtime.getRuntime().let { runtime ->
+        runtime.totalMemory() - runtime.freeMemory()
+    }
+
+    private companion object {
+        const val SOURCE_PDF_TEXT = "Existing source text layer"
+        const val PERFORMANCE_LOG_TAG = "RME_PHASE7_IMPORT_PERF"
+    }
 }

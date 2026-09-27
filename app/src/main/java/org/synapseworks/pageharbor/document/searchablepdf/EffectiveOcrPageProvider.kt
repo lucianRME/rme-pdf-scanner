@@ -5,6 +5,7 @@ import org.synapseworks.pageharbor.ocr.OcrPageLayout
 import org.synapseworks.pageharbor.ocr.OcrPageResult
 import org.synapseworks.pageharbor.ocr.OcrRecognitionCurrentness
 import org.synapseworks.pageharbor.ocr.OcrResult
+import org.synapseworks.pageharbor.ocr.OcrScript
 
 /** Stable, snapshot-bound request for effective OCR belonging to one page. */
 data class EffectiveOcrPageRequest(
@@ -51,12 +52,15 @@ data class EffectiveOcrPage(
     val currentness: OcrRecognitionCurrentness,
     val coordinateSystemVersion: Int,
     val transformVersion: Int,
+    val actualScript: OcrScript? = null,
+    val recognizerId: String? = null,
 ) {
     init {
         require(artifactRevision > 0L)
         require(ocrStateRevision >= 0L)
         require(coordinateSystemVersion > 0)
         require(transformVersion > 0)
+        require(recognizerId == null || recognizerId.isNotBlank())
         currentness.durable?.let { durable ->
             require(durable.ocrStateRevision == ocrStateRevision) {
                 "Effective OCR must use the captured OCR-state revision"

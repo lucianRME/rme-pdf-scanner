@@ -326,7 +326,10 @@ abstract class LibraryDao {
             }
             null -> rawLines.map { raw -> raw.toEffectiveLine(raw.rawText) }
         }
-        return row.toEffectiveOcrPage(effectiveLines)
+        return row.toEffectiveOcrPage(
+            effectiveLines = effectiveLines,
+            sourceGeometryLines = rawLines.map { raw -> raw.toEffectiveLine(raw.rawText) },
+        )
     }
 
     @Query(
@@ -2880,7 +2883,8 @@ private fun LibraryPageOcrLineEntity.toEffectiveLine(text: String): LibraryEffec
     )
 
 private fun LibraryEffectiveOcrPageRow.toEffectiveOcrPage(
-    lines: List<LibraryEffectiveOcrLine>,
+    effectiveLines: List<LibraryEffectiveOcrLine>,
+    sourceGeometryLines: List<LibraryEffectiveOcrLine>,
 ): LibraryEffectiveOcrPage = LibraryEffectiveOcrPage(
     documentId = documentId,
     pageId = pageId,
@@ -2904,7 +2908,8 @@ private fun LibraryEffectiveOcrPageRow.toEffectiveOcrPage(
     verification = LibraryOcrArtifactVerification.valueOf(verificationState),
     actualScript = actualScript,
     recognizerId = recognizerId,
-    lines = lines,
+    lines = effectiveLines,
+    sourceGeometryLines = sourceGeometryLines,
 )
 
 private fun sourceAssetIdentity(assets: List<LibrarySourceAssetEntity>): List<List<Any?>> =

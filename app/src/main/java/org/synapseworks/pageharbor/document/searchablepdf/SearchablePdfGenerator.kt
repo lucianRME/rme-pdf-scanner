@@ -6,7 +6,6 @@ import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
-import com.tom_roush.pdfbox.pdmodel.font.PDType0Font
 import com.tom_roush.pdfbox.pdmodel.graphics.image.JPEGFactory
 import com.tom_roush.pdfbox.pdmodel.graphics.state.RenderingMode
 import java.io.File
@@ -66,7 +65,7 @@ enum class SearchablePdfGenerationError {
 
 /**
  * PdfBox-Android implementation. It embeds JPEG streams directly rather than decoding/reencoding
- * page backgrounds, and embeds a Unicode-capable OFL font supplied by PdfBox-Android's assets.
+ * page backgrounds, and subsets a PDF-native invisible font to the document's Unicode text.
  */
 class PdfBoxSearchablePdfGenerator(context: Context) : SearchablePdfGenerator {
     private val applicationContext: Context = context.applicationContext ?: context
@@ -92,7 +91,12 @@ class PdfBoxSearchablePdfGenerator(context: Context) : SearchablePdfGenerator {
                 PDFBoxResourceLoader.init(applicationContext)
                 var textLayerPageCount = 0
                 PDDocument().use { document ->
-                    val font = loadEmbeddedLatinFont(document)
+                    val fontSet = InvisibleUnicodePdfFontSet(
+                        document = document,
+                        texts = request.pages.asSequence().flatMap { page ->
+                            page.ocrResult?.layout?.lines.orEmpty().asSequence().map { it.text }
+                        },
+                    )
                     request.pages.forEach { page ->
                         try {
                             coroutineContext.ensureActive()
@@ -107,7 +111,7 @@ class PdfBoxSearchablePdfGenerator(context: Context) : SearchablePdfGenerator {
                             document.addPage(pdfPage)
                             PDPageContentStream(document, pdfPage).use { content ->
                                 content.drawImage(image, 0f, 0f, pageSize.widthPoints, pageSize.heightPoints)
-                                if (writeTextLayer(content, font, page.ocrResult, pageSize)) {
+                                if (writeTextLayer(content, fontSet, page.ocrResult, pageSize)) {
                                     textLayerPageCount++
                                 }
                             }
@@ -149,11 +153,6 @@ class PdfBoxSearchablePdfGenerator(context: Context) : SearchablePdfGenerator {
             }
         }
 
-    private fun loadEmbeddedLatinFont(document: PDDocument): PDType0Font =
-        applicationContext.assets.open(LiberationSansAssetPath).use { input ->
-            PDType0Font.load(document, input, true)
-        }
-
     /** Only delete files; a malformed request must never turn a directory into a cleanup target. */
     private fun cleanupOutput(outputFile: File) {
         if (outputFile.isFile) outputFile.delete()
@@ -161,7 +160,7 @@ class PdfBoxSearchablePdfGenerator(context: Context) : SearchablePdfGenerator {
 
     private fun writeTextLayer(
         content: PDPageContentStream,
-        font: PDType0Font,
+        fontSet: InvisibleUnicodePdfFontSet,
         ocrResult: OcrPageResult?,
         pageSize: PdfPageSize,
     ): Boolean {
@@ -179,16 +178,23 @@ class PdfBoxSearchablePdfGenerator(context: Context) : SearchablePdfGenerator {
             ) ?: return@forEach
             val fontSize = mappedBounds.top - mappedBounds.bottom
             if (fontSize <= 0f) return@forEach
-            val unscaledWidth = font.getStringWidth(line.text) / 1000f * fontSize
-            if (unscaledWidth <= 0f) return@forEach
-
-            content.beginText()
-            content.setRenderingMode(RenderingMode.NEITHER)
-            content.setFont(font, fontSize)
-            content.setHorizontalScaling((mappedBounds.right - mappedBounds.left) / unscaledWidth * 100f)
-            content.newLineAtOffset(mappedBounds.left, mappedBounds.bottom)
-            content.showText(line.text)
-            content.endText()
+            val runs = fontSet.encode(line.text)
+            val totalCodePoints = runs.sumOf(InvisibleUnicodeTextRun::codePointCount)
+            if (totalCodePoints == 0) return@forEach
+            var horizontalOffset = 0f
+            runs.forEach { run ->
+                val runWidth = (mappedBounds.right - mappedBounds.left) *
+                    run.codePointCount / totalCodePoints
+                val unscaledWidth = run.codePointCount * fontSize
+                content.beginText()
+                content.setRenderingMode(RenderingMode.NEITHER)
+                content.setFont(run.font, fontSize)
+                content.setHorizontalScaling(runWidth / unscaledWidth * 100f)
+                content.newLineAtOffset(mappedBounds.left + horizontalOffset, mappedBounds.bottom)
+                content.appendRawCommands("${run.encodedBytes.toPdfHexString()} Tj\n")
+                content.endText()
+                horizontalOffset += runWidth
+            }
             wroteText = true
         }
         return wroteText
@@ -196,8 +202,4 @@ class PdfBoxSearchablePdfGenerator(context: Context) : SearchablePdfGenerator {
 
     private data object PageImageException : Exception()
 
-    private companion object {
-        const val LiberationSansAssetPath =
-            "com/tom_roush/pdfbox/resources/ttf/LiberationSans-Regular.ttf"
-    }
 }

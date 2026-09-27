@@ -13,8 +13,10 @@ import org.synapseworks.pageharbor.library.LibraryOcrArtifactVerification
 import org.synapseworks.pageharbor.library.LibraryOcrCorrectionAlignment
 import org.synapseworks.pageharbor.library.LibraryRepository
 import org.synapseworks.pageharbor.ocr.OcrPageLayout
+import org.synapseworks.pageharbor.ocr.OcrScript
 import org.synapseworks.pageharbor.ocr.OcrTextBounds
 import org.synapseworks.pageharbor.ocr.OcrTextLine
+import org.synapseworks.pageharbor.ocr.OcrTextPlacementMode
 
 /** Adapts one atomic library snapshot into positioned effective text for searchable PDF export. */
 class LibraryEffectiveOcrPageProvider internal constructor(
@@ -107,25 +109,52 @@ class LibraryEffectiveOcrPageProvider internal constructor(
                 EffectiveOcrTextSource.CORRECTED
             }
 
-            LibraryOcrCorrectionAlignment.FREEFORM ->
-                return unavailable(
-                    EffectiveOcrPageUnavailableReason.CORRECTION_RECONCILIATION_REQUIRED,
-                )
+            LibraryOcrCorrectionAlignment.FREEFORM -> {
+                if (
+                    stored.correctedText == null ||
+                    stored.correctionBaseArtifactRevision != stored.artifactRevision
+                ) {
+                    return unavailable(EffectiveOcrPageUnavailableReason.PROVIDER_FAILURE)
+                }
+                EffectiveOcrTextSource.CORRECTED
+            }
         }
 
-        if (stored.lines.isEmpty() && stored.effectiveText.isNotBlank()) {
-            return unavailable(EffectiveOcrPageUnavailableReason.POSITIONED_LAYOUT_NOT_AVAILABLE)
-        }
-        if (stored.lines.map(LibraryEffectiveOcrLine::lineOrdinal) != stored.lines.indices.toList()) {
+        val geometryLines = stored.sourceGeometryLines
+        if (geometryLines.map(LibraryEffectiveOcrLine::lineOrdinal) != geometryLines.indices.toList()) {
             return unavailable(EffectiveOcrPageUnavailableReason.PROVIDER_FAILURE)
         }
-        val lines = stored.lines.map { line ->
+        val positionedGeometry = geometryLines.map { line ->
             OcrTextLine(
                 text = line.text,
                 bounds = line.toPixelBounds(width, height)
                     ?: return unavailable(EffectiveOcrPageUnavailableReason.PROVIDER_FAILURE),
             )
         }
+        val placementMode: OcrTextPlacementMode
+        val lines = if (stored.alignment == LibraryOcrCorrectionAlignment.FREEFORM) {
+            placementMode = OcrTextPlacementMode.FREEFORM_PAGE_REGION
+            reconcileFreeformText(
+                correctedText = stored.effectiveText,
+                sourceLines = positionedGeometry,
+                width = width,
+                height = height,
+            )
+        } else {
+            placementMode = OcrTextPlacementMode.POSITIONED_LINES
+            if (stored.lines.isEmpty() && stored.effectiveText.isNotBlank()) {
+                return unavailable(EffectiveOcrPageUnavailableReason.POSITIONED_LAYOUT_NOT_AVAILABLE)
+            }
+            stored.lines.map { line ->
+                OcrTextLine(
+                    text = line.text,
+                    bounds = line.toPixelBounds(width, height)
+                        ?: return unavailable(EffectiveOcrPageUnavailableReason.PROVIDER_FAILURE),
+                )
+            }
+        }
+        val actualScript = OcrScript.fromStableId(stored.actualScript)
+            ?: return unavailable(EffectiveOcrPageUnavailableReason.PROVIDER_FAILURE)
 
         return EffectiveOcrPageProvision.Available(
             EffectiveOcrPage(
@@ -136,6 +165,7 @@ class LibraryEffectiveOcrPageProvider internal constructor(
                     imageHeightPx = height,
                     rotationDegrees = 0,
                     lines = lines,
+                    placementMode = placementMode,
                 ),
                 textSource = textSource,
                 artifactRevision = stored.artifactRevision,
@@ -144,8 +174,44 @@ class LibraryEffectiveOcrPageProvider internal constructor(
                 currentness = expected,
                 coordinateSystemVersion = coordinateSystemVersion,
                 transformVersion = transformVersion,
+                actualScript = actualScript,
+                recognizerId = stored.recognizerId,
             ),
         )
+    }
+
+    /**
+     * Freeform text is authoritative but has no defensible line correspondence. Keep it as one
+     * page-level run inside the union of verified source lines, or conservative page margins when
+     * the source contained no lines. This deliberately creates no word-level coordinates.
+     */
+    private fun reconcileFreeformText(
+        correctedText: String,
+        sourceLines: List<OcrTextLine>,
+        width: Int,
+        height: Int,
+    ): List<OcrTextLine> {
+        val normalized = correctedText.replace(Regex("\\s+"), " ").trim()
+        if (normalized.isEmpty()) return emptyList()
+        val bounds = sourceLines.mapNotNull(OcrTextLine::bounds)
+        val region = if (bounds.isEmpty()) {
+            val horizontalInset = (width * FREEFORM_PAGE_INSET_FRACTION).coerceAtLeast(1f)
+            val verticalInset = (height * FREEFORM_PAGE_INSET_FRACTION).coerceAtLeast(1f)
+            OcrTextBounds(
+                left = horizontalInset.coerceAtMost(width / 2f),
+                top = verticalInset.coerceAtMost(height / 2f),
+                right = (width - horizontalInset).coerceAtLeast(width / 2f),
+                bottom = (height - verticalInset).coerceAtLeast(height / 2f),
+            )
+        } else {
+            OcrTextBounds(
+                left = bounds.minOf(OcrTextBounds::left),
+                top = bounds.minOf(OcrTextBounds::top),
+                right = bounds.maxOf(OcrTextBounds::right),
+                bottom = bounds.maxOf(OcrTextBounds::bottom),
+            )
+        }
+        return listOf(OcrTextLine(text = normalized, bounds = region))
     }
 
     private fun LibraryEffectiveOcrLine.toPixelBounds(
@@ -175,5 +241,6 @@ class LibraryEffectiveOcrPageProvider internal constructor(
     private companion object {
         const val SupportedCoordinateSystemVersion = 1
         const val SupportedTransformVersion = 1
+        const val FREEFORM_PAGE_INSET_FRACTION = 0.05f
     }
 }

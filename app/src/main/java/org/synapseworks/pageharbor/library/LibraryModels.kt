@@ -254,6 +254,8 @@ data class LibraryEffectiveOcrPage(
     val actualScript: String?,
     val recognizerId: String,
     val lines: List<LibraryEffectiveOcrLine>,
+    /** Verified source geometry retained for conservative freeform PDF reconciliation. */
+    val sourceGeometryLines: List<LibraryEffectiveOcrLine> = lines,
 )
 
 data class LibraryEffectiveOcrLine(

@@ -75,6 +75,8 @@ import org.synapseworks.pageharbor.document.recomposeNormalPdf
 import org.synapseworks.pageharbor.document.startPageExport
 import org.synapseworks.pageharbor.document.writeFilteredJpegToDestination
 import org.synapseworks.pageharbor.document.searchablepdf.LocalSearchablePdfExportCoordinator
+import org.synapseworks.pageharbor.document.searchablepdf.EffectiveOcrPageProvider
+import org.synapseworks.pageharbor.document.searchablepdf.EffectiveOcrPageRequest
 import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfExportCoordinator
 import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfExportError
 import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfExportProgressListener
@@ -100,6 +102,9 @@ import org.synapseworks.pageharbor.ui.PageHarborScreen
 import org.synapseworks.pageharbor.ocr.MlKitOcrEngine
 import org.synapseworks.pageharbor.ocr.MultilingualOcrRuntime
 import org.synapseworks.pageharbor.ocr.OcrEngine
+import org.synapseworks.pageharbor.ocr.OcrDurablePageCurrentness
+import org.synapseworks.pageharbor.ocr.OcrPageAddress
+import org.synapseworks.pageharbor.ocr.OcrRecognitionCurrentness
 import org.synapseworks.pageharbor.ocr.OcrLocaleScriptMapper
 import org.synapseworks.pageharbor.ocr.OcrModelState
 import org.synapseworks.pageharbor.ocr.OcrOperationTracker
@@ -124,7 +129,9 @@ import org.synapseworks.pageharbor.ocr.persistence.BundledLatinOcrResultMapper
 import org.synapseworks.pageharbor.ocr.persistence.ScriptedOcrSessionRunner
 import org.synapseworks.pageharbor.library.LibraryResult
 import org.synapseworks.pageharbor.library.LibraryActionState
+import org.synapseworks.pageharbor.library.LibraryEffectiveOcrPage
 import org.synapseworks.pageharbor.library.LibraryOcrCommitResult
+import org.synapseworks.pageharbor.library.LibraryOcrPageSnapshot
 import org.synapseworks.pageharbor.library.LibraryViewModel
 import org.synapseworks.pageharbor.migration.workflow.MigrationDuplicateSelectionId
 import org.synapseworks.pageharbor.migration.workflow.MigrationIssueReason
@@ -2141,6 +2148,7 @@ class MainActivity : FragmentActivity() {
             ?.takeIf { session.lastOcrScript == script }
         searchablePdfExportJob = lifecycleScope.launch {
             try {
+                val persistedOcr = capturePersistedSearchablePdfOcr(lease.session)
                 val preparedExport = searchablePdfExportCoordinator.prepare(
                     SearchablePdfExportRequest(
                         pageUris = documentPages.map { page -> page.source.toAndroidUri() },
@@ -2154,7 +2162,7 @@ class MainActivity : FragmentActivity() {
                                 imageMetadata = page.imageMetadata,
                             )
                         },
-                        ocrResult = existingOcrResult,
+                        ocrResult = if (persistedOcr == null) existingOcrResult else null,
                         ocrEngineOverride = if (script == OcrScript.LATIN) {
                             null
                         } else {
@@ -2172,6 +2180,8 @@ class MainActivity : FragmentActivity() {
                                 }
                             }
                         },
+                        effectiveOcrPageProvider = persistedOcr?.provider,
+                        effectiveOcrPageRequests = persistedOcr?.requests.orEmpty(),
                     ),
                 )
                 when (
@@ -2252,6 +2262,33 @@ class MainActivity : FragmentActivity() {
                 session.releaseDocumentSessionLease(lease)
             }
         }
+    }
+
+    /**
+     * Uses durable effective OCR whenever any page has persisted OCR. A partially recognized
+     * document deliberately enters the provider path and fails safely instead of replacing a
+     * corrected page with freshly recognized raw text merely to complete an export.
+     */
+    private suspend fun capturePersistedSearchablePdfOcr(
+        documentSession: DocumentSession,
+    ): PersistedSearchablePdfOcr? {
+        val documentId = documentSession.libraryDocument?.documentId ?: return null
+        val pageIds = documentSession.pages.map(DocumentPage::persistentId)
+        if (pageIds.any { it == null }) return null
+        val stablePageIds = pageIds.filterNotNull()
+        val snapshots = library.captureOcrPageSnapshots(documentId, stablePageIds)
+        if (snapshots.size != stablePageIds.size || snapshots.none { it.activeArtifactRevision != null }) {
+            return null
+        }
+        val effectivePages = library.captureEffectiveOcrPages(documentId, stablePageIds)
+        if (effectivePages.size != stablePageIds.size) return null
+        val requests = snapshots.mapIndexed { index, snapshot ->
+            effectivePages[index]?.toEffectiveOcrRequestOrNull() ?: snapshot.toUnavailableOcrRequest()
+        }
+        return PersistedSearchablePdfOcr(
+            provider = EffectiveOcrPageProvider(library::provideEffectiveOcrPage),
+            requests = requests,
+        )
     }
 
     private fun clearSearchablePdfSave() {
@@ -3015,6 +3052,44 @@ class MainActivity : FragmentActivity() {
         }
     }
 }
+
+private data class PersistedSearchablePdfOcr(
+    val provider: EffectiveOcrPageProvider,
+    val requests: List<EffectiveOcrPageRequest>,
+)
+
+private fun LibraryEffectiveOcrPage.toEffectiveOcrRequestOrNull(): EffectiveOcrPageRequest? {
+    val fingerprintVersion = inputFingerprintVersion?.takeIf { it > 0 } ?: return null
+    val fingerprint = inputFingerprint?.takeIf(String::isNotBlank) ?: return null
+    return EffectiveOcrPageRequest(
+        address = OcrPageAddress(documentId, pageId),
+        expectedCurrentness = OcrRecognitionCurrentness(
+            inputFingerprintVersion = fingerprintVersion,
+            inputFingerprint = fingerprint,
+            durable = OcrDurablePageCurrentness(
+                documentContentRevision = documentContentRevision,
+                pageVisualRevision = pageVisualRevision,
+                ocrStateRevision = ocrStateRevision,
+                activeArtifactRevision = activeArtifactRevision,
+            ),
+        ),
+    )
+}
+
+private fun LibraryOcrPageSnapshot.toUnavailableOcrRequest(): EffectiveOcrPageRequest =
+    EffectiveOcrPageRequest(
+        address = OcrPageAddress(documentId, pageId),
+        expectedCurrentness = OcrRecognitionCurrentness(
+            inputFingerprintVersion = 1,
+            inputFingerprint = "unavailable:$pageId",
+            durable = OcrDurablePageCurrentness(
+                documentContentRevision = documentContentRevision,
+                pageVisualRevision = pageVisualRevision,
+                ocrStateRevision = ocrStateRevision,
+                activeArtifactRevision = activeArtifactRevision,
+            ),
+        ),
+    )
 
 private fun Intent?.selectedContentUris(): List<Uri> {
     if (this == null) return emptyList()

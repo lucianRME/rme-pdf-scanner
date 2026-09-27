@@ -12,6 +12,7 @@ internal data class SmartNamingInput(
     val effectiveOcrPages: List<String>,
     val importFileName: String? = null,
     val folderName: String? = null,
+    val displayLocale: Locale = Locale.getDefault(),
 )
 
 data class SmartNameSuggestion(
@@ -44,7 +45,7 @@ internal object LocalSmartNamingEngine {
         if (lines.isEmpty()) return null
         val joined = lines.joinToString("\n")
         val typeMatch = findDocumentType(joined)
-        val date = findDocumentDate(lines, typeMatch != null)
+        val date = findDocumentDate(lines, typeMatch != null, input.displayLocale)
         val organization = findOrganization(lines, typeMatch)
         val parts = listOfNotNull(organization, typeMatch?.label)
         val name = when {
@@ -174,16 +175,25 @@ private data class DateCandidate(
     val strongContext: Boolean,
 )
 
-private fun findDocumentDate(lines: List<String>, allowYearOnly: Boolean): DateCandidate? {
+private fun findDocumentDate(
+    lines: List<String>,
+    allowYearOnly: Boolean,
+    displayLocale: Locale,
+): DateCandidate? {
     val candidates = lines.take(MAX_DATE_LINES).flatMapIndexed { index, line ->
-        dateCandidates(line, index, allowYearOnly)
+        dateCandidates(line, index, allowYearOnly, displayLocale)
     }.sortedWith(compareByDescending<DateCandidate>(DateCandidate::score).thenBy(DateCandidate::ordinal))
     val best = candidates.firstOrNull() ?: return null
     if (!best.strongContext && candidates.any { it.valueKey != best.valueKey }) return null
     return best
 }
 
-private fun dateCandidates(line: String, ordinal: Int, allowYearOnly: Boolean): List<DateCandidate> {
+private fun dateCandidates(
+    line: String,
+    ordinal: Int,
+    allowYearOnly: Boolean,
+    displayLocale: Locale,
+): List<DateCandidate> {
     val normalized = line.lowercase(Locale.ROOT)
     if (NEGATIVE_DATE_CONTEXT.any(normalized::contains)) return emptyList()
     val strongContext = POSITIVE_DATE_CONTEXT.any(normalized::contains)
@@ -194,7 +204,7 @@ private fun dateCandidates(line: String, ordinal: Int, allowYearOnly: Boolean): 
     val candidates = mutableListOf<DateCandidate>()
     ISO_DATE.findAll(line).forEach { match ->
         validDate(match.groupValues[1], match.groupValues[2], match.groupValues[3])?.let { date ->
-            candidates += date.toCandidate(contextScore, ordinal, strongContext)
+            candidates += date.toCandidate(contextScore, ordinal, strongContext, displayLocale)
         }
     }
     NUMERIC_DATE.findAll(line).forEach { match ->
@@ -203,7 +213,7 @@ private fun dateCandidates(line: String, ordinal: Int, allowYearOnly: Boolean): 
         val year = match.groupValues[3].toIntOrNull() ?: return@forEach
         if (day <= 12 && month <= 12 && day != month) return@forEach
         validDate(year, month, day)?.let { date ->
-            candidates += date.toCandidate(contextScore, ordinal, strongContext)
+            candidates += date.toCandidate(contextScore, ordinal, strongContext, displayLocale)
         }
     }
     TEXTUAL_DAY_FIRST.findAll(normalized).forEach { match ->
@@ -213,7 +223,7 @@ private fun dateCandidates(line: String, ordinal: Int, allowYearOnly: Boolean): 
             month,
             match.groupValues[1].toIntOrNull() ?: return@forEach,
         )?.let { date ->
-            candidates += date.toCandidate(contextScore, ordinal, strongContext)
+            candidates += date.toCandidate(contextScore, ordinal, strongContext, displayLocale)
         }
     }
     TEXTUAL_MONTH_FIRST.findAll(normalized).forEach { match ->
@@ -223,7 +233,7 @@ private fun dateCandidates(line: String, ordinal: Int, allowYearOnly: Boolean): 
             month,
             match.groupValues[2].toIntOrNull() ?: return@forEach,
         )?.let { date ->
-            candidates += date.toCandidate(contextScore, ordinal, strongContext)
+            candidates += date.toCandidate(contextScore, ordinal, strongContext, displayLocale)
         }
     }
     if (candidates.isEmpty()) {
@@ -232,7 +242,7 @@ private fun dateCandidates(line: String, ordinal: Int, allowYearOnly: Boolean): 
             val year = match.groupValues[2].toIntOrNull() ?: return@forEach
             runCatching { YearMonth.of(year, month) }.getOrNull()?.let { yearMonth ->
                 candidates += DateCandidate(
-                    display = yearMonth.format(MONTH_YEAR_FORMAT),
+                    display = yearMonth.format(monthYearFormat(displayLocale)),
                     valueKey = yearMonth.toString(),
                     score = contextScore - 2,
                     ordinal = ordinal,
@@ -278,8 +288,13 @@ private fun validDate(year: Int, month: Int, day: Int): LocalDate? = try {
     null
 }
 
-private fun LocalDate.toCandidate(score: Int, ordinal: Int, strongContext: Boolean) = DateCandidate(
-    display = format(FULL_DATE_FORMAT),
+private fun LocalDate.toCandidate(
+    score: Int,
+    ordinal: Int,
+    strongContext: Boolean,
+    displayLocale: Locale,
+) = DateCandidate(
+    display = format(fullDateFormat(displayLocale)),
     valueKey = toString(),
     score = score,
     ordinal = ordinal,
@@ -413,8 +428,11 @@ private val YEAR_ONLY = Regex("(?<!\\d)(20\\d{2})(?!\\d)")
 private val DATE_LIKE_FRAGMENT = Regex(
     "(?iu)\\b(?:\\d{1,4}[./-]){1,2}\\d{1,4}\\b|\\b(?:$MONTH_PATTERN)(?:\\s+20\\d{2})?\\b",
 )
-private val FULL_DATE_FORMAT = DateTimeFormatter.ofPattern("d MMM uuuu", Locale.ENGLISH)
-private val MONTH_YEAR_FORMAT = DateTimeFormatter.ofPattern("MMM uuuu", Locale.ENGLISH)
+private fun fullDateFormat(locale: Locale): DateTimeFormatter =
+    DateTimeFormatter.ofPattern("d MMM uuuu", locale)
+
+private fun monthYearFormat(locale: Locale): DateTimeFormatter =
+    DateTimeFormatter.ofPattern("MMM uuuu", locale)
 private val ILLEGAL_FILENAME_CHARACTERS = Regex("[\\\\/:*?\"<>|]")
 private val CONTROL_CHARACTERS = Regex("[\\p{Cc}\\p{Cf}]")
 private val URL_PATTERN = Regex("(?iu)(?:https?://|www\\.)")

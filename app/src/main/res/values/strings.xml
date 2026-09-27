@@ -325,9 +325,9 @@
     <string name="library_delete_document_message">This permanently removes RME’s private library copy. Files you imported from elsewhere are not deleted.</string>
     <string name="library_delete_folder_title">Delete folder?</string>
     <string name="library_delete_folder_message">The folder will be removed. Its documents will stay in the library without a folder.</string>
-    <string name="library_ocr_not_indexed">Recognized text: not indexed</string>
-    <string name="library_ocr_partial">Recognized text: partial</string>
-    <string name="library_ocr_indexed">Recognized text: indexed</string>
+    <string name="library_ocr_not_indexed">Recognized text: not available</string>
+    <string name="library_ocr_partial">Recognized text: available on some pages</string>
+    <string name="library_ocr_indexed">Recognized text: ready</string>
     <string name="library_ocr_failed">Recognized text: unavailable</string>
     <string name="library_saved">Saved to the local RME library.</string>
     <string name="library_working">Updating local library…</string>

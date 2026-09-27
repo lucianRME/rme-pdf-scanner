@@ -33,6 +33,7 @@ import org.synapseworks.pageharbor.ocr.OcrTextLine
 import org.synapseworks.pageharbor.image.DocumentFilter
 import org.synapseworks.pageharbor.document.session.DEFAULT_MAX_IMAGE_SOURCE_BYTES
 import org.synapseworks.pageharbor.document.session.DocumentImageMetadata
+import org.synapseworks.pageharbor.document.session.DocumentPageRotation
 
 class LocalSearchablePdfExportCoordinatorTest {
     private val context: Context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -71,6 +72,67 @@ class LocalSearchablePdfExportCoordinatorTest {
             assertTrue(generator.visualPixelIsGrayscale)
             assertArrayEquals(originalBytes, source.readBytes())
             coordinator.discardPreparedExport(prepared)
+        } finally {
+            source.delete()
+        }
+    }
+
+    @Test
+    fun realVisualTransformAndTextLayerStayAlignedForEveryPageRotation() = runBlocking {
+        val source = sharedFile("rotation-source.jpg")
+        writeJpeg(source)
+        val coordinator = LocalSearchablePdfExportCoordinator(
+            context = context,
+            ocrEngine = FailingOcrEngine,
+        )
+        val rotations = listOf(
+            DocumentPageRotation.DEGREES_0,
+            DocumentPageRotation.DEGREES_90,
+            DocumentPageRotation.DEGREES_180,
+            DocumentPageRotation.DEGREES_270,
+        )
+
+        try {
+            rotations.forEach { rotation ->
+                val expectedWidth = if (rotation.degrees % 180 == 0) 240 else 320
+                val expectedHeight = if (rotation.degrees % 180 == 0) 320 else 240
+                val text = "Rotation ${rotation.degrees} searchable"
+                val prepared = coordinator.prepare(
+                    SearchablePdfExportRequest(
+                        pageUris = listOf(fileUri(source)),
+                        visualPages = listOf(
+                            SearchablePdfVisualPage(
+                                pageId = rotation.degrees.toLong(),
+                                originalUri = fileUri(source),
+                                rotation = rotation,
+                            ),
+                        ),
+                        ocrResult = OcrResult(
+                            listOf(pageResult(text, expectedWidth, expectedHeight)),
+                        ),
+                    ),
+                )
+
+                assertTrue(prepared is SearchablePdfPreparedExport.Ready)
+                prepared as SearchablePdfPreparedExport.Ready
+                try {
+                    PDDocument.load(prepared.temporaryFile).use { document ->
+                        assertEquals(1, document.numberOfPages)
+                        assertEquals(
+                            expectedWidth.toFloat(),
+                            document.getPage(0).mediaBox.width,
+                        )
+                        assertEquals(
+                            expectedHeight.toFloat(),
+                            document.getPage(0).mediaBox.height,
+                        )
+                        assertEquals(text, PDFTextStripper().getText(document).trim())
+                        assertTrue(document.getPage(0).resources.xObjectNames.iterator().hasNext())
+                    }
+                } finally {
+                    coordinator.discardPreparedExport(prepared)
+                }
+            }
         } finally {
             source.delete()
         }
@@ -583,16 +645,25 @@ class LocalSearchablePdfExportCoordinatorTest {
         ),
     ) as SearchablePdfPreparedExport.Ready
 
-    private fun pageResult(text: String = "English: searchable text"): OcrPageResult = OcrPageResult(
+    private fun pageResult(
+        text: String = "English: searchable text",
+        width: Int = 240,
+        height: Int = 320,
+    ): OcrPageResult = OcrPageResult(
         pageIndex = 0,
         text = text,
         layout = OcrPageLayout(
-            imageWidthPx = 240,
-            imageHeightPx = 320,
+            imageWidthPx = width,
+            imageHeightPx = height,
             lines = listOf(
                 OcrTextLine(
                     text = text,
-                    bounds = OcrTextBounds(left = 16f, top = 20f, right = 224f, bottom = 48f),
+                    bounds = OcrTextBounds(
+                        left = 16f,
+                        top = 20f,
+                        right = width - 16f,
+                        bottom = 48f.coerceAtMost(height - 1f),
+                    ),
                 ),
             ),
         ),

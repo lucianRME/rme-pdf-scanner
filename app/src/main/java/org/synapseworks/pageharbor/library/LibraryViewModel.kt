@@ -23,8 +23,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.synapseworks.pageharbor.document.session.DocumentSession
+import org.synapseworks.pageharbor.document.searchablepdf.EffectiveOcrPageProvision
+import org.synapseworks.pageharbor.document.searchablepdf.EffectiveOcrPageRequest
 import org.synapseworks.pageharbor.ocr.OcrResult
 import org.synapseworks.pageharbor.ocr.OcrScript
+import org.synapseworks.pageharbor.ocr.persistence.LibraryEffectiveOcrPageProvider
 
 enum class LibraryActionSuccess {
     SAVED,
@@ -81,6 +84,7 @@ private data class LibraryContent(
 @OptIn(ExperimentalCoroutinesApi::class)
 class LibraryViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = LibraryRepository(application)
+    private val searchablePdfOcrProvider = LibraryEffectiveOcrPageProvider(repository)
     private val query = MutableStateFlow("")
     private val selectedFolderId = MutableStateFlow<String?>(null)
     private val sortOrder = MutableStateFlow(LibrarySortOrder.MODIFIED_DESC)
@@ -234,6 +238,19 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         orderedPageIds: List<String>,
     ): List<LibraryOcrPageSnapshot> = withContext(Dispatchers.IO) {
         repository.captureOcrPageSnapshots(documentId, orderedPageIds)
+    }
+
+    suspend fun captureEffectiveOcrPages(
+        documentId: String,
+        orderedPageIds: List<String>,
+    ): List<LibraryEffectiveOcrPage?> = withContext(Dispatchers.IO) {
+        repository.captureEffectiveOcrPages(documentId, orderedPageIds)
+    }
+
+    suspend fun provideEffectiveOcrPage(
+        request: EffectiveOcrPageRequest,
+    ): EffectiveOcrPageProvision = withContext(Dispatchers.IO) {
+        searchablePdfOcrProvider.provide(request)
     }
 
     suspend fun indexOcr(

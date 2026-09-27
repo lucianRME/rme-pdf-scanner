@@ -16,6 +16,8 @@ import org.synapseworks.pageharbor.library.LibraryOcrCorrectionAlignment
 import org.synapseworks.pageharbor.ocr.OcrDurablePageCurrentness
 import org.synapseworks.pageharbor.ocr.OcrPageAddress
 import org.synapseworks.pageharbor.ocr.OcrRecognitionCurrentness
+import org.synapseworks.pageharbor.ocr.OcrScript
+import org.synapseworks.pageharbor.ocr.OcrTextPlacementMode
 
 class LibraryEffectiveOcrPageProviderTest {
     @Test
@@ -80,27 +82,71 @@ class LibraryEffectiveOcrPageProviderTest {
     }
 
     @Test
-    fun freeformCorrectionRequiresReconciliationBeforePdfPositioning() = runBlocking {
+    fun freeformCorrectionsUseOneConservativeRegionWithoutRawTextFallback() = runBlocking {
+        val corrections = listOf(
+            "Raw line",
+            "Corrected typo",
+            "Corrected text with added words",
+            "Combined first and second lines",
+            "Split first\nSplit second",
+            "Completely rewritten multilingual page 日本語 भारत",
+            "Very long " + "corrected ".repeat(2_000),
+        )
+
+        corrections.forEach { corrected ->
+            val stored = storedPage(
+                effectiveText = corrected,
+                correctedText = corrected,
+                alignment = LibraryOcrCorrectionAlignment.FREEFORM,
+                artifactRevision = 1L,
+                activeArtifactRevision = 2L,
+                correctionBaseArtifactRevision = 1L,
+                ocrStateRevision = 4L,
+                lines = emptyList(),
+                sourceGeometryLines = listOf(line(text = "Obsolete raw text")),
+            )
+
+            val provision = provider(stored).provide(
+                request(currentness(activeArtifactRevision = 2L, ocrStateRevision = 4L)),
+            )
+
+            assertTrue(provision is EffectiveOcrPageProvision.Available)
+            val page = (provision as EffectiveOcrPageProvision.Available).page
+            assertEquals(corrected, page.effectiveText)
+            assertEquals(EffectiveOcrTextSource.CORRECTED, page.textSource)
+            assertEquals(OcrTextPlacementMode.FREEFORM_PAGE_REGION, page.layout.placementMode)
+            assertEquals(OcrScript.LATIN, page.actualScript)
+            assertEquals("rme-mlkit-latin", page.recognizerId)
+            assertEquals(corrected.replace(Regex("\\s+"), " ").trim(), page.layout.lines.single().text)
+            with(requireNotNull(page.layout.lines.single().bounds)) {
+                assertEquals(100f, left)
+                assertEquals(400f, top)
+                assertEquals(900f, right)
+                assertEquals(600f, bottom)
+            }
+        }
+    }
+
+    @Test
+    fun emptyFreeformCorrectionExportsNoObsoleteRawLayer() = runBlocking {
         val stored = storedPage(
-            effectiveText = "Freeform corrected text",
-            correctedText = "Freeform corrected text",
+            effectiveText = "",
+            correctedText = "",
             alignment = LibraryOcrCorrectionAlignment.FREEFORM,
             artifactRevision = 1L,
             activeArtifactRevision = 2L,
             correctionBaseArtifactRevision = 1L,
             ocrStateRevision = 4L,
             lines = emptyList(),
+            sourceGeometryLines = listOf(line(text = "Obsolete raw text")),
         )
-        val provider = provider(stored)
 
-        assertEquals(
-            EffectiveOcrPageProvision.Unavailable(
-                EffectiveOcrPageUnavailableReason.CORRECTION_RECONCILIATION_REQUIRED,
-            ),
-            provider.provide(
-                request(currentness(activeArtifactRevision = 2L, ocrStateRevision = 4L)),
-            ),
-        )
+        val provision = provider(stored).provide(
+            request(currentness(activeArtifactRevision = 2L, ocrStateRevision = 4L)),
+        ) as EffectiveOcrPageProvision.Available
+
+        assertEquals("", provision.page.effectiveText)
+        assertTrue(provision.page.layout.lines.isEmpty())
     }
 
     @Test
@@ -182,6 +228,7 @@ class LibraryEffectiveOcrPageProviderTest {
         verification: LibraryOcrArtifactVerification =
             LibraryOcrArtifactVerification.CURRENT_VERIFIED,
         lines: List<LibraryEffectiveOcrLine> = listOf(line()),
+        sourceGeometryLines: List<LibraryEffectiveOcrLine> = lines,
     ) = LibraryEffectiveOcrPage(
         documentId = "document-1",
         pageId = "page-1",
@@ -206,6 +253,7 @@ class LibraryEffectiveOcrPageProviderTest {
         actualScript = "LATIN",
         recognizerId = "rme-mlkit-latin",
         lines = lines,
+        sourceGeometryLines = sourceGeometryLines,
     )
 
     private fun line(text: String = "Raw line") = LibraryEffectiveOcrLine(

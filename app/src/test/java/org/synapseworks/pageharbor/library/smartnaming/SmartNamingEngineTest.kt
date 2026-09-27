@@ -1,5 +1,8 @@
 package org.synapseworks.pageharbor.library.smartnaming
 
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -70,6 +73,74 @@ class SmartNamingEngineTest {
 
         cases.forEach { (line, expected) ->
             assertEquals(expected, suggest("Invoice\n$line")?.date)
+        }
+    }
+
+    @Test
+    fun suggestionDateUsesTheRequestedLocaleWithoutChangingTheSelectedDate() {
+        val romanian = Locale.forLanguageTag("ro")
+        val suggestion = LocalSmartNamingEngine.suggest(
+            SmartNamingInput(
+                currentTitle = "Document 12",
+                effectiveOcrPages = listOf(
+                    "Factură\nData scadentă: 30 septembrie 2026\nData facturii: 25 septembrie 2026",
+                ),
+                displayLocale = romanian,
+            ),
+        )
+
+        val expectedDate = LocalDate.of(2026, 9, 25)
+            .format(DateTimeFormatter.ofPattern("d MMM uuuu", romanian))
+        assertEquals(expectedDate, suggestion?.date)
+        assertTrue(requireNotNull(suggestion).name.endsWith("— $expectedDate"))
+    }
+
+    @Test
+    fun dateDisplayIsLocalizedAcrossEverySupportedLatinLocale() {
+        val date = LocalDate.of(2026, 9, 25)
+        val locales = listOf(
+            Locale.ENGLISH,
+            Locale.forLanguageTag("ro"),
+            Locale.GERMAN,
+            Locale.FRENCH,
+            Locale.ITALIAN,
+            Locale.forLanguageTag("es"),
+        )
+
+        locales.forEach { locale ->
+            val suggestion = LocalSmartNamingEngine.suggest(
+                SmartNamingInput(
+                    currentTitle = "Document 12",
+                    effectiveOcrPages = listOf("Invoice\nInvoice date: 2026-09-25"),
+                    displayLocale = locale,
+                ),
+            )
+            val expectedDate = date.format(DateTimeFormatter.ofPattern("d MMM uuuu", locale))
+            assertEquals(expectedDate, suggestion?.date)
+            assertTrue(requireNotNull(suggestion).name.endsWith("— $expectedDate"))
+            assertFalse(suggestion.name.contains(Regex("[\\\\/:*?\"<>|]")))
+        }
+    }
+
+    @Test
+    fun localeChangesNeverReplaceAnAlreadyConfirmedTitle() {
+        listOf(
+            Locale.ENGLISH,
+            Locale.forLanguageTag("ro"),
+            Locale.GERMAN,
+            Locale.FRENCH,
+            Locale.ITALIAN,
+            Locale.forLanguageTag("es"),
+        ).forEach { locale ->
+            assertNull(
+                LocalSmartNamingEngine.suggest(
+                    SmartNamingInput(
+                        currentTitle = "Quarterly tax archive",
+                        effectiveOcrPages = listOf("Invoice\nInvoice date: 2026-09-25"),
+                        displayLocale = locale,
+                    ),
+                ),
+            )
         }
     }
 
@@ -196,6 +267,7 @@ class SmartNamingEngineTest {
         SmartNamingInput(
             currentTitle = "Document 12",
             effectiveOcrPages = listOf(text),
+            displayLocale = Locale.ENGLISH,
         ),
     )
 }

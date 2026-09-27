@@ -523,6 +523,14 @@ class LibraryRepository internal constructor(
         dao.effectiveOcrPage(documentId, pageId)
     }
 
+    /** Captures ordered effective pages under one repository snapshot for PDF request identity. */
+    suspend fun captureEffectiveOcrPages(
+        documentId: String,
+        orderedPageIds: List<String>,
+    ): List<LibraryEffectiveOcrPage?> = operationGate.withStableSnapshot {
+        orderedPageIds.map { pageId -> dao.effectiveOcrPage(documentId, pageId) }
+    }
+
     suspend fun ocrReviewPage(
         documentId: String,
         pageId: String,

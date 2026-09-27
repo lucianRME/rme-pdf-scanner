@@ -42,12 +42,22 @@ data class OcrTextBlock(
     val bounds: OcrTextBounds? = null,
 )
 
+/** Describes how precisely hidden PDF text may claim to match the visible page. */
+enum class OcrTextPlacementMode {
+    /** OCR or line-aligned correction retaining one verified rectangle per text line. */
+    POSITIONED_LINES,
+
+    /** Authoritative freeform text placed only within one conservative page text region. */
+    FREEFORM_PAGE_REGION,
+}
+
 data class OcrPageLayout(
     val imageWidthPx: Int,
     val imageHeightPx: Int,
     val rotationDegrees: Int = 0,
     val lines: List<OcrTextLine>,
     val blocks: List<OcrTextBlock> = emptyList(),
+    val placementMode: OcrTextPlacementMode = OcrTextPlacementMode.POSITIONED_LINES,
 ) {
     init {
         require(imageWidthPx > 0) { "imageWidthPx must be positive" }
