@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -98,9 +99,13 @@ class LibrarySearchFlowTest {
                 .collect(states::add)
         }
 
-        delay(30L)
+        withTimeout(1_000L) {
+            while (states.none { it is LibrarySearchState.Results }) delay(1L)
+        }
         indexedHits.value = listOf(hit("corrected"))
-        delay(30L)
+        withTimeout(1_000L) {
+            while (states.filterIsInstance<LibrarySearchState.Results>().size < 2) delay(1L)
+        }
         collection.cancelAndJoin()
 
         assertEquals(

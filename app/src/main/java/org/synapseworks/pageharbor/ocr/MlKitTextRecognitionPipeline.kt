@@ -48,15 +48,18 @@ internal object MlKitTextRecognitionPipeline {
                     bounds = block.boundingBox.toOcrTextBounds(),
                 )
             }
-            MlKitPageRecognitionResult.Success(
-                text = result.text,
-                layout = OcrPageLayout(
+            val resolved = OcrReadingOrderResolver.resolve(
+                OcrPageLayout(
                     imageWidthPx = if (swapsDimensions) bitmap.height else bitmap.width,
                     imageHeightPx = if (swapsDimensions) bitmap.width else bitmap.height,
                     rotationDegrees = 0,
                     lines = layoutBlocks.flatMap { it.lines },
                     blocks = layoutBlocks,
                 ),
+            )
+            MlKitPageRecognitionResult.Success(
+                text = resolved.canonicalText,
+                layout = resolved.layout,
             )
         } catch (_: Exception) {
             MlKitPageRecognitionResult.RecognitionFailed
