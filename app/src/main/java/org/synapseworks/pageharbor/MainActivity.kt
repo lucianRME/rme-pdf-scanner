@@ -606,6 +606,7 @@ class MainActivity : FragmentActivity() {
                     onLibrarySortOrderChange = library::updateSortOrder,
                     onOpenLibraryDocument = ::openLibraryDocument,
                     onLoadMoreLibrarySearchResults = library::loadMoreSearchResults,
+                    onRequestSmartName = library::requestSmartName,
                     onRenameLibraryDocument = ::renameLibraryDocument,
                     onMoveLibraryDocument = ::moveLibraryDocument,
                     onDeleteLibraryDocument = ::deleteLibraryDocument,

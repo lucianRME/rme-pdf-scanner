@@ -130,6 +130,7 @@ import org.synapseworks.pageharbor.library.LibrarySearchHit
 import org.synapseworks.pageharbor.library.LibrarySearchState
 import org.synapseworks.pageharbor.library.LibrarySortOrder
 import org.synapseworks.pageharbor.library.LibraryUiState
+import org.synapseworks.pageharbor.library.SmartNameUiState
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.ui.theme.PageHarborLayout
 import org.synapseworks.pageharbor.ui.theme.PageHarborSpacing
@@ -157,6 +158,7 @@ fun LibraryHomeScreen(
     onSortOrderChange: (LibrarySortOrder) -> Unit,
     onOpenDocument: (String, String?) -> Unit,
     onLoadMoreSearchResults: () -> Unit,
+    onRequestSmartName: (String) -> Unit,
     onRenameDocument: (String, String) -> Unit,
     onMoveDocument: (String, String?) -> Unit,
     onDeleteDocument: (String) -> Unit,
@@ -400,6 +402,9 @@ fun LibraryHomeScreen(
     }
 
     namingDialog?.let { dialog ->
+        if (dialog is NamingDialog.RenameDocument) {
+            LaunchedEffect(dialog.document.id) { onRequestSmartName(dialog.document.id) }
+        }
         val initialValue = when (dialog) {
             NamingDialog.CreateFolder,
             NamingDialog.MergeDocuments,
@@ -410,7 +415,19 @@ fun LibraryHomeScreen(
         NameDialog(
             title = stringResource(dialog.titleResource),
             initialValue = initialValue,
+            suggestion = (dialog as? NamingDialog.RenameDocument)?.let { rename ->
+                (libraryUiState.smartNameStates[rename.document.id] as? SmartNameUiState.Available)
+                    ?.suggestion
+                    ?.name
+            },
             confirmLabel = stringResource(dialog.confirmResource),
+            dismissLabel = stringResource(
+                if (dialog is NamingDialog.RenameDocument) {
+                    R.string.smart_name_keep_current
+                } else {
+                    R.string.library_cancel
+                },
+            ),
             onDismiss = { namingDialog = null },
             onConfirm = { value ->
                 when (dialog) {
@@ -2287,7 +2304,9 @@ private fun LibraryEmptyState(
 private fun NameDialog(
     title: String,
     initialValue: String,
+    suggestion: String? = null,
     confirmLabel: String,
+    dismissLabel: String,
     onDismiss: () -> Unit,
     onConfirm: (String) -> Unit,
 ) {
@@ -2296,13 +2315,31 @@ private fun NameDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            OutlinedTextField(
-                modifier = Modifier.fillMaxWidth(),
-                value = value,
-                onValueChange = { value = it.take(120) },
-                singleLine = true,
-                label = { Text(stringResource(R.string.library_name_label)) },
-            )
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
+            ) {
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = value,
+                    onValueChange = { value = it.take(120) },
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.library_name_label)) },
+                )
+                suggestion?.let { smartName ->
+                    Text(
+                        text = stringResource(R.string.smart_name_suggested, smartName),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    TextButton(
+                        modifier = Modifier.heightIn(min = 48.dp),
+                        onClick = { value = smartName },
+                    ) {
+                        Text(stringResource(R.string.smart_name_use_suggestion))
+                    }
+                }
+            }
         },
         confirmButton = {
             TextButton(enabled = value.isNotBlank(), onClick = { onConfirm(value) }) {
@@ -2311,7 +2348,7 @@ private fun NameDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.library_cancel))
+                Text(dismissLabel)
             }
         },
     )
@@ -2504,6 +2541,7 @@ private fun LibraryScreenPreview() {
             onSortOrderChange = {},
             onOpenDocument = { _, _ -> },
             onLoadMoreSearchResults = {},
+            onRequestSmartName = {},
             onRenameDocument = { _, _ -> },
             onMoveDocument = { _, _ -> },
             onDeleteDocument = {},

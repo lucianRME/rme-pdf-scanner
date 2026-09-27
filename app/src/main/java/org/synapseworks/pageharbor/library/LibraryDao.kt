@@ -329,6 +329,29 @@ abstract class LibraryDao {
         return row.toEffectiveOcrPage(effectiveLines)
     }
 
+    @Query(
+        """
+        SELECT p.page_position,
+               substr(COALESCE(c.corrected_text, active.raw_text), 1, :maxCharactersPerPage)
+                   AS effective_text
+        FROM library_pages AS p
+        JOIN library_documents AS d ON d.document_id = p.document_id
+        JOIN library_page_ocr_artifacts AS active
+          ON active.page_id = p.page_id
+         AND active.artifact_revision = p.active_ocr_artifact_revision
+        LEFT JOIN library_page_ocr_corrections AS c ON c.page_id = p.page_id
+        WHERE d.document_id = :documentId
+          AND d.library_state = 'ACTIVE'
+        ORDER BY p.page_position ASC
+        LIMIT :pageLimit
+        """,
+    )
+    abstract suspend fun smartNamingOcrPages(
+        documentId: String,
+        pageLimit: Int,
+        maxCharactersPerPage: Int,
+    ): List<LibrarySmartNamingOcrPageRow>
+
     /** Loads only one page for review and keeps latest-raw provenance separate from correction. */
     @Transaction
     open suspend fun ocrReviewPage(

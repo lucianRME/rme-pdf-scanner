@@ -23,6 +23,9 @@ import org.synapseworks.pageharbor.document.session.LibraryDocumentReference
 import org.synapseworks.pageharbor.document.session.createLibraryDocumentResource
 import org.synapseworks.pageharbor.document.session.toAndroidUri
 import org.synapseworks.pageharbor.image.DocumentFilter
+import org.synapseworks.pageharbor.library.smartnaming.LocalSmartNamingEngine
+import org.synapseworks.pageharbor.library.smartnaming.SmartNameSuggestion
+import org.synapseworks.pageharbor.library.smartnaming.SmartNamingInput
 import org.synapseworks.pageharbor.library.duplicate.DocumentFingerprintV1
 import org.synapseworks.pageharbor.library.duplicate.FingerprintPage
 import org.synapseworks.pageharbor.ocr.OcrResult
@@ -378,6 +381,33 @@ class LibraryRepository internal constructor(
     suspend fun renameDocument(documentId: String, title: String): LibraryResult<Unit> {
         return operationGate.withMutation { renameDocumentUnlocked(documentId, title) }
     }
+
+    suspend fun suggestDocumentName(documentId: String): LibraryResult<SmartNameSuggestion?> =
+        operationGate.withStableSnapshot {
+            try {
+                val document = dao.document(documentId)
+                    ?: return@withStableSnapshot LibraryResult.Failure(LibraryError.DOCUMENT_NOT_FOUND)
+                val folderName = document.folderId?.let { dao.folder(it)?.name }
+                val pages = dao.smartNamingOcrPages(
+                    documentId = documentId,
+                    pageLimit = SMART_NAMING_PAGE_LIMIT,
+                    maxCharactersPerPage = SMART_NAMING_CHARACTERS_PER_PAGE,
+                )
+                LibraryResult.Success(
+                    LocalSmartNamingEngine.suggest(
+                        SmartNamingInput(
+                            currentTitle = document.title,
+                            effectiveOcrPages = pages.map(LibrarySmartNamingOcrPageRow::effectiveText),
+                            folderName = folderName,
+                        ),
+                    ),
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                LibraryResult.Failure(LibraryError.DATABASE_UNAVAILABLE)
+            }
+        }
 
     private suspend fun renameDocumentUnlocked(documentId: String, title: String): LibraryResult<Unit> {
         val normalized = normalizeLibraryTitle(title)
@@ -1165,6 +1195,8 @@ private fun logicalDocumentSha256(pages: List<LibraryPageEntity>): String {
     ).sha256
 }
 private const val ORIGINAL_DOCUMENT_ASSET_ROLE = "ORIGINAL_DOCUMENT"
+private const val SMART_NAMING_PAGE_LIMIT = 3
+private const val SMART_NAMING_CHARACTERS_PER_PAGE = 4_000
 private const val OBSERVED_SEARCH_LIMIT = 150
 private const val DEFAULT_SEARCH_PAGE_SIZE = 30
 internal const val LIBRARY_SEARCH_INITIAL_LIMIT = 30

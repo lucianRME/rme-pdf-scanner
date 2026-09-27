@@ -1,5 +1,7 @@
 package org.synapseworks.pageharbor.library
 
+import org.synapseworks.pageharbor.library.smartnaming.SmartNameSuggestion
+
 import java.text.Normalizer
 import java.util.Locale
 
@@ -316,6 +318,12 @@ sealed interface LibrarySearchState {
         val canLoadMore: Boolean,
         val hasMoreResults: Boolean = canLoadMore,
     ) : LibrarySearchState
+}
+
+sealed interface SmartNameUiState {
+    data object Loading : SmartNameUiState
+    data class Available(val suggestion: SmartNameSuggestion) : SmartNameUiState
+    data object Unavailable : SmartNameUiState
 }
 
 data class OcrBatchTarget(

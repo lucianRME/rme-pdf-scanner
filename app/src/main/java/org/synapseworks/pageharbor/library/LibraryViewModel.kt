@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -61,6 +62,7 @@ data class LibraryUiState(
     val selectedFolderId: String? = null,
     val sortOrder: LibrarySortOrder = LibrarySortOrder.MODIFIED_DESC,
     val searchState: LibrarySearchState = LibrarySearchState.Idle,
+    val smartNameStates: Map<String, SmartNameUiState> = emptyMap(),
     val actionState: LibraryActionState = LibraryActionState.Idle,
 )
 
@@ -84,7 +86,10 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val sortOrder = MutableStateFlow(LibrarySortOrder.MODIFIED_DESC)
     private val searchLimit = MutableStateFlow(LIBRARY_SEARCH_INITIAL_LIMIT)
     private val actionState = MutableStateFlow<LibraryActionState>(LibraryActionState.Idle)
+    private val smartNameStates = MutableStateFlow<Map<String, SmartNameUiState>>(emptyMap())
     private val nextEventId = AtomicLong(0L)
+    private val nextSmartNameRequestId = AtomicLong(0L)
+    private val smartNameRequestIds = mutableMapOf<String, Long>()
 
     private val documents = combine(selectedFolderId, sortOrder) { folderId, sort ->
         folderId to sort
@@ -106,8 +111,8 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     )
     private val controls = combine(query, selectedFolderId, sortOrder, ::LibraryControls)
 
-    val uiState = combine(content, controls, searchState, actionState) {
-            content, controls, search, action ->
+    val uiState = combine(content, controls, searchState, smartNameStates, actionState) {
+            content, controls, search, smartNames, action ->
         LibraryUiState(
             documents = content.documents,
             recentDocuments = content.recentDocuments,
@@ -117,6 +122,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             selectedFolderId = controls.folderId,
             sortOrder = controls.sortOrder,
             searchState = search,
+            smartNameStates = smartNames,
             actionState = action,
         )
     }.stateIn(
@@ -135,6 +141,22 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         if (query.value.isUsefulLibrarySearchQuery()) {
             searchLimit.value = (searchLimit.value + LIBRARY_SEARCH_INITIAL_LIMIT)
                 .coerceAtMost(LIBRARY_SEARCH_MAX_LIMIT)
+        }
+    }
+
+    fun requestSmartName(documentId: String) {
+        val requestId = nextSmartNameRequestId.incrementAndGet()
+        smartNameRequestIds[documentId] = requestId
+        smartNameStates.update { it + (documentId to SmartNameUiState.Loading) }
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { repository.suggestDocumentName(documentId) }
+            if (smartNameRequestIds[documentId] != requestId) return@launch
+            val state = when (result) {
+                is LibraryResult.Success -> result.value?.let(SmartNameUiState::Available)
+                    ?: SmartNameUiState.Unavailable
+                is LibraryResult.Failure -> SmartNameUiState.Unavailable
+            }
+            smartNameStates.update { it + (documentId to state) }
         }
     }
 

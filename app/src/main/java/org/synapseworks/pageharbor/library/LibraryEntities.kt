@@ -809,6 +809,11 @@ data class LibraryEffectiveOcrPageRow(
     @ColumnInfo(name = "recognizer_id") val recognizerId: String,
 )
 
+data class LibrarySmartNamingOcrPageRow(
+    @ColumnInfo(name = "page_position") val pagePosition: Int,
+    @ColumnInfo(name = "effective_text") val effectiveText: String,
+)
+
 data class LibraryFolderRow(
     @ColumnInfo(name = "folder_id") val folderId: String,
     val name: String,

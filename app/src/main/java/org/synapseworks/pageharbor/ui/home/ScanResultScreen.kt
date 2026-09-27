@@ -95,6 +95,7 @@ import org.synapseworks.pageharbor.document.session.toAndroidUri
 import org.synapseworks.pageharbor.image.DocumentFilter
 import org.synapseworks.pageharbor.library.LibraryActionState
 import org.synapseworks.pageharbor.library.LibraryFolder
+import org.synapseworks.pageharbor.library.SmartNameUiState
 import org.synapseworks.pageharbor.ocr.OcrUiState
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.ui.theme.PageHarborLayout
@@ -116,6 +117,7 @@ fun ScanResultScreen(
     openedPagePersistentId: String?,
     libraryFolders: List<LibraryFolder>,
     libraryActionState: LibraryActionState,
+    smartNameState: SmartNameUiState?,
     importUiState: DocumentImportUiState,
     onPageFilterChange: (Long, DocumentFilter) -> Unit,
     onPageRotate: (Long) -> Unit,
@@ -124,6 +126,7 @@ fun ScanResultScreen(
     onSaveToLibrary: (String) -> Unit,
     onExtractLibraryPages: (Set<String>, String, Boolean) -> Unit,
     onRenameLibraryDocument: (String, String) -> Unit,
+    onRequestSmartName: (String) -> Unit,
     onMoveLibraryDocument: (String, String?) -> Unit,
     onDeleteLibraryDocument: (String) -> Unit,
     onConsumeLibraryAction: () -> Unit,
@@ -422,8 +425,12 @@ fun ScanResultScreen(
     }
 
     if (showRenameDialog && libraryDocument != null) {
+        LaunchedEffect(libraryDocument.documentId) {
+            onRequestSmartName(libraryDocument.documentId)
+        }
         RenameDocumentDialog(
             initialTitle = libraryDocument.title,
+            suggestion = (smartNameState as? SmartNameUiState.Available)?.suggestion?.name,
             onDismiss = { showRenameDialog = false },
             onRename = { title ->
                 onRenameLibraryDocument(libraryDocument.documentId, title)
@@ -1209,6 +1216,7 @@ private fun LibraryPageToolsDialog(
 @Composable
 private fun RenameDocumentDialog(
     initialTitle: String,
+    suggestion: String?,
     onDismiss: () -> Unit,
     onRename: (String) -> Unit,
 ) {
@@ -1217,13 +1225,31 @@ private fun RenameDocumentDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.document_rename_title)) },
         text = {
-            OutlinedTextField(
-                modifier = Modifier.fillMaxWidth(),
-                value = title,
-                onValueChange = { title = it.take(120) },
-                singleLine = true,
-                label = { Text(stringResource(R.string.library_document_title_label)) },
-            )
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
+            ) {
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = title,
+                    onValueChange = { title = it.take(120) },
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.library_document_title_label)) },
+                )
+                suggestion?.let { smartName ->
+                    Text(
+                        text = stringResource(R.string.smart_name_suggested, smartName),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    TextButton(
+                        modifier = Modifier.heightIn(min = 48.dp),
+                        onClick = { title = smartName },
+                    ) {
+                        Text(stringResource(R.string.smart_name_use_suggestion))
+                    }
+                }
+            }
         },
         confirmButton = {
             TextButton(
@@ -1234,7 +1260,7 @@ private fun RenameDocumentDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.library_cancel)) }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.smart_name_keep_current)) }
         },
     )
 }

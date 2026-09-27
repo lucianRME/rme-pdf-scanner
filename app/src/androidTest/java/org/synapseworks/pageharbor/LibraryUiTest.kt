@@ -11,6 +11,9 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
@@ -19,6 +22,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
@@ -38,6 +42,10 @@ import org.synapseworks.pageharbor.library.LibrarySearchHit
 import org.synapseworks.pageharbor.library.LibrarySearchMatch
 import org.synapseworks.pageharbor.library.LibrarySearchState
 import org.synapseworks.pageharbor.library.LibraryUiState
+import org.synapseworks.pageharbor.library.SmartNameUiState
+import org.synapseworks.pageharbor.library.smartnaming.SmartDocumentType
+import org.synapseworks.pageharbor.library.smartnaming.SmartNameConfidence
+import org.synapseworks.pageharbor.library.smartnaming.SmartNameSuggestion
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.ui.PageHarborApp
 
@@ -312,6 +320,189 @@ class LibraryUiTest {
         composeTestRule.onNodeWithText("Delete").performClick()
 
         assertEquals("document-1", deletedId)
+    }
+
+    @Test
+    fun renameFlowRequestsAndUsesSmartNameOnlyAfterUserConfirmation() {
+        var requestedId: String? = null
+        var renamed: Pair<String, String>? = null
+        val suggestion = "Vodafone Invoice — Sep 2026"
+        composeTestRule.setContent {
+            PageHarborApp(
+                libraryUiState = LibraryUiState(
+                    documents = listOf(summary("document-1", "Document 12", pageCount = 1)),
+                    smartNameStates = mapOf(
+                        "document-1" to SmartNameUiState.Available(
+                            SmartNameSuggestion(
+                                name = suggestion,
+                                confidence = SmartNameConfidence.HIGH,
+                                organization = "Vodafone",
+                                documentType = SmartDocumentType.INVOICE,
+                                date = "Sep 2026",
+                            ),
+                        ),
+                    ),
+                ),
+                onRequestSmartName = { requestedId = it },
+                onRenameLibraryDocument = { id, name -> renamed = id to name },
+            )
+        }
+
+        composeTestRule.onNodeWithContentDescription("More actions for Document 12").performClick()
+        composeTestRule.onNodeWithText("Rename").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals("document-1", requestedId)
+        composeTestRule.onNodeWithText("Suggested name: $suggestion").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Use suggestion").performClick()
+        composeTestRule.onNodeWithText("Rename").performClick()
+        assertEquals("document-1" to suggestion, renamed)
+    }
+
+    @Test
+    fun smartNameCanBeEditedAndKeepCurrentDeclinesWithoutMutation() {
+        var renamed: String? = null
+        val suggestion = "Tesco Receipt — 25 Sep 2026"
+        composeTestRule.setContent {
+            PageHarborApp(
+                libraryUiState = LibraryUiState(
+                    documents = listOf(summary("document-2", "Scan 2026-09-27", pageCount = 1)),
+                    smartNameStates = mapOf(
+                        "document-2" to SmartNameUiState.Available(
+                            SmartNameSuggestion(
+                                name = suggestion,
+                                confidence = SmartNameConfidence.HIGH,
+                                organization = "Tesco",
+                                documentType = SmartDocumentType.RECEIPT,
+                                date = "25 Sep 2026",
+                            ),
+                        ),
+                    ),
+                ),
+                onRenameLibraryDocument = { _, name -> renamed = name },
+            )
+        }
+
+        composeTestRule.onNodeWithContentDescription("More actions for Scan 2026-09-27").performClick()
+        composeTestRule.onNodeWithText("Rename").performClick()
+        composeTestRule.onNodeWithText("Keep current name").performClick()
+        assertEquals(null, renamed)
+
+        composeTestRule.onNodeWithContentDescription("More actions for Scan 2026-09-27").performClick()
+        composeTestRule.onNodeWithText("Rename").performClick()
+        composeTestRule.onNodeWithText("Use suggestion").performClick()
+        val suggestedNameField = composeTestRule.onNode(
+            hasSetTextAction() and hasAnyAncestor(isDialog()),
+        )
+        suggestedNameField.performTextClearance()
+        suggestedNameField.performTextInput("Edited receipt")
+        composeTestRule.onNodeWithText("Rename").performClick()
+        assertEquals("Edited receipt", renamed)
+    }
+
+    @Test
+    fun unavailableSmartNameLeavesOrdinaryRenameFlowIntact() {
+        var renamed: String? = null
+        composeTestRule.setContent {
+            PageHarborApp(
+                libraryUiState = LibraryUiState(
+                    documents = listOf(summary("document-3", "Document 3", pageCount = 1)),
+                    smartNameStates = mapOf("document-3" to SmartNameUiState.Unavailable),
+                ),
+                onRenameLibraryDocument = { _, name -> renamed = name },
+            )
+        }
+
+        composeTestRule.onNodeWithContentDescription("More actions for Document 3").performClick()
+        composeTestRule.onNodeWithText("Rename").performClick()
+        composeTestRule.onNodeWithText("Use suggestion").assertDoesNotExist()
+        val manualNameField = composeTestRule.onNode(
+            hasSetTextAction() and hasAnyAncestor(isDialog()),
+        )
+        manualNameField.performTextClearance()
+        manualNameField.performTextInput("Manual title")
+        composeTestRule.onNodeWithText("Rename").performClick()
+        assertEquals("Manual title", renamed)
+    }
+
+    @Test
+    fun smartNameRenameDialogRemainsUsableAtTwoHundredPercentAcrossWidths() {
+        val width = mutableStateOf(320.dp)
+        val suggestion = "Vodafone Invoice — Sep 2026"
+        composeTestRule.setContent {
+            val deviceDensity = LocalDensity.current
+            CompositionLocalProvider(
+                LocalDensity provides Density(deviceDensity.density, fontScale = 2f),
+            ) {
+                Box(
+                    modifier = androidx.compose.ui.Modifier
+                        .width(width.value)
+                        .fillMaxHeight(),
+                ) {
+                    PageHarborApp(
+                        libraryUiState = LibraryUiState(
+                            documents = listOf(summary("responsive", "Document 4", pageCount = 1)),
+                            smartNameStates = mapOf(
+                                "responsive" to SmartNameUiState.Available(
+                                    SmartNameSuggestion(
+                                        suggestion,
+                                        SmartNameConfidence.HIGH,
+                                        "Vodafone",
+                                        SmartDocumentType.INVOICE,
+                                        "Sep 2026",
+                                    ),
+                                ),
+                            ),
+                        ),
+                    )
+                }
+            }
+        }
+
+        composeTestRule.onNodeWithContentDescription("More actions for Document 4").performClick()
+        composeTestRule.onNodeWithText("Rename").performClick()
+        listOf(320.dp, 600.dp, 840.dp).forEach { targetWidth ->
+            composeTestRule.runOnUiThread { width.value = targetWidth }
+            composeTestRule.waitForIdle()
+            composeTestRule.onNodeWithText("Use suggestion").performScrollTo().assertIsDisplayed()
+            composeTestRule.onNodeWithText("Keep current name").assertIsDisplayed()
+        }
+    }
+
+    @Test
+    fun activeSavedDocumentRenameUsesTheSamePassiveSmartName() {
+        var requestedId: String? = null
+        var renamed: Pair<String, String>? = null
+        val suggestion = "Tesco Receipt — 25 Sep 2026"
+        composeTestRule.setContent {
+            PageHarborApp(
+                scannerSpikeState = ScannerSpikeState.ResultSummary(1, false, null),
+                documentPages = listOf(page(1, "saved-page")),
+                libraryDocument = LibraryDocumentReference("saved-document", "Document 5"),
+                libraryUiState = LibraryUiState(
+                    smartNameStates = mapOf(
+                        "saved-document" to SmartNameUiState.Available(
+                            SmartNameSuggestion(
+                                suggestion,
+                                SmartNameConfidence.HIGH,
+                                "Tesco",
+                                SmartDocumentType.RECEIPT,
+                                "25 Sep 2026",
+                            ),
+                        ),
+                    ),
+                ),
+                onRequestSmartName = { requestedId = it },
+                onRenameLibraryDocument = { id, title -> renamed = id to title },
+            )
+        }
+
+        composeTestRule.onNodeWithText("More").performClick()
+        composeTestRule.onNodeWithText("Rename").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals("saved-document", requestedId)
+        composeTestRule.onNodeWithText("Use suggestion").performClick()
+        composeTestRule.onNodeWithText("Rename").performClick()
+        assertEquals("saved-document" to suggestion, renamed)
     }
 
     @Test
