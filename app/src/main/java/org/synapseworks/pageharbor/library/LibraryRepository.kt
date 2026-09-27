@@ -26,6 +26,7 @@ import org.synapseworks.pageharbor.image.DocumentFilter
 import org.synapseworks.pageharbor.library.duplicate.DocumentFingerprintV1
 import org.synapseworks.pageharbor.library.duplicate.FingerprintPage
 import org.synapseworks.pageharbor.ocr.OcrResult
+import org.synapseworks.pageharbor.ocr.OcrScript
 import org.synapseworks.pageharbor.ocr.persistence.BundledLatinOcrMappingResult
 import org.synapseworks.pageharbor.ocr.persistence.BundledLatinOcrResultMapper
 
@@ -144,8 +145,9 @@ class LibraryRepository internal constructor(
         title: String,
         folderId: String? = session.libraryDocument?.folderId,
         ocrResult: OcrResult? = null,
+        ocrScript: OcrScript? = null,
     ): LibraryResult<SavedLibraryDocument> = operationGate.withMutation {
-        saveSessionUnlocked(session, title, folderId, ocrResult)
+        saveSessionUnlocked(session, title, folderId, ocrResult, ocrScript)
     }
 
     private suspend fun saveSessionUnlocked(
@@ -153,6 +155,7 @@ class LibraryRepository internal constructor(
         title: String,
         folderId: String?,
         ocrResult: OcrResult?,
+        ocrScript: OcrScript?,
     ): LibraryResult<SavedLibraryDocument> {
         if (session.pages.isEmpty()) return LibraryResult.Failure(LibraryError.EMPTY_DOCUMENT)
         val normalizedTitle = normalizeLibraryTitle(title)
@@ -188,6 +191,7 @@ class LibraryRepository internal constructor(
             title = normalizedTitle,
             folderId = folderId,
             sources = sources,
+            ocrScriptPreference = ocrScript?.stableId,
             sourceAssets = session.originalPdfSources.map { originalPdf ->
                 LibrarySourceAssetSource(
                     role = ORIGINAL_DOCUMENT_ASSET_ROLE,
@@ -202,7 +206,11 @@ class LibraryRepository internal constructor(
                 )
             },
         )
-        if (existingId == null && ocrResult != null && saved is LibraryResult.Success) {
+        if (
+            existingId == null && ocrResult != null &&
+            (ocrScript == null || ocrScript == OcrScript.LATIN) &&
+            saved is LibraryResult.Success
+        ) {
             promoteFirstSaveOcr(saved.value.id, ocrResult)
         }
         return saved
@@ -824,6 +832,7 @@ class LibraryRepository internal constructor(
         sources: List<LibraryPageSource>,
         createdAtOverride: Long? = null,
         sourceAssets: List<LibrarySourceAssetSource> = emptyList(),
+        ocrScriptPreference: String? = null,
     ): LibraryResult<SavedLibraryDocument> {
         if (title.isBlank()) return LibraryResult.Failure(LibraryError.TITLE_REQUIRED)
         if (sources.isEmpty()) return LibraryResult.Failure(LibraryError.EMPTY_DOCUMENT)
@@ -907,6 +916,7 @@ class LibraryRepository internal constructor(
             contentByteCount = contentByteCount,
             sourceModifiedAtMillis = sourceAssetEntities.firstOrNull()?.sourceModifiedAtMillis,
             importedAtMillis = existing?.importedAtMillis ?: now,
+            ocrScriptPreference = ocrScriptPreference ?: existing?.ocrScriptPreference,
         )
         try {
             dao.replaceDocument(

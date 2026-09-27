@@ -82,7 +82,9 @@ sealed interface OcrModelState {
     data object Installing : OcrModelState
     data object Canceled : OcrModelState
     data object StatusUnknown : OcrModelState
+    data object Unsupported : OcrModelState
     data class Failed(val reason: OcrModelFailure) : OcrModelState
+    data class RetryableFailure(val reason: OcrModelFailure) : OcrModelState
 }
 
 /** Safe model-management failures; no SDK exception or document detail crosses this boundary. */

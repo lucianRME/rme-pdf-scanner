@@ -95,6 +95,7 @@ enum class OcrFailureReason {
     IMAGE_UNREADABLE,
     MODEL_UNAVAILABLE,
     GOOGLE_PLAY_SERVICES_UNAVAILABLE,
+    SCRIPT_UNSUPPORTED,
     RECOGNITION_FAILED,
     STALE_INPUT,
     CANCELLED,
@@ -119,7 +120,7 @@ sealed interface OcrPageRecognitionOutcome {
 
 /** Page-oriented engine boundary shared by manual, reconstructed, and durable batch work. */
 fun interface OcrPageRecognitionEngine {
-    fun recognize(request: OcrPageRecognitionRequest): OcrPageRecognitionOutcome
+    suspend fun recognize(request: OcrPageRecognitionRequest): OcrPageRecognitionOutcome
 }
 
 /** Exact comparison used before publishing or attempting a persistence compare-and-set. */

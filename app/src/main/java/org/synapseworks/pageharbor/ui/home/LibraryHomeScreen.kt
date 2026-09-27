@@ -171,6 +171,7 @@ fun LibraryHomeScreen(
     onRateRme: () -> Unit,
     onSuggestFeature: () -> Unit,
     onShareRme: () -> Unit,
+    onOcrLanguage: () -> Unit = {},
     onAppLock: () -> Unit,
     onMoveFromScanner: () -> Unit,
     onBackupRestore: () -> Unit,
@@ -377,6 +378,7 @@ fun LibraryHomeScreen(
                 onRateRme = onRateRme,
                 onSuggestFeature = onSuggestFeature,
                 onShareRme = onShareRme,
+                onOcrLanguage = onOcrLanguage,
                 onAppLock = onAppLock,
                 onMoveFromScanner = onMoveFromScanner,
                 onBackupRestore = onBackupRestore,
@@ -1015,6 +1017,7 @@ private fun MoreDestination(
     onRateRme: () -> Unit,
     onSuggestFeature: () -> Unit,
     onShareRme: () -> Unit,
+    onOcrLanguage: () -> Unit,
     onAppLock: () -> Unit,
     onMoveFromScanner: () -> Unit,
     onBackupRestore: () -> Unit,
@@ -1073,6 +1076,21 @@ private fun MoreDestination(
                         R.string.more_new_phone_title,
                         R.string.more_new_phone_description,
                         onMoveToNewPhone,
+                    ),
+                ),
+            )
+            Text(
+                modifier = Modifier.semantics { heading() },
+                text = stringResource(R.string.more_preferences_heading),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            MoreActionGroup(
+                actions = listOf(
+                    MoreAction(
+                        Icons.Default.TextFields,
+                        R.string.ocr_language_title,
+                        R.string.ocr_language_more_description,
+                        onOcrLanguage,
                     ),
                 ),
             )

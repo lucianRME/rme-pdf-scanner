@@ -34,6 +34,11 @@ import org.synapseworks.pageharbor.document.session.LibraryDocumentReference
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.image.DocumentFilter
 import org.synapseworks.pageharbor.ocr.OcrUiState
+import org.synapseworks.pageharbor.ocr.OcrModelState
+import org.synapseworks.pageharbor.ocr.OcrOperationSelection
+import org.synapseworks.pageharbor.ocr.OcrScript
+import org.synapseworks.pageharbor.ocr.OcrScriptRecommendation
+import org.synapseworks.pageharbor.ocr.OcrScriptSelection
 import org.synapseworks.pageharbor.library.LibrarySortOrder
 import org.synapseworks.pageharbor.library.LibraryUiState
 import org.synapseworks.pageharbor.security.AppLockAuthenticatedChangeResult
@@ -60,6 +65,8 @@ import org.synapseworks.pageharbor.ui.portability.PortabilityWorkflowState
 import org.synapseworks.pageharbor.ui.portability.RestorePasswordScreen
 import org.synapseworks.pageharbor.ui.portability.RestorePreviewScreen
 import org.synapseworks.pageharbor.ui.security.AppLockSettingsScreen
+import org.synapseworks.pageharbor.ui.ocr.OcrLanguageSettingsScreen
+import org.synapseworks.pageharbor.ui.ocr.OcrOperationDialog
 import org.synapseworks.pageharbor.ui.theme.PageHarborTheme
 
 @Composable
@@ -104,15 +111,26 @@ fun PageHarborApp(
     onCancelImport: () -> Unit = {},
     onSavePdf: () -> Unit = {},
     onSaveSearchablePdf: () -> Unit = {},
+    onSaveSearchablePdfWithLanguage: ((OcrOperationSelection, Boolean) -> Unit)? = null,
     onSharePdf: () -> Unit = {},
     onExportPages: () -> Unit = {},
     onRecognizeText: () -> Unit = {},
+    onRecognizeTextWithLanguage: ((OcrOperationSelection, Boolean) -> Unit)? = null,
     onClearRecognizedText: () -> Unit = {},
     onCopyRecognizedText: ((String) -> Unit)? = null,
     onViewSourceCode: () -> Unit = {},
     onRateRme: () -> Unit = {},
     onSuggestFeature: () -> Unit = {},
     onShareRme: () -> Unit = {},
+    ocrDefaultSelection: OcrScriptSelection = OcrScriptSelection.Automatic,
+    ocrRecommendation: OcrScriptRecommendation = OcrScriptRecommendation(
+        OcrScript.LATIN,
+        OcrScriptRecommendation.Basis.LATIN_FALLBACK,
+    ),
+    ocrModelStates: Map<OcrScript, OcrModelState> = emptyMap(),
+    onOcrDefaultSelectionChanged: (OcrScriptSelection) -> Unit = {},
+    onOcrInstallRequested: (OcrScript) -> Unit = {},
+    onOcrModelRefreshRequested: () -> Unit = {},
     appLockState: AppLockState? = null,
     appLockAuthenticationAvailability: AppLockAuthenticationAvailability =
         AppLockAuthenticationAvailability.UNSUPPORTED,
@@ -143,6 +161,8 @@ fun PageHarborApp(
         var showPrivacyInfo by remember { mutableStateOf(false) }
         var showAbout by remember { mutableStateOf(false) }
         var showAppLockSettings by remember { mutableStateOf(false) }
+        var showOcrLanguageSettings by rememberSaveable { mutableStateOf(false) }
+        var ocrOperationPrompt by rememberSaveable { mutableStateOf<OcrOperationPrompt?>(null) }
         var libraryTransientUiBusy by remember { mutableStateOf(false) }
         var libraryDestinationIndex by rememberSaveable {
             mutableIntStateOf(LibraryDestination.Home.ordinal)
@@ -220,9 +240,12 @@ fun PageHarborApp(
             showPrivacyInfo,
             showAbout,
             showAppLockSettings,
+            showOcrLanguageSettings,
+            ocrOperationPrompt,
             libraryTransientUiBusy,
         ) {
             val isBusy = showPrivacyInfo || showAbout || showAppLockSettings ||
+                showOcrLanguageSettings || ocrOperationPrompt != null ||
                 libraryTransientUiBusy
             onReviewUiBusyChanged(isBusy)
             if (isBusy) exitController.reset()
@@ -235,6 +258,7 @@ fun PageHarborApp(
         }
 
         BackHandler(enabled = showAppLockSettings) { showAppLockSettings = false }
+        BackHandler(enabled = showOcrLanguageSettings) { showOcrLanguageSettings = false }
         BackHandler(enabled = portabilityState !is PortabilityWorkflowState.Hidden) {
             portabilityCallbacks.onBack()
         }
@@ -376,6 +400,15 @@ fun PageHarborApp(
             },
             onOpenDeviceSecuritySettings = onOpenDeviceSecuritySettings,
         )
+        showOcrLanguageSettings -> OcrLanguageSettingsScreen(
+            selection = ocrDefaultSelection,
+            recommendation = ocrRecommendation,
+            modelStates = ocrModelStates,
+            onSelectionChanged = onOcrDefaultSelectionChanged,
+            onInstall = onOcrInstallRequested,
+            onRefresh = onOcrModelRefreshRequested,
+            onBack = { showOcrLanguageSettings = false },
+        )
         currentScreen == PageHarborScreen.OcrResult && ocrUiState is OcrUiState.Success -> {
             OcrResultScreen(
                 result = ocrUiState.result,
@@ -387,7 +420,11 @@ fun PageHarborApp(
                 onBack = { navigateTo(PageHarborScreen.ScanResult) },
                 onRecognizeAgain = {
                     navigateTo(PageHarborScreen.ScanResult)
-                    onRecognizeText()
+                    if (onRecognizeTextWithLanguage != null) {
+                        ocrOperationPrompt = OcrOperationPrompt.RECOGNIZE_TEXT
+                    } else {
+                        onRecognizeText()
+                    }
                 },
                 onClearRecognizedText = {
                     navigateTo(PageHarborScreen.ScanResult)
@@ -436,10 +473,22 @@ fun PageHarborApp(
             onConsumeLibraryAction = onConsumeLibraryAction,
             onBack = { navigateTo(PageHarborScreen.Home) },
             onSavePdf = onSavePdf,
-            onSaveSearchablePdf = onSaveSearchablePdf,
+            onSaveSearchablePdf = {
+                if (onSaveSearchablePdfWithLanguage != null) {
+                    ocrOperationPrompt = OcrOperationPrompt.SEARCHABLE_PDF
+                } else {
+                    onSaveSearchablePdf()
+                }
+            },
             onSharePdf = onSharePdf,
             onExportPages = onExportPages,
-            onRecognizeText = onRecognizeText,
+            onRecognizeText = {
+                if (onRecognizeTextWithLanguage != null) {
+                    ocrOperationPrompt = OcrOperationPrompt.RECOGNIZE_TEXT
+                } else {
+                    onRecognizeText()
+                }
+            },
             onViewRecognizedText = { navigateTo(PageHarborScreen.OcrResult) },
             onScanAgain = onScanDocument,
             onImportFiles = onImportFiles,
@@ -494,6 +543,7 @@ fun PageHarborApp(
             onRateRme = onRateRme,
             onSuggestFeature = onSuggestFeature,
             onShareRme = onShareRme,
+            onOcrLanguage = { showOcrLanguageSettings = true },
             onAppLock = { showAppLockSettings = true },
             onMoveFromScanner = portabilityCallbacks.onOpenMigration,
             onBackupRestore = portabilityCallbacks.onOpenBackupRestore,
@@ -505,6 +555,26 @@ fun PageHarborApp(
             selectedDestination = libraryDestination,
             onDestinationSelected = { libraryDestinationIndex = it.ordinal },
         )
+        }
+
+        ocrOperationPrompt?.let { prompt ->
+            OcrOperationDialog(
+                defaultSelection = ocrDefaultSelection,
+                recommendation = ocrRecommendation,
+                modelStates = ocrModelStates,
+                onInstall = onOcrInstallRequested,
+                onRefresh = onOcrModelRefreshRequested,
+                onDismiss = { ocrOperationPrompt = null },
+                onConfirm = { selection, useAsDefault ->
+                    ocrOperationPrompt = null
+                    when (prompt) {
+                        OcrOperationPrompt.RECOGNIZE_TEXT ->
+                            onRecognizeTextWithLanguage?.invoke(selection, useAsDefault)
+                        OcrOperationPrompt.SEARCHABLE_PDF ->
+                            onSaveSearchablePdfWithLanguage?.invoke(selection, useAsDefault)
+                    }
+                },
+            )
         }
 
         LaunchedEffect(scannerSpikeState) {
@@ -687,3 +757,5 @@ fun PageHarborApp(
         }
     }
 }
+
+private enum class OcrOperationPrompt { RECOGNIZE_TEXT, SEARCHABLE_PDF }

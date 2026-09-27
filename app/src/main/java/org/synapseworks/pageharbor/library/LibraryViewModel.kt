@@ -18,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.synapseworks.pageharbor.document.session.DocumentSession
 import org.synapseworks.pageharbor.ocr.OcrResult
+import org.synapseworks.pageharbor.ocr.OcrScript
 
 enum class LibraryActionSuccess {
     SAVED,
@@ -149,13 +150,19 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         session: DocumentSession,
         title: String,
         ocrResult: OcrResult?,
+        ocrScript: OcrScript? = null,
     ): LibraryResult<SavedLibraryDocument> {
         if (!beginSuspendingAction()) {
             return LibraryResult.Failure(LibraryError.OPERATION_INTERRUPTED)
         }
         return try {
             val result = withContext(Dispatchers.IO) {
-                repository.saveSession(session, title, ocrResult = ocrResult)
+                repository.saveSession(
+                    session,
+                    title,
+                    ocrResult = ocrResult,
+                    ocrScript = ocrScript,
+                )
             }
             publish(LibraryActionSuccess.SAVED, result)
         } catch (error: CancellationException) {

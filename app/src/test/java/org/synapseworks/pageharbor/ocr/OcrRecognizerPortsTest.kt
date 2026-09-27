@@ -39,7 +39,7 @@ class OcrRecognizerPortsTest {
     private class FakeRecognizer(
         override val script: OcrScript,
     ) : OcrScriptRecognizer {
-        override fun recognize(request: OcrPageRecognitionRequest): OcrPageRecognitionOutcome =
+        override suspend fun recognize(request: OcrPageRecognitionRequest): OcrPageRecognitionOutcome =
             OcrPageRecognitionOutcome.Failure(
                 descriptor = request.descriptor,
                 reason = OcrFailureReason.RECOGNITION_FAILED,

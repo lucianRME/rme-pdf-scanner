@@ -8,6 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.synapseworks.pageharbor.ocr.OcrDurablePageCurrentness
 import org.synapseworks.pageharbor.ocr.OcrPageAddress
+import org.synapseworks.pageharbor.ocr.OcrPageError
 import org.synapseworks.pageharbor.ocr.OcrPageLayout
 import org.synapseworks.pageharbor.ocr.OcrPageResult
 import org.synapseworks.pageharbor.ocr.OcrRecognitionCurrentness
@@ -163,6 +164,23 @@ class EffectiveOcrPageProviderTest {
             transient,
             (resolution as SearchablePdfOcrInputResolution.Available).result,
         )
+    }
+
+    @Test
+    fun allPageRecognitionFailureIsUnavailableInsteadOfImageOnlySuccess() = runBlocking {
+        val failed = OcrResult(
+            listOf(
+                OcrPageResult(
+                    pageIndex = 0,
+                    text = "",
+                    error = OcrPageError.RECOGNITION_FAILED,
+                ),
+            ),
+        )
+
+        val resolution = failed.toSearchablePdfRecognitionResolution()
+
+        assertEquals(SearchablePdfOcrInputResolution.Unavailable, resolution)
     }
 
     private fun rawPage(currentness: OcrRecognitionCurrentness) = EffectiveOcrPage(

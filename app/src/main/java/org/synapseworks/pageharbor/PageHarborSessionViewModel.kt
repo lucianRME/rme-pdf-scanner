@@ -38,6 +38,7 @@ import org.synapseworks.pageharbor.document.session.PendingResourceRegistrationR
 import org.synapseworks.pageharbor.document.session.toAndroidUri
 import org.synapseworks.pageharbor.image.DocumentFilter
 import org.synapseworks.pageharbor.ocr.OcrUiState
+import org.synapseworks.pageharbor.ocr.OcrScript
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.scanner.createScannerResultSummary
 import org.synapseworks.pageharbor.ui.PageHarborScreen
@@ -96,6 +97,7 @@ class PageHarborSessionViewModel internal constructor(
     var pdfShareState: PdfShareState by mutableStateOf(PdfShareState.Idle)
     var pageExportState: PageExportState by mutableStateOf(PageExportState.Idle)
     var ocrUiState: OcrUiState by mutableStateOf(OcrUiState.Idle)
+    var lastOcrScript: OcrScript? by mutableStateOf(null)
     var ocrSelectedPageIndex: Int by mutableIntStateOf(0)
     var searchablePdfSaveState: SearchablePdfSaveState by mutableStateOf(SearchablePdfSaveState.Idle)
     var lastAcquisitionError: DocumentAcquisitionError? by mutableStateOf(null)

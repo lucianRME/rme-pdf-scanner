@@ -75,6 +75,21 @@ class MlKitOcrEngineTest {
     }
 
     @Test
+    fun recognizesFrenchLatinText() {
+        assertRecognizesFolded("École française", "Ecole")
+    }
+
+    @Test
+    fun recognizesItalianLatinText() {
+        assertRecognizesFolded("Città italiana", "Citta")
+    }
+
+    @Test
+    fun recognizesSpanishLatinText() {
+        assertRecognizesFolded("España mañana", "Espana")
+    }
+
+    @Test
     fun invalidImageReturnsSafeFailureInsteadOfThrowing() {
         val result = engine.recognize(
             listOf(OcrPage { ByteArrayInputStream(byteArrayOf(1, 2, 3)) }),
@@ -165,6 +180,13 @@ class MlKitOcrEngineTest {
 
     private fun foldDiacritics(text: String): String =
         Normalizer.normalize(text, Normalizer.Form.NFD).replace("\\p{M}+".toRegex(), "")
+
+    private fun assertRecognizesFolded(fixture: String, expected: String) {
+        val result = engine.recognize(listOf(pageWithText(fixture)))
+
+        assertNull(result.pages.single().error)
+        assertTrue(foldDiacritics(result.pages.single().text).contains(expected, ignoreCase = true))
+    }
 
     private class TrackingInputStream(bytes: ByteArray) : InputStream() {
         private val delegate = ByteArrayInputStream(bytes)

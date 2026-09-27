@@ -98,9 +98,19 @@ import org.synapseworks.pageharbor.scanner.createScannerResultSummary
 import org.synapseworks.pageharbor.ui.PageHarborApp
 import org.synapseworks.pageharbor.ui.PageHarborScreen
 import org.synapseworks.pageharbor.ocr.MlKitOcrEngine
+import org.synapseworks.pageharbor.ocr.MultilingualOcrRuntime
 import org.synapseworks.pageharbor.ocr.OcrEngine
+import org.synapseworks.pageharbor.ocr.OcrLocaleScriptMapper
+import org.synapseworks.pageharbor.ocr.OcrModelState
 import org.synapseworks.pageharbor.ocr.OcrOperationTracker
+import org.synapseworks.pageharbor.ocr.OcrOperationSelection
+import org.synapseworks.pageharbor.ocr.OcrOperationSelectionResolver
 import org.synapseworks.pageharbor.ocr.OcrPage
+import org.synapseworks.pageharbor.ocr.OcrScript
+import org.synapseworks.pageharbor.ocr.OcrScriptSelection
+import org.synapseworks.pageharbor.ocr.ScriptedOcrEngine
+import org.synapseworks.pageharbor.ocr.SharedPreferencesOcrLanguagePreferenceStore
+import org.synapseworks.pageharbor.ocr.resolve
 import org.synapseworks.pageharbor.ocr.OcrUiError
 import org.synapseworks.pageharbor.ocr.OcrUiState
 import org.synapseworks.pageharbor.ocr.canStartOcr
@@ -108,6 +118,7 @@ import org.synapseworks.pageharbor.ocr.clearedOcrState
 import org.synapseworks.pageharbor.ocr.ocrStateAfterResult
 import org.synapseworks.pageharbor.ocr.persistence.BundledLatinOcrMappingResult
 import org.synapseworks.pageharbor.ocr.persistence.BundledLatinOcrResultMapper
+import org.synapseworks.pageharbor.ocr.persistence.ScriptedOcrSessionRunner
 import org.synapseworks.pageharbor.library.LibraryResult
 import org.synapseworks.pageharbor.library.LibraryActionState
 import org.synapseworks.pageharbor.library.LibraryOcrCommitResult
@@ -228,6 +239,14 @@ class MainActivity : FragmentActivity() {
     private val scannedPageUris: List<Uri>
         get() = session.scannedPageUris
     private var ocrEngine: OcrEngine = MlKitOcrEngine()
+    private val multilingualOcrRuntime by lazy { MultilingualOcrRuntime.get(applicationContext) }
+    private val ocrLanguagePreferences by lazy {
+        SharedPreferencesOcrLanguagePreferenceStore(applicationContext)
+    }
+    private var ocrDefaultSelection by mutableStateOf<OcrScriptSelection>(
+        OcrScriptSelection.Automatic,
+    )
+    private var ocrModelStates by mutableStateOf<Map<OcrScript, OcrModelState>>(emptyMap())
     private var ocrJob: Job? = null
     private val ocrOperationTracker = OcrOperationTracker()
     private var searchablePdfExportCoordinatorForCurrentActivity: SearchablePdfExportCoordinator? = null
@@ -416,6 +435,12 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        ocrDefaultSelection = ocrLanguagePreferences.read()
+        lifecycleScope.launch {
+            multilingualOcrRuntime.modelInstaller.states.collect { states ->
+                ocrModelStates = states
+            }
+        }
         restoreActivityUiState(savedInstanceState)
         reviewEligibility.recordAppSession()
         enableEdgeToEdge()
@@ -592,14 +617,26 @@ class MainActivity : FragmentActivity() {
                     onCancelImport = ::cancelImport,
                     onSavePdf = ::choosePdfDestination,
                     onSaveSearchablePdf = ::saveSearchablePdf,
+                    onSaveSearchablePdfWithLanguage = { selection, useAsDefault ->
+                        saveSearchablePdf(resolveOcrOperation(selection, useAsDefault))
+                    },
                     onSharePdf = ::sharePdf,
                     onExportPages = ::exportPages,
                     onRecognizeText = ::recognizeText,
+                    onRecognizeTextWithLanguage = { selection, useAsDefault ->
+                        recognizeText(resolveOcrOperation(selection, useAsDefault))
+                    },
                     onClearRecognizedText = ::clearRecognizedText,
                     onViewSourceCode = ::openSourceCode,
                     onRateRme = ::openPlayListing,
                     onSuggestFeature = ::suggestFeature,
                     onShareRme = ::shareRme,
+                    ocrDefaultSelection = ocrDefaultSelection,
+                    ocrRecommendation = currentOcrRecommendation(),
+                    ocrModelStates = ocrModelStates,
+                    onOcrDefaultSelectionChanged = ::updateOcrDefaultSelection,
+                    onOcrInstallRequested = ::requestOcrModelInstall,
+                    onOcrModelRefreshRequested = ::refreshOcrModelStates,
                     appLockState = appLockState,
                     appLockAuthenticationAvailability = appLockAuthenticationController.availability(),
                     onSetupAppLock = { timeout ->
@@ -1406,7 +1443,14 @@ class MainActivity : FragmentActivity() {
         lifecycleScope.launch {
             var openedDocumentId: String? = null
             try {
-                when (val saved = library.saveSession(lease.session, title, recognized)) {
+                when (
+                    val saved = library.saveSession(
+                        lease.session,
+                        title,
+                        recognized,
+                        session.lastOcrScript,
+                    )
+                ) {
                     is LibraryResult.Success -> {
                         recordReviewMilestone(ReviewMilestone.SAVED_TO_RME)
                         when (val opened = library.openDocument(saved.value.id)) {
@@ -1764,7 +1808,47 @@ class MainActivity : FragmentActivity() {
         session.cancelImportRequest()
     }
 
-    private fun recognizeText() {
+    private fun currentOcrRecommendation() = OcrLocaleScriptMapper.recommend(
+        resources.configuration.locales.get(0),
+    )
+
+    private fun updateOcrDefaultSelection(selection: OcrScriptSelection) {
+        ocrLanguagePreferences.write(selection)
+        ocrDefaultSelection = selection
+    }
+
+    private fun resolveOcrOperation(
+        operationSelection: OcrOperationSelection,
+        useAsDefault: Boolean,
+    ): OcrScript {
+        val resolved = OcrOperationSelectionResolver.resolve(
+            operationSelection = operationSelection,
+            defaultSelection = ocrDefaultSelection,
+            recommendation = currentOcrRecommendation(),
+            useAsDefault = useAsDefault,
+        )
+        resolved.updatedDefault?.let(::updateOcrDefaultSelection)
+        return resolved.script
+    }
+
+    private fun requestOcrModelInstall(script: OcrScript) {
+        if (script == OcrScript.LATIN) return
+        lifecycleScope.launch { multilingualOcrRuntime.modelInstaller.requestInstall(script) }
+    }
+
+    private fun refreshOcrModelStates() {
+        lifecycleScope.launch {
+            OcrScript.entries.filterNot { it == OcrScript.LATIN }.forEach { script ->
+                multilingualOcrRuntime.modelInstaller.stateFor(script)
+            }
+        }
+    }
+
+    private fun recognizeText() = recognizeText(
+        ocrDefaultSelection.resolve(currentOcrRecommendation()),
+    )
+
+    private fun recognizeText(script: OcrScript) {
         if (!canStartOcr(ocrUiState)) return
 
         val lease = session.acquireDocumentSessionLease(documentSessionLeaseReleaseObserverForTest) ?: run {
@@ -1815,14 +1899,29 @@ class MainActivity : FragmentActivity() {
                     null
                 }
 
-                val result = withContext(Dispatchers.IO) {
+                val scriptedResult = withContext(Dispatchers.IO) {
+                    if (script == OcrScript.LATIN) {
+                        null
+                    } else {
+                        ScriptedOcrSessionRunner(
+                            engine = multilingualOcrRuntime.recognitionEngine,
+                        ).recognize(
+                            pages = pages,
+                            script = script,
+                            sessionDocumentRevision = documentRevision,
+                            savedSnapshots = capturedSnapshots,
+                            recognizedAtMillis = System.currentTimeMillis(),
+                        )
+                    }
+                }
+                val result = scriptedResult?.result ?: withContext(Dispatchers.IO) {
                     ocrEngine.recognize(pages)
                 }
                 if (!ocrOperationTracker.isCurrent(operationId, session.documentRevision)) {
                     return@launch
                 }
 
-                if (capturedSnapshots != null) {
+                if (capturedSnapshots != null && script == OcrScript.LATIN) {
                     val mapping = BundledLatinOcrResultMapper.map(
                         result = result,
                         orderedSnapshots = capturedSnapshots,
@@ -1843,6 +1942,32 @@ class MainActivity : FragmentActivity() {
                         publishOcrUnexpectedFailure(operationId)
                         return@launch
                     }
+                } else if (capturedSnapshots != null) {
+                    val outcomes = scriptedResult?.persistenceOutcomes
+                    if (outcomes == null) {
+                        // Missing/failed optional support must leave the previous durable OCR intact.
+                        if (result.pages.all { it.error != null }) {
+                            if (ocrOperationTracker.claimCompletion(
+                                    operationId,
+                                    session.documentRevision,
+                                ) == OcrOperationTracker.CompletionClaim.CLAIMED
+                            ) {
+                                ocrUiState = ocrStateAfterResult(result)
+                                ocrTerminalStateObserverForTest?.invoke()
+                            }
+                            return@launch
+                        }
+                        publishOcrUnexpectedFailure(operationId)
+                        return@launch
+                    }
+                    val commit = library.indexOcr(
+                        documentId = requireNotNull(savedDocumentId),
+                        outcomes = outcomes,
+                    )
+                    if (commit != LibraryOcrCommitResult.APPLIED) {
+                        publishOcrUnexpectedFailure(operationId)
+                        return@launch
+                    }
                 }
 
                 if (ocrOperationTracker.claimCompletion(
@@ -1853,6 +1978,7 @@ class MainActivity : FragmentActivity() {
                     return@launch
                 }
                 ocrUiState = ocrStateAfterResult(result)
+                if (ocrUiState is OcrUiState.Success) session.lastOcrScript = script
                 ocrSelectedPageIndex = 0
                 ocrTerminalStateObserverForTest?.invoke()
             } catch (_: CancellationException) {
@@ -1880,6 +2006,7 @@ class MainActivity : FragmentActivity() {
         ocrJob?.cancel()
         ocrJob = null
         ocrUiState = clearedOcrState()
+        session.lastOcrScript = null
         ocrSelectedPageIndex = 0
     }
 
@@ -1931,7 +2058,11 @@ class MainActivity : FragmentActivity() {
         savePdfToDestination(destinationUri, operationId)
     }
 
-    private fun saveSearchablePdf() {
+    private fun saveSearchablePdf() = saveSearchablePdf(
+        ocrDefaultSelection.resolve(currentOcrRecommendation()),
+    )
+
+    private fun saveSearchablePdf(script: OcrScript) {
         if (searchablePdfSaveState.isInProgress()) return
         val lease = session.acquireDocumentSessionLease(documentSessionLeaseReleaseObserverForTest)
         if (lease == null) {
@@ -1945,6 +2076,7 @@ class MainActivity : FragmentActivity() {
         val operationId = searchablePdfOperationTracker.begin(documentRevision)
         searchablePdfSaveState = SearchablePdfSaveState.Preparing
         val existingOcrResult = (ocrUiState as? OcrUiState.Success)?.result
+            ?.takeIf { session.lastOcrScript == script }
         searchablePdfExportJob = lifecycleScope.launch {
             try {
                 val preparedExport = searchablePdfExportCoordinator.prepare(
@@ -1961,6 +2093,11 @@ class MainActivity : FragmentActivity() {
                             )
                         },
                         ocrResult = existingOcrResult,
+                        ocrEngineOverride = if (script == OcrScript.LATIN) {
+                            null
+                        } else {
+                            ScriptedOcrEngine(multilingualOcrRuntime.recognitionEngine, script)
+                        },
                         progressListener = SearchablePdfExportProgressListener { progress ->
                             runOnUiThread {
                                 if (

@@ -44,6 +44,7 @@ data class SearchablePdfExportRequest(
         SearchablePdfVisualPage(pageId = index.toLong(), originalUri = uri)
     },
     val ocrResult: OcrResult? = null,
+    val ocrEngineOverride: OcrEngine? = null,
     val progressListener: SearchablePdfExportProgressListener = SearchablePdfExportProgressListener {},
     val effectiveOcrPageProvider: EffectiveOcrPageProvider? = null,
     val effectiveOcrPageRequests: List<EffectiveOcrPageRequest> = emptyList(),
@@ -293,7 +294,7 @@ class LocalSearchablePdfExportCoordinator(
         return try {
             withContext(Dispatchers.IO) {
                 coroutineContext.ensureActive()
-                ocrEngine.recognize(
+                (request.ocrEngineOverride ?: ocrEngine).recognize(
                     request.visualPages.map { page ->
                         OcrPage(
                             rotationDegrees = page.rotation.degrees,
@@ -328,7 +329,7 @@ class LocalSearchablePdfExportCoordinator(
         }
         if (initial != SearchablePdfOcrInputResolution.NeedsRecognition) return initial
 
-        return recognize(request)?.let(SearchablePdfOcrInputResolution::Available)
+        return recognize(request)?.toSearchablePdfRecognitionResolution()
             ?: SearchablePdfOcrInputResolution.Unavailable
     }
 

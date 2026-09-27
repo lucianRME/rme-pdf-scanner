@@ -88,6 +88,13 @@ internal sealed interface SearchablePdfOcrInputResolution {
     data object StaleOrMismatched : SearchablePdfOcrInputResolution
 }
 
+internal fun OcrResult.toSearchablePdfRecognitionResolution(): SearchablePdfOcrInputResolution =
+    if (pages.isEmpty() || pages.all { page -> page.error != null }) {
+        SearchablePdfOcrInputResolution.Unavailable
+    } else {
+        SearchablePdfOcrInputResolution.Available(this)
+    }
+
 /**
  * Resolves a persisted effective-text provider when present, otherwise preserves the existing
  * transient-result path. A null transient result means the caller still needs to run OCR.

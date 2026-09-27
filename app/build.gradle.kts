@@ -264,6 +264,11 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.play.services.mlkit.document.scanner)
     implementation(libs.mlkit.text.recognition.latin)
+    implementation(libs.play.services.base)
+    implementation(libs.play.services.mlkit.text.recognition.chinese)
+    implementation(libs.play.services.mlkit.text.recognition.devanagari)
+    implementation(libs.play.services.mlkit.text.recognition.japanese)
+    implementation(libs.play.services.mlkit.text.recognition.korean)
     // Required for local invisible Unicode text layers; no networking or native binaries.
     implementation(libs.pdfbox.android)
     implementation(libs.androidx.room.runtime)
