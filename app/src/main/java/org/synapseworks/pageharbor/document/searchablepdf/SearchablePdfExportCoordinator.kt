@@ -23,6 +23,10 @@ import org.synapseworks.pageharbor.document.filename.FilenameSuggestionEngine
 import org.synapseworks.pageharbor.ocr.OcrEngine
 import org.synapseworks.pageharbor.ocr.OcrPage
 import org.synapseworks.pageharbor.ocr.OcrResult
+import org.synapseworks.pageharbor.ocr.OcrPageResult
+import org.synapseworks.pageharbor.ocr.OcrTextBounds
+import org.synapseworks.pageharbor.ocr.OcrTextLine
+import org.synapseworks.pageharbor.ocr.OcrTextPlacementMode
 
 /** Coordinates local OCR, searchable-PDF preparation, and a caller-selected SAF destination. */
 interface SearchablePdfExportCoordinator {
@@ -157,7 +161,7 @@ class LocalSearchablePdfExportCoordinator(
                     SearchablePdfPreparationError.OCR_RESULT_MISMATCH,
                 )
 
-            SearchablePdfOcrInputResolution.NeedsRecognition -> error(
+            is SearchablePdfOcrInputResolution.NeedsRecognition -> error(
                 "OCR resolution must be complete before PDF preparation",
             )
         }
@@ -289,13 +293,22 @@ class LocalSearchablePdfExportCoordinator(
         }
     }
 
-    private suspend fun recognize(request: SearchablePdfExportRequest): OcrResult? {
+    private suspend fun recognize(
+        request: SearchablePdfExportRequest,
+        plan: SearchablePdfOcrInputResolution.NeedsRecognition,
+    ): OcrResult? {
+        val recognitionPageIndexes = request.visualPages.indices
+            .filterNot(plan.reusablePages::containsKey)
+        if (recognitionPageIndexes.isEmpty()) {
+            return OcrResult(plan.reusablePages.values.sortedBy(OcrPageResult::pageIndex))
+        }
         reportProgress(request.progressListener, SearchablePdfExportProgress.Recognizing)
         return try {
             withContext(Dispatchers.IO) {
                 coroutineContext.ensureActive()
-                (request.ocrEngineOverride ?: ocrEngine).recognize(
-                    request.visualPages.map { page ->
+                val recognized = (request.ocrEngineOverride ?: ocrEngine).recognize(
+                    recognitionPageIndexes.map { pageIndex ->
+                        val page = request.visualPages[pageIndex]
                         OcrPage(
                             rotationDegrees = page.rotation.degrees,
                             imageMetadata = page.imageMetadata,
@@ -304,6 +317,12 @@ class LocalSearchablePdfExportCoordinator(
                                 ?: throw FileNotFoundException()
                         }
                     },
+                )
+                mergeRecognizedPages(
+                    pageCount = request.visualPages.size,
+                    recognitionPageIndexes = recognitionPageIndexes,
+                    recognized = recognized,
+                    plan = plan,
                 )
             }
         } catch (error: CancellationException) {
@@ -327,10 +346,75 @@ class LocalSearchablePdfExportCoordinator(
         } catch (_: Exception) {
             return SearchablePdfOcrInputResolution.Unavailable
         }
-        if (initial != SearchablePdfOcrInputResolution.NeedsRecognition) return initial
+        if (initial !is SearchablePdfOcrInputResolution.NeedsRecognition) return initial
 
-        return recognize(request)?.toSearchablePdfRecognitionResolution()
+        return recognize(request, initial)?.toSearchablePdfRecognitionResolution()
             ?: SearchablePdfOcrInputResolution.Unavailable
+    }
+
+    private fun mergeRecognizedPages(
+        pageCount: Int,
+        recognitionPageIndexes: List<Int>,
+        recognized: OcrResult,
+        plan: SearchablePdfOcrInputResolution.NeedsRecognition,
+    ): OcrResult? {
+        val orderedRecognized = recognized.pages.sortedBy(OcrPageResult::pageIndex)
+        if (
+            orderedRecognized.size != recognitionPageIndexes.size ||
+            orderedRecognized.indices.any { index -> orderedRecognized[index].pageIndex != index }
+        ) {
+            return null
+        }
+        val pages = plan.reusablePages.toMutableMap()
+        recognitionPageIndexes.forEachIndexed { localIndex, pageIndex ->
+            val page = orderedRecognized[localIndex].copy(pageIndex = pageIndex)
+            pages[pageIndex] = plan.correctedTextByPageIndex[pageIndex]?.let { correctedText ->
+                page.withFreeformCorrection(correctedText) ?: return null
+            } ?: page
+        }
+        if (pages.size != pageCount) return null
+        return OcrResult(pages.values.sortedBy(OcrPageResult::pageIndex))
+    }
+
+    private fun OcrPageResult.withFreeformCorrection(correctedText: String): OcrPageResult? {
+        val sourceLayout = layout ?: return null
+        if (error != null || sourceLayout.rotationDegrees != 0) return null
+        val normalized = correctedText.replace(Regex("\\s+"), " ").trim()
+        val lines = if (normalized.isEmpty()) {
+            emptyList()
+        } else {
+            val positionedBounds = sourceLayout.lines.mapNotNull(OcrTextLine::bounds)
+            val region = if (positionedBounds.isEmpty()) {
+                val horizontalInset =
+                    (sourceLayout.imageWidthPx * FREEFORM_PAGE_INSET_FRACTION).coerceAtLeast(1f)
+                val verticalInset =
+                    (sourceLayout.imageHeightPx * FREEFORM_PAGE_INSET_FRACTION).coerceAtLeast(1f)
+                OcrTextBounds(
+                    left = horizontalInset.coerceAtMost(sourceLayout.imageWidthPx / 2f),
+                    top = verticalInset.coerceAtMost(sourceLayout.imageHeightPx / 2f),
+                    right = (sourceLayout.imageWidthPx - horizontalInset)
+                        .coerceAtLeast(sourceLayout.imageWidthPx / 2f),
+                    bottom = (sourceLayout.imageHeightPx - verticalInset)
+                        .coerceAtLeast(sourceLayout.imageHeightPx / 2f),
+                )
+            } else {
+                OcrTextBounds(
+                    left = positionedBounds.minOf(OcrTextBounds::left),
+                    top = positionedBounds.minOf(OcrTextBounds::top),
+                    right = positionedBounds.maxOf(OcrTextBounds::right),
+                    bottom = positionedBounds.maxOf(OcrTextBounds::bottom),
+                )
+            }
+            listOf(OcrTextLine(text = normalized, bounds = region))
+        }
+        return copy(
+            text = correctedText,
+            layout = sourceLayout.copy(
+                lines = lines,
+                blocks = emptyList(),
+                placementMode = OcrTextPlacementMode.FREEFORM_PAGE_REGION,
+            ),
+        )
     }
 
     private fun orderOcrPages(ocrResult: OcrResult, pageCount: Int) =
@@ -468,6 +552,7 @@ class LocalSearchablePdfExportCoordinator(
         const val TemporaryPdfDirectory = "searchable-pdfs"
         const val TemporaryPdfPrefix = "searchable-"
         const val TemporaryVisualPrefix = "searchable-visual-"
+        const val FREEFORM_PAGE_INSET_FRACTION = 0.05f
         const val CopyBufferSize = 8 * 1024
 
         fun createPrivateTemporaryPdf(cacheDirectory: File): File? {

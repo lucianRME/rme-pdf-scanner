@@ -58,6 +58,22 @@ class LibraryEffectiveOcrPageProvider internal constructor(
             return EffectiveOcrPageProvision.Stale
         }
         if (stored.verification != LibraryOcrArtifactVerification.CURRENT_VERIFIED) {
+            if (
+                stored.correctedText != null &&
+                stored.alignment == LibraryOcrCorrectionAlignment.FREEFORM &&
+                stored.correctionBaseArtifactRevision == stored.artifactRevision
+            ) {
+                return EffectiveOcrPageProvision.CorrectedTextOnly(
+                    address = request.address,
+                    effectiveText = stored.correctedText,
+                    currentness = expected,
+                )
+            }
+            if (stored.correctedText != null) {
+                return unavailable(
+                    EffectiveOcrPageUnavailableReason.CORRECTION_RECONCILIATION_REQUIRED,
+                )
+            }
             return unavailable(EffectiveOcrPageUnavailableReason.POSITIONED_LAYOUT_NOT_AVAILABLE)
         }
 

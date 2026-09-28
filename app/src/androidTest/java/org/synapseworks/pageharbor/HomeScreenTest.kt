@@ -49,8 +49,11 @@ import org.synapseworks.pageharbor.library.LibraryOcrStatus
 import org.synapseworks.pageharbor.library.LibraryUiState
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.ocr.OcrPageError
+import org.synapseworks.pageharbor.ocr.OcrOperationSelection
 import org.synapseworks.pageharbor.ocr.OcrPageResult
 import org.synapseworks.pageharbor.ocr.OcrResult
+import org.synapseworks.pageharbor.ocr.OcrScript
+import org.synapseworks.pageharbor.ocr.OcrScriptSelection
 import org.synapseworks.pageharbor.ocr.OcrUiState
 import org.synapseworks.pageharbor.ui.PageHarborApp
 import org.synapseworks.pageharbor.ui.portability.BackupVerificationStatusUiModel
@@ -1319,6 +1322,47 @@ class HomeScreenTest {
             .performScrollTo()
             .assertIsNotEnabled()
         composeTestRule.onAllNodesWithText("Preparing searchable PDF…").assertCountEquals(0)
+    }
+
+    @Test
+    fun searchablePdfLanguageCancelAndRepeatedLatinConfirmationAreOneShot() {
+        val confirmations = mutableListOf<OcrOperationSelection>()
+        composeTestRule.setContent {
+            PageHarborApp(
+                scannerSpikeState = scanSummary(jpegPageCount = 1),
+                documentPages = listOf(documentPage(1L)),
+                ocrDefaultSelection = OcrScriptSelection.Explicit(OcrScript.LATIN),
+                onSaveSearchablePdfWithLanguage = { selection, _ ->
+                    confirmations += selection
+                },
+            )
+        }
+
+        openDocumentMore()
+        composeTestRule.onNodeWithText("Save searchable PDF").performScrollTo().performClick()
+        composeTestRule.onNodeWithText("Cancel").performClick()
+        composeTestRule.runOnIdle { assertTrue(confirmations.isEmpty()) }
+
+        openDocumentMore()
+        composeTestRule.onNodeWithText("Save searchable PDF").performScrollTo().performClick()
+        composeTestRule.onNodeWithText("Recognize text").performClick()
+        composeTestRule.runOnIdle {
+            assertEquals(listOf(OcrOperationSelection.UseDefault), confirmations)
+        }
+
+        openDocumentMore()
+        composeTestRule.onNodeWithText("Save searchable PDF").performScrollTo().performClick()
+        composeTestRule.onNodeWithText("Latin").performClick()
+        composeTestRule.onNodeWithText("Recognize text").performClick()
+        composeTestRule.runOnIdle {
+            assertEquals(
+                listOf(
+                    OcrOperationSelection.UseDefault,
+                    OcrOperationSelection.Override(OcrScript.LATIN),
+                ),
+                confirmations,
+            )
+        }
     }
 
     @Test

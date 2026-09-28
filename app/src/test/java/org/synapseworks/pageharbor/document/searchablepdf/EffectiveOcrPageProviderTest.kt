@@ -111,6 +111,59 @@ class EffectiveOcrPageProviderTest {
     }
 
     @Test
+    fun resolverRequestsLayoutRecognitionForLegacyTextWithoutReplacingCorrection() = runBlocking {
+        val currentness = currentness(activeArtifactRevision = 2L, ocrStateRevision = 4L)
+        val request = EffectiveOcrPageRequest(address(), currentness)
+        val provider = EffectiveOcrPageProvider {
+            EffectiveOcrPageProvision.CorrectedTextOnly(
+                address = address(),
+                effectiveText = "Authoritative migrated correction",
+                currentness = currentness,
+            )
+        }
+
+        val resolution = resolveSearchablePdfOcrInput(provider, listOf(request), null)
+
+        assertEquals(
+            SearchablePdfOcrInputResolution.NeedsRecognition(
+                correctedTextByPageIndex = mapOf(0 to "Authoritative migrated correction"),
+            ),
+            resolution,
+        )
+    }
+
+    @Test
+    fun resolverRecognizesOnlyLegacyLayoutGapAndStillRejectsMissingOcr() = runBlocking {
+        val currentness = currentness(activeArtifactRevision = 2L)
+        val request = EffectiveOcrPageRequest(address(), currentness)
+
+        assertEquals(
+            SearchablePdfOcrInputResolution.NeedsRecognition(),
+            resolveSearchablePdfOcrInput(
+                EffectiveOcrPageProvider {
+                    EffectiveOcrPageProvision.Unavailable(
+                        EffectiveOcrPageUnavailableReason.POSITIONED_LAYOUT_NOT_AVAILABLE,
+                    )
+                },
+                listOf(request),
+                null,
+            ),
+        )
+        assertEquals(
+            SearchablePdfOcrInputResolution.Unavailable,
+            resolveSearchablePdfOcrInput(
+                EffectiveOcrPageProvider {
+                    EffectiveOcrPageProvision.Unavailable(
+                        EffectiveOcrPageUnavailableReason.OCR_NOT_AVAILABLE,
+                    )
+                },
+                listOf(request),
+                null,
+            ),
+        )
+    }
+
+    @Test
     fun resolverRejectsMismatchedPageIdentityAndExplicitStaleResponse() = runBlocking {
         val currentness = currentness(activeArtifactRevision = 2L)
         val request = EffectiveOcrPageRequest(address(), currentness)

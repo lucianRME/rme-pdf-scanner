@@ -23,6 +23,17 @@ fun interface EffectiveOcrPageProvider {
 
 sealed interface EffectiveOcrPageProvision {
     data class Available(val page: EffectiveOcrPage) : EffectiveOcrPageProvision
+
+    /**
+     * A user correction remains authoritative even when its historical OCR artifact predates
+     * positioned layout metadata. Recognition may supply geometry, but never replacement text.
+     */
+    data class CorrectedTextOnly(
+        val address: OcrPageAddress,
+        val effectiveText: String,
+        val currentness: OcrRecognitionCurrentness,
+    ) : EffectiveOcrPageProvision
+
     data class Unavailable(val reason: EffectiveOcrPageUnavailableReason) : EffectiveOcrPageProvision
     data object Stale : EffectiveOcrPageProvision
 }
@@ -87,7 +98,16 @@ data class EffectiveOcrPage(
 /** Pure preparation result shared by the coordinator and host unit tests. */
 internal sealed interface SearchablePdfOcrInputResolution {
     data class Available(val result: OcrResult) : SearchablePdfOcrInputResolution
-    data object NeedsRecognition : SearchablePdfOcrInputResolution
+
+    /**
+     * Recognition is required only for page indexes absent from [reusablePages]. Corrections in
+     * [correctedTextByPageIndex] replace recognition text after its layout has been obtained.
+     */
+    data class NeedsRecognition(
+        val reusablePages: Map<Int, OcrPageResult> = emptyMap(),
+        val correctedTextByPageIndex: Map<Int, String> = emptyMap(),
+    ) : SearchablePdfOcrInputResolution
+
     data object Unavailable : SearchablePdfOcrInputResolution
     data object StaleOrMismatched : SearchablePdfOcrInputResolution
 }
@@ -110,10 +130,11 @@ internal suspend fun resolveSearchablePdfOcrInput(
 ): SearchablePdfOcrInputResolution {
     if (provider == null) {
         return transientResult?.let(SearchablePdfOcrInputResolution::Available)
-            ?: SearchablePdfOcrInputResolution.NeedsRecognition
+            ?: SearchablePdfOcrInputResolution.NeedsRecognition()
     }
 
-    val pages = ArrayList<OcrPageResult>(pageRequests.size)
+    val pages = linkedMapOf<Int, OcrPageResult>()
+    val correctedText = linkedMapOf<Int, String>()
     pageRequests.forEachIndexed { pageIndex, pageRequest ->
         when (val provision = provider.provide(pageRequest)) {
             is EffectiveOcrPageProvision.Available -> {
@@ -124,19 +145,44 @@ internal suspend fun resolveSearchablePdfOcrInput(
                 ) {
                     return SearchablePdfOcrInputResolution.StaleOrMismatched
                 }
-                pages += OcrPageResult(
+                pages[pageIndex] = OcrPageResult(
                     pageIndex = pageIndex,
                     text = page.effectiveText,
                     layout = page.layout,
                 )
             }
 
+            is EffectiveOcrPageProvision.CorrectedTextOnly -> {
+                if (
+                    provision.address != pageRequest.address ||
+                    provision.currentness != pageRequest.expectedCurrentness
+                ) {
+                    return SearchablePdfOcrInputResolution.StaleOrMismatched
+                }
+                correctedText[pageIndex] = provision.effectiveText
+            }
+
             EffectiveOcrPageProvision.Stale ->
                 return SearchablePdfOcrInputResolution.StaleOrMismatched
 
-            is EffectiveOcrPageProvision.Unavailable ->
-                return SearchablePdfOcrInputResolution.Unavailable
+            is EffectiveOcrPageProvision.Unavailable -> when (provision.reason) {
+                EffectiveOcrPageUnavailableReason.POSITIONED_LAYOUT_NOT_AVAILABLE,
+                -> Unit
+
+                EffectiveOcrPageUnavailableReason.OCR_NOT_AVAILABLE,
+                EffectiveOcrPageUnavailableReason.PAGE_NOT_FOUND,
+                EffectiveOcrPageUnavailableReason.CORRECTION_RECONCILIATION_REQUIRED,
+                EffectiveOcrPageUnavailableReason.PROVIDER_FAILURE,
+                -> return SearchablePdfOcrInputResolution.Unavailable
+            }
         }
     }
-    return SearchablePdfOcrInputResolution.Available(OcrResult(pages))
+    return if (pages.size == pageRequests.size) {
+        SearchablePdfOcrInputResolution.Available(OcrResult(pages.values.toList()))
+    } else {
+        SearchablePdfOcrInputResolution.NeedsRecognition(
+            reusablePages = pages,
+            correctedTextByPageIndex = correctedText,
+        )
+    }
 }

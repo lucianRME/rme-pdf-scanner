@@ -4,7 +4,9 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.pdf.PdfRenderer
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.tom_roush.pdfbox.pdmodel.PDDocument
@@ -34,9 +36,13 @@ import org.synapseworks.pageharbor.library.LibraryRepository
 import org.synapseworks.pageharbor.ocr.OcrDurablePageCurrentness
 import org.synapseworks.pageharbor.ocr.OcrEngine
 import org.synapseworks.pageharbor.ocr.OcrPage
+import org.synapseworks.pageharbor.ocr.OcrPageLayout
+import org.synapseworks.pageharbor.ocr.OcrPageResult
 import org.synapseworks.pageharbor.ocr.OcrResult
 import org.synapseworks.pageharbor.ocr.OcrPageAddress
 import org.synapseworks.pageharbor.ocr.OcrRecognitionCurrentness
+import org.synapseworks.pageharbor.ocr.OcrTextBounds
+import org.synapseworks.pageharbor.ocr.OcrTextLine
 import org.synapseworks.pageharbor.ocr.persistence.LibraryEffectiveOcrPageProvider
 
 class EffectiveOcrSearchablePdfInstrumentedTest {
@@ -169,6 +175,154 @@ class EffectiveOcrSearchablePdfInstrumentedTest {
             SearchablePdfPreparedExport.Failure(SearchablePdfPreparationError.OCR_RESULT_MISMATCH),
             prepared,
         )
+    }
+
+    @Test
+    fun migratedFreeformCorrectionUsesFreshLayoutAndNeverExportsObsoleteRawText() = runBlocking {
+        val expectedText = "Authoritative migrated correction"
+        val obsoleteRawText = "Obsolete migrated raw text"
+        val currentness = OcrRecognitionCurrentness(
+            inputFingerprintVersion = 1,
+            inputFingerprint = "unavailable:$PAGE_ID",
+            durable = OcrDurablePageCurrentness(
+                documentContentRevision = 1L,
+                pageVisualRevision = 1L,
+                ocrStateRevision = 4L,
+                activeArtifactRevision = 2L,
+            ),
+        )
+        val request = EffectiveOcrPageRequest(
+            address = OcrPageAddress(DOCUMENT_ID, PAGE_ID),
+            expectedCurrentness = currentness,
+        )
+        var recognitionCount = 0
+        val coordinator = LocalSearchablePdfExportCoordinator(
+            context = context,
+            ocrEngine = object : OcrEngine {
+                override fun recognize(pages: List<OcrPage>): OcrResult {
+                    recognitionCount += pages.size
+                    return OcrResult(
+                        listOf(
+                            OcrPageResult(
+                                pageIndex = 0,
+                                text = obsoleteRawText,
+                                layout = OcrPageLayout(
+                                    imageWidthPx = 320,
+                                    imageHeightPx = 480,
+                                    lines = listOf(
+                                        OcrTextLine(
+                                            text = obsoleteRawText,
+                                            bounds = OcrTextBounds(32f, 96f, 288f, 144f),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    )
+                }
+            },
+            openSourceInputStream = { ByteArrayInputStream(jpeg) },
+        )
+        val provider = EffectiveOcrPageProvider {
+            EffectiveOcrPageProvision.CorrectedTextOnly(
+                address = request.address,
+                effectiveText = expectedText,
+                currentness = currentness,
+            )
+        }
+
+        val prepared = coordinator.prepare(
+            SearchablePdfExportRequest(
+                pageUris = listOf(Uri.parse("content://phase8-test/migrated.jpg")),
+                effectiveOcrPageProvider = provider,
+                effectiveOcrPageRequests = listOf(request),
+            ),
+        )
+
+        assertTrue(prepared is SearchablePdfPreparedExport.Ready)
+        prepared as SearchablePdfPreparedExport.Ready
+        try {
+            assertEquals(1, recognitionCount)
+            ParcelFileDescriptor.open(
+                prepared.temporaryFile,
+                ParcelFileDescriptor.MODE_READ_ONLY,
+            ).use { descriptor ->
+                PdfRenderer(descriptor).use { renderer ->
+                    assertEquals(1, renderer.pageCount)
+                }
+            }
+            PDDocument.load(prepared.temporaryFile).use { document ->
+                val extracted = PDFTextStripper().getText(document)
+                assertTrue(extracted.contains(expectedText))
+                assertFalse(extracted.contains(obsoleteRawText))
+            }
+        } finally {
+            coordinator.discardPreparedExport(prepared)
+        }
+    }
+
+    @Test
+    fun migratedUncorrectedArtifactUsesFreshPositionedRecognition() = runBlocking {
+        val expectedText = "Fresh positioned migration text"
+        val currentness = OcrRecognitionCurrentness(
+            inputFingerprintVersion = 1,
+            inputFingerprint = "unavailable:$PAGE_ID",
+            durable = OcrDurablePageCurrentness(
+                documentContentRevision = 1L,
+                pageVisualRevision = 1L,
+                ocrStateRevision = 1L,
+                activeArtifactRevision = 1L,
+            ),
+        )
+        val request = EffectiveOcrPageRequest(
+            address = OcrPageAddress(DOCUMENT_ID, PAGE_ID),
+            expectedCurrentness = currentness,
+        )
+        val coordinator = LocalSearchablePdfExportCoordinator(
+            context = context,
+            ocrEngine = object : OcrEngine {
+                override fun recognize(pages: List<OcrPage>) = OcrResult(
+                    listOf(
+                        OcrPageResult(
+                            pageIndex = 0,
+                            text = expectedText,
+                            layout = OcrPageLayout(
+                                imageWidthPx = 320,
+                                imageHeightPx = 480,
+                                lines = listOf(
+                                    OcrTextLine(
+                                        text = expectedText,
+                                        bounds = OcrTextBounds(32f, 96f, 288f, 144f),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                )
+            },
+            openSourceInputStream = { ByteArrayInputStream(jpeg) },
+        )
+        val prepared = coordinator.prepare(
+            SearchablePdfExportRequest(
+                pageUris = listOf(Uri.parse("content://phase8-test/legacy.jpg")),
+                effectiveOcrPageProvider = EffectiveOcrPageProvider {
+                    EffectiveOcrPageProvision.Unavailable(
+                        EffectiveOcrPageUnavailableReason.POSITIONED_LAYOUT_NOT_AVAILABLE,
+                    )
+                },
+                effectiveOcrPageRequests = listOf(request),
+            ),
+        )
+
+        assertTrue(prepared is SearchablePdfPreparedExport.Ready)
+        prepared as SearchablePdfPreparedExport.Ready
+        try {
+            PDDocument.load(prepared.temporaryFile).use { document ->
+                assertTrue(PDFTextStripper().getText(document).contains(expectedText))
+            }
+        } finally {
+            coordinator.discardPreparedExport(prepared)
+        }
     }
 
     private suspend fun assertPdfAndSearch(expectedText: String, obsoleteText: String?) {

@@ -173,6 +173,71 @@ class LibraryEffectiveOcrPageProviderTest {
     }
 
     @Test
+    fun legacyFreeformCorrectionRemainsAuthoritativeWhileLayoutIsRecognizedAgain() = runBlocking {
+        val currentness = currentness(activeArtifactRevision = 2L, ocrStateRevision = 4L)
+        val provider = provider(
+            storedPage(
+                effectiveText = "Authoritative migrated correction",
+                correctedText = "Authoritative migrated correction",
+                alignment = LibraryOcrCorrectionAlignment.FREEFORM,
+                artifactRevision = 1L,
+                activeArtifactRevision = 2L,
+                correctionBaseArtifactRevision = 1L,
+                ocrStateRevision = 4L,
+                verification = LibraryOcrArtifactVerification.LEGACY_UNVERIFIED,
+                inputFingerprintVersion = null,
+                inputFingerprint = null,
+                coordinateSystemVersion = null,
+                transformVersion = null,
+                uprightWidth = null,
+                uprightHeight = null,
+                lines = emptyList(),
+            ),
+        )
+
+        assertEquals(
+            EffectiveOcrPageProvision.CorrectedTextOnly(
+                address = OcrPageAddress("document-1", "page-1"),
+                effectiveText = "Authoritative migrated correction",
+                currentness = currentness,
+            ),
+            provider.provide(request(currentness)),
+        )
+    }
+
+    @Test
+    fun legacyLineAlignedCorrectionFailsRatherThanGuessingItsLayout() = runBlocking {
+        val provider = provider(
+            storedPage(
+                effectiveText = "Migrated aligned correction",
+                correctedText = "Migrated aligned correction",
+                alignment = LibraryOcrCorrectionAlignment.LINE_ALIGNED,
+                artifactRevision = 1L,
+                activeArtifactRevision = 2L,
+                correctionBaseArtifactRevision = 1L,
+                ocrStateRevision = 4L,
+                verification = LibraryOcrArtifactVerification.LEGACY_UNVERIFIED,
+                inputFingerprintVersion = null,
+                inputFingerprint = null,
+                coordinateSystemVersion = null,
+                transformVersion = null,
+                uprightWidth = null,
+                uprightHeight = null,
+                lines = emptyList(),
+            ),
+        )
+
+        assertEquals(
+            EffectiveOcrPageProvision.Unavailable(
+                EffectiveOcrPageUnavailableReason.CORRECTION_RECONCILIATION_REQUIRED,
+            ),
+            provider.provide(
+                request(currentness(activeArtifactRevision = 2L, ocrStateRevision = 4L)),
+            ),
+        )
+    }
+
+    @Test
     fun providerFailureIsReturnedWithoutLeakingExceptionDetails() = runBlocking {
         val provider = LibraryEffectiveOcrPageProvider { _, _ -> error("sensitive detail") }
 
