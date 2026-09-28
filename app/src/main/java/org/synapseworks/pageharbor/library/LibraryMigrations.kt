@@ -277,6 +277,12 @@ internal val MIGRATION_2_3 = object : Migration(2, 3) {
             "CREATE INDEX IF NOT EXISTS `index_library_documents_library_state_row_id` " +
                 "ON `library_documents` (`library_state`, `row_id`)",
         )
+        database.execSQL(
+            "CREATE INDEX IF NOT EXISTS " +
+                "`index_library_documents_library_state_page_count_content_byte_count_row_id` " +
+                "ON `library_documents` " +
+                "(`library_state`, `page_count`, `content_byte_count`, `row_id`)",
+        )
         database.execSQL("ALTER TABLE `library_pages` ADD COLUMN `visual_revision` INTEGER NOT NULL DEFAULT 0")
         database.execSQL("ALTER TABLE `library_pages` ADD COLUMN `ocr_state_revision` INTEGER NOT NULL DEFAULT 0")
         database.execSQL("ALTER TABLE `library_pages` ADD COLUMN `active_ocr_artifact_revision` INTEGER")
