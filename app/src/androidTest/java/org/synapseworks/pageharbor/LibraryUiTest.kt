@@ -496,7 +496,7 @@ class LibraryUiTest {
             )
         }
 
-        composeTestRule.onNodeWithText("More").performClick()
+        composeTestRule.onNodeWithText("Actions").performClick()
         composeTestRule.onNodeWithText("Rename").performClick()
         composeTestRule.waitForIdle()
         assertEquals("saved-document", requestedId)
@@ -516,7 +516,7 @@ class LibraryUiTest {
             )
         }
 
-        composeTestRule.onNodeWithText("More").performClick()
+        composeTestRule.onNodeWithText("Actions").performClick()
         composeTestRule.onNodeWithText("Export PDF")
             .assertIsDisplayed()
             .assertIsEnabled()
@@ -547,7 +547,7 @@ class LibraryUiTest {
             )
         }
 
-        composeTestRule.onNodeWithText("More").performClick()
+        composeTestRule.onNodeWithText("Actions").performClick()
         composeTestRule.onNodeWithText("Extract or split pages").performScrollTo().performClick()
         composeTestRule.onNodeWithText("Page 2").performClick()
         composeTestRule.onNodeWithText("Extract as a new document").performClick()

@@ -2895,6 +2895,7 @@ class MainActivity : FragmentActivity() {
         }
         session.replaceScan(summary, scannedPdfUri = null, scannedPageUris = restoredPageUris)
         session.ocrUiState = ocrResult?.let(OcrUiState::Success) ?: OcrUiState.Idle
+        session.lastOcrScript = if (ocrResult != null) OcrScript.LATIN else null
         session.screen = screen
         session.ocrSelectedPageIndex = selectedOcrPageIndex
         session.searchablePdfSaveState = searchablePdfSaveState
