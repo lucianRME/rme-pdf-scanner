@@ -285,6 +285,48 @@ class BackBehaviorTest {
         composeTestRule.runOnIdle { assertEquals(null, observedScreen) }
     }
 
+    @Test
+    fun documentActionsAtTopDismissesWithOneSystemBack() {
+        var observedScreen: PageHarborScreen? = null
+        composeTestRule.setContent {
+            PageHarborApp(
+                scannerSpikeState = ScannerSpikeState.ResultSummary(1, false, null),
+                documentPages = listOf(page(1L)),
+                onScreenChange = { observedScreen = it },
+            )
+        }
+
+        composeTestRule.onNodeWithText("Actions").performClick()
+        composeTestRule.onNodeWithText("Document actions").assertIsDisplayed()
+        composeTestRule.runOnIdle { observedScreen = null }
+        pressBack()
+
+        composeTestRule.onAllNodesWithText("Document actions").assertCountEquals(0)
+        composeTestRule.onNodeWithText("Document").assertIsDisplayed()
+        composeTestRule.runOnIdle { assertEquals(null, observedScreen) }
+    }
+
+    @Test
+    fun documentActionsAfterScrollingDismissesWithOneSystemBack() {
+        var observedScreen: PageHarborScreen? = null
+        composeTestRule.setContent {
+            PageHarborApp(
+                scannerSpikeState = ScannerSpikeState.ResultSummary(1, false, null),
+                documentPages = listOf(page(1L)),
+                onScreenChange = { observedScreen = it },
+            )
+        }
+
+        composeTestRule.onNodeWithText("Actions").performClick()
+        composeTestRule.onNodeWithText("Discard").performScrollTo().assertIsDisplayed()
+        composeTestRule.runOnIdle { observedScreen = null }
+        pressBack()
+
+        composeTestRule.onAllNodesWithText("Document actions").assertCountEquals(0)
+        composeTestRule.onNodeWithText("Document").assertIsDisplayed()
+        composeTestRule.runOnIdle { assertEquals(null, observedScreen) }
+    }
+
     private fun pressBack() {
         InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
         composeTestRule.waitForIdle()

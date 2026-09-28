@@ -114,6 +114,19 @@ class BackupReminderPolicyTest {
         assertFalse(policy.isEligible(firstReminderState, snapshot(3, 3), now, true))
     }
 
+    @Test
+    fun emptyLibrarySuppressesReminderEvenWithStaleEligibleState() {
+        val policy = BackupReminderPolicy()
+        val staleEligibleState = firstReminderState.copy(
+            lastReminderShownTimestampMillis = now -
+                BackupReminderPolicy.REPEAT_REMINDER_INTERVAL_MILLIS,
+            libraryRevisionAtLastReminder = 1L,
+            meaningfulMutationsSinceBaseline = BackupReminderPolicy.MEANINGFUL_MUTATION_THRESHOLD,
+        )
+
+        assertFalse(policy.isEligible(staleEligibleState, snapshot(0, 0, revision = 2L), now, false))
+    }
+
     private fun snapshot(
         documents: Int,
         pages: Int,

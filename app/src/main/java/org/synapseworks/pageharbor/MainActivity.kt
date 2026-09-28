@@ -3,6 +3,7 @@ package org.synapseworks.pageharbor
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
@@ -13,11 +14,13 @@ import androidx.activity.viewModels
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.core.net.toUri
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
@@ -98,6 +101,8 @@ import org.synapseworks.pageharbor.backup.restore.RestoreMergePolicy
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.scanner.createScannerResultSummary
 import org.synapseworks.pageharbor.ui.PageHarborApp
+import org.synapseworks.pageharbor.ui.AppOrientationPolicy
+import org.synapseworks.pageharbor.ui.AppOrientationPreference
 import org.synapseworks.pageharbor.ui.PageHarborScreen
 import org.synapseworks.pageharbor.ocr.MlKitOcrEngine
 import org.synapseworks.pageharbor.ocr.MultilingualOcrRuntime
@@ -552,6 +557,22 @@ class MainActivity : FragmentActivity() {
             val migrationEngineState by migration.state.collectAsState()
             val backupReminderPresentation by backupReminder.presentation.collectAsState()
             val reminderLibrarySnapshot by backupReminder.librarySnapshot.collectAsState()
+            val portabilityUiState = buildPortabilityUiState(
+                engineState = portabilityEngineState,
+                migrationState = migrationEngineState,
+                reminder = backupReminderPresentation,
+                reminderLibrarySnapshot = reminderLibrarySnapshot,
+            )
+            val orientationPreference = AppOrientationPolicy.resolve(
+                smallestScreenWidthDp = LocalConfiguration.current.smallestScreenWidthDp,
+                screen = session.screen,
+                portabilityVisible = portabilityUiState !is UiPortabilityWorkflowState.Hidden,
+                ocrReviewVisible = ocrReviewState.active,
+                appLocked = appLockState.phase == AppLockPhase.LOCKED,
+            )
+            SideEffect {
+                applyOrientationPreference(orientationPreference)
+            }
             if (appLockState.phase == AppLockPhase.LOCKED) {
                 AppLockScreen(
                     state = appLockState,
@@ -563,12 +584,6 @@ class MainActivity : FragmentActivity() {
                     onExit = ::finish,
                 )
             } else {
-                val portabilityUiState = buildPortabilityUiState(
-                    engineState = portabilityEngineState,
-                    migrationState = migrationEngineState,
-                    reminder = backupReminderPresentation,
-                    reminderLibrarySnapshot = reminderLibrarySnapshot,
-                )
                 LaunchedEffect(portabilityUiState) {
                     if (portabilityUiState is UiPortabilityWorkflowState.BackupReminder) {
                         backupReminder.markPresented()
@@ -607,6 +622,8 @@ class MainActivity : FragmentActivity() {
                     openedPagePersistentId = session.openedPagePersistentId,
                     importUiState = session.importUiState,
                     libraryUiState = libraryUiState,
+                    libraryHasDocuments = reminderLibrarySnapshot?.documentCount?.let { it > 0 }
+                        ?: libraryUiState.recentDocuments.isNotEmpty(),
                     libraryThumbnailUri = library::thumbnailUri,
                     onLibraryQueryChange = library::updateQuery,
                     onLibraryFolderSelected = library::selectFolder,
@@ -730,6 +747,14 @@ class MainActivity : FragmentActivity() {
             }
         }
         handleInboundIntent(intent)
+    }
+
+    private fun applyOrientationPreference(preference: AppOrientationPreference) {
+        val requested = when (preference) {
+            AppOrientationPreference.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            AppOrientationPreference.SYSTEM -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+        if (requestedOrientation != requested) requestedOrientation = requested
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -1168,6 +1193,7 @@ class MainActivity : FragmentActivity() {
         MigrationSourceApp.CAMSCANNER -> ScannerMigrationSource.CAMSCANNER
         MigrationSourceApp.ADOBE_SCAN -> ScannerMigrationSource.ADOBE_SCAN
         MigrationSourceApp.GENIUS_SCAN -> ScannerMigrationSource.GENIUS_SCAN
+        MigrationSourceApp.MICROSOFT_LENS -> ScannerMigrationSource.MICROSOFT_LENS
         MigrationSourceApp.OTHER -> ScannerMigrationSource.OTHER
     }
 
@@ -1175,6 +1201,7 @@ class MainActivity : FragmentActivity() {
         ScannerMigrationSource.CAMSCANNER -> MigrationSourceApp.CAMSCANNER
         ScannerMigrationSource.ADOBE_SCAN -> MigrationSourceApp.ADOBE_SCAN
         ScannerMigrationSource.GENIUS_SCAN -> MigrationSourceApp.GENIUS_SCAN
+        ScannerMigrationSource.MICROSOFT_LENS -> MigrationSourceApp.MICROSOFT_LENS
         ScannerMigrationSource.OTHER -> MigrationSourceApp.OTHER
     }
 

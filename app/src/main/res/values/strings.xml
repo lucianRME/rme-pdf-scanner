@@ -362,7 +362,7 @@
     <string name="document_action_edit">Edit</string>
     <string name="document_action_ocr">OCR</string>
     <string name="document_action_share">Share</string>
-    <string name="document_action_more">More</string>
+    <string name="document_action_more">Actions</string>
     <string name="document_add_title">Add to document</string>
     <string name="document_add_pages_description">Scan more pages into this document.</string>
     <string name="document_add_files_description">Import PDF or image pages from this device.</string>
@@ -434,6 +434,7 @@
     <string name="more_backup_restore_description">Create, verify, encrypt or restore a complete portable RME backup.</string>
     <string name="more_new_phone_title">Move to a new phone</string>
     <string name="more_new_phone_description">Use a verified backup and a transfer provider you choose.</string>
+    <string name="more_new_phone_empty_description">No documents to move yet. Restore remains available in Backup &amp; restore.</string>
     <string name="more_rme_heading">RME</string>
     <string name="ocr_batch_recognize_selected">Recognize text</string>
     <string name="ocr_batch_title">Recognize selected documents</string>

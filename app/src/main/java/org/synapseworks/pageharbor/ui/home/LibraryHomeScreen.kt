@@ -144,6 +144,7 @@ fun LibraryHomeScreen(
     libraryUiState: LibraryUiState,
     scannerSpikeState: ScannerSpikeState,
     hasActiveSession: Boolean,
+    hasLibraryDocuments: Boolean = true,
     importUiState: DocumentImportUiState,
     showBuildDetails: Boolean,
     buildTypeLabel: String,
@@ -387,6 +388,7 @@ fun LibraryHomeScreen(
 
             LibraryDestination.More -> MoreDestination(
                 modifier = Modifier.padding(padding),
+                hasLibraryDocuments = hasLibraryDocuments,
                 onRateRme = onRateRme,
                 onSuggestFeature = onSuggestFeature,
                 onShareRme = onShareRme,
@@ -1251,6 +1253,7 @@ private fun ToolsDestination(
 @Composable
 private fun MoreDestination(
     modifier: Modifier,
+    hasLibraryDocuments: Boolean,
     onRateRme: () -> Unit,
     onSuggestFeature: () -> Unit,
     onShareRme: () -> Unit,
@@ -1311,8 +1314,13 @@ private fun MoreDestination(
                     MoreAction(
                         Icons.Default.PhoneAndroid,
                         R.string.more_new_phone_title,
-                        R.string.more_new_phone_description,
+                        if (hasLibraryDocuments) {
+                            R.string.more_new_phone_description
+                        } else {
+                            R.string.more_new_phone_empty_description
+                        },
                         onMoveToNewPhone,
+                        enabled = hasLibraryDocuments,
                     ),
                 ),
             )
@@ -1398,8 +1406,15 @@ private fun MoreActionGroup(actions: List<MoreAction>) {
     ) {
         Column {
             actions.forEachIndexed { index, action ->
+                val contentColor = if (action.enabled) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                }
                 ListItem(
-                    modifier = Modifier.clickable(onClick = action.onClick),
+                    modifier = Modifier
+                        .semantics { if (!action.enabled) disabled() }
+                        .clickable(enabled = action.enabled, onClick = action.onClick),
                     colors = androidx.compose.material3.ListItemDefaults.colors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                     ),
@@ -1407,11 +1422,19 @@ private fun MoreActionGroup(actions: List<MoreAction>) {
                         Icon(
                             imageVector = action.icon,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = if (action.enabled) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                contentColor
+                            },
                         )
                     },
-                    headlineContent = { Text(stringResource(action.titleResource)) },
-                    supportingContent = { Text(stringResource(action.descriptionResource)) },
+                    headlineContent = {
+                        Text(stringResource(action.titleResource), color = contentColor)
+                    },
+                    supportingContent = {
+                        Text(stringResource(action.descriptionResource), color = contentColor)
+                    },
                 )
                 if (index < actions.lastIndex) HorizontalDivider()
             }
@@ -1424,6 +1447,7 @@ private data class MoreAction(
     val titleResource: Int,
     val descriptionResource: Int,
     val onClick: () -> Unit,
+    val enabled: Boolean = true,
 )
 
 @Composable
@@ -2530,8 +2554,8 @@ private fun LibraryScreenPreview() {
             importUiState = DocumentImportUiState.Idle,
             showBuildDetails = false,
             buildTypeLabel = "release",
-            versionName = "1.5.0",
-            versionCode = 16,
+            versionName = "1.6.0",
+            versionCode = 17,
             gitRevision = "preview",
             showPrivacyInfo = false,
             showAbout = false,

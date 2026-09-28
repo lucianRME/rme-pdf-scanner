@@ -478,6 +478,7 @@ class PageHarborSessionViewModel internal constructor(
         }
         resetTransientState()
         screen = when {
+            screen == PageHarborScreen.Home -> PageHarborScreen.Home
             screen == PageHarborScreen.OcrResult && ocrUiState is OcrUiState.Success -> {
                 PageHarborScreen.OcrResult
             }

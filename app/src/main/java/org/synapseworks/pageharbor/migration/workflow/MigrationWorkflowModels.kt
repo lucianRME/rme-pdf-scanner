@@ -7,6 +7,7 @@ enum class MigrationSourceApp {
     CAMSCANNER,
     ADOBE_SCAN,
     GENIUS_SCAN,
+    MICROSOFT_LENS,
     OTHER,
 }
 

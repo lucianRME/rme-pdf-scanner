@@ -23,6 +23,7 @@ fun MoveToNewPhoneScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     actionsEnabled: Boolean = true,
+    hasLibraryDocuments: Boolean = true,
 ) {
     PortabilityScreen(
         title = "Move to a new phone",
@@ -50,11 +51,18 @@ fun MoveToNewPhoneScreen(
                 PortabilityAction(
                     label = "Create backup",
                     onClick = onCreateBackup,
-                    enabled = actionsEnabled,
+                    enabled = actionsEnabled && hasLibraryDocuments,
                     style = PortabilityActionStyle.PRIMARY,
                 ),
             ),
         )
+        if (!hasLibraryDocuments) {
+            Text(
+                text = "No documents to move yet.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
         DeviceStepsCard(
             title = "On your new phone",

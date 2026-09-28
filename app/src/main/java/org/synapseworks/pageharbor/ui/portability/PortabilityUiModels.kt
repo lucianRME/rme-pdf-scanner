@@ -17,6 +17,11 @@ enum class ScannerMigrationSource(
         displayName = "Genius Scan",
         guidance = "Export or share your PDFs/images from Genius Scan, then select them here.",
     ),
+    MICROSOFT_LENS(
+        displayName = "Microsoft Lens",
+        guidance = "Export or share your existing scans from Microsoft Lens as PDF, then choose RME. " +
+            "Choose exported PDFs using Android's file picker.",
+    ),
     OTHER(
         displayName = "Other scanner",
         guidance = "Export or share your PDFs/images from your scanner, then select them here.",

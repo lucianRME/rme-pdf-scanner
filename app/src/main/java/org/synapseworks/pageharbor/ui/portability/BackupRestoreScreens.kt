@@ -54,6 +54,7 @@ fun BackupRestoreScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     actionsEnabled: Boolean = true,
+    hasLibraryDocuments: Boolean = true,
 ) {
     val backupInProgress = status is BackupVerificationStatusUiModel.InProgress
     PortabilityScreen(
@@ -61,7 +62,10 @@ fun BackupRestoreScreen(
         onBack = onBack,
         modifier = modifier,
     ) {
-        BackupStatusCard(status = status)
+        BackupStatusCard(
+            status = status,
+            hasLibraryDocuments = hasLibraryDocuments,
+        )
 
         PortabilitySection(title = "RME backup") {
             Text(
@@ -74,7 +78,8 @@ fun BackupRestoreScreen(
                     PortabilityAction(
                         label = "Back up now",
                         onClick = onBackupNow,
-                        enabled = actionsEnabled && !backupInProgress && encryption.canCreateBackup,
+                        enabled = actionsEnabled && hasLibraryDocuments &&
+                            !backupInProgress && encryption.canCreateBackup,
                         style = PortabilityActionStyle.PRIMARY,
                     ),
                     PortabilityAction(
@@ -84,9 +89,16 @@ fun BackupRestoreScreen(
                     ),
                 ),
             )
+            if (!hasLibraryDocuments) {
+                Text(
+                    text = "Add or import a document before creating a backup.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             BackupEncryptionCard(
                 state = encryption,
-                enabled = actionsEnabled && !backupInProgress,
+                enabled = actionsEnabled && hasLibraryDocuments && !backupInProgress,
                 onEnabledChange = onEncryptionEnabledChange,
                 onPasswordChange = onPasswordChange,
                 onConfirmationChange = onConfirmationChange,
@@ -114,11 +126,14 @@ fun BackupRestoreScreen(
 }
 
 @Composable
-private fun BackupStatusCard(status: BackupVerificationStatusUiModel) {
+private fun BackupStatusCard(
+    status: BackupVerificationStatusUiModel,
+    hasLibraryDocuments: Boolean,
+) {
     PortabilitySection(title = "Backup status") {
-        val title: String
-        val detail: String
-        val isError: Boolean
+        var title: String
+        var detail: String
+        var isError: Boolean
         when (status) {
             BackupVerificationStatusUiModel.NeverBackedUp -> {
                 title = "Never backed up"
@@ -147,6 +162,11 @@ private fun BackupStatusCard(status: BackupVerificationStatusUiModel) {
                 detail = status.safeReason
                 isError = true
             }
+        }
+        if (!hasLibraryDocuments) {
+            title = "No documents to back up"
+            detail = "Restore remains available if you have an existing RME backup."
+            isError = false
         }
 
         Card(

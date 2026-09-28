@@ -82,8 +82,8 @@ android {
         applicationId = productionApplicationId
         minSdk = 26
         targetSdk = 36
-        versionCode = 16
-        versionName = "1.5.0"
+        versionCode = 17
+        versionName = "1.6.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "GIT_REVISION", "\"unknown\"")

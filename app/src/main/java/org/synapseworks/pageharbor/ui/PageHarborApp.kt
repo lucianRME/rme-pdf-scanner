@@ -93,6 +93,7 @@ fun PageHarborApp(
     openedPagePersistentId: String? = null,
     importUiState: DocumentImportUiState = DocumentImportUiState.Idle,
     libraryUiState: LibraryUiState = LibraryUiState(),
+    libraryHasDocuments: Boolean = true,
     libraryThumbnailUri: (String?) -> Uri? = { null },
     onLibraryQueryChange: (String) -> Unit = {},
     onLibraryFolderSelected: (String?) -> Unit = {},
@@ -354,6 +355,7 @@ fun PageHarborApp(
             status = portabilityState.status,
             encryption = backupEncryption,
             actionsEnabled = portabilityState.actionsEnabled,
+            hasLibraryDocuments = libraryHasDocuments,
             onEncryptionEnabledChange = { enabled ->
                 backupEncryption = if (enabled) {
                     backupEncryption.copy(enabled = true, validationMessage = null)
@@ -408,6 +410,7 @@ fun PageHarborApp(
         )
         portabilityState is PortabilityWorkflowState.NewPhone -> MoveToNewPhoneScreen(
             actionsEnabled = portabilityState.actionsEnabled,
+            hasLibraryDocuments = libraryHasDocuments,
             onCreateBackup = portabilityCallbacks.onOpenBackupRestore,
             onRestoreBackup = portabilityCallbacks.onSelectRestoreBackup,
             onBack = portabilityCallbacks.onBack,
@@ -556,6 +559,7 @@ fun PageHarborApp(
         else -> LibraryHomeScreen(
             snackbarHostState = snackbarHostState,
             libraryUiState = libraryUiState,
+            hasLibraryDocuments = libraryHasDocuments,
             scannerSpikeState = scannerSpikeState,
             hasActiveSession = documentPages.isNotEmpty(),
             importUiState = importUiState,

@@ -17,6 +17,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.unit.Density
@@ -51,6 +53,10 @@ import org.synapseworks.pageharbor.ocr.OcrPageResult
 import org.synapseworks.pageharbor.ocr.OcrResult
 import org.synapseworks.pageharbor.ocr.OcrUiState
 import org.synapseworks.pageharbor.ui.PageHarborApp
+import org.synapseworks.pageharbor.ui.portability.BackupVerificationStatusUiModel
+import org.synapseworks.pageharbor.ui.portability.PortabilityCallbacks
+import org.synapseworks.pageharbor.ui.portability.PortabilityWorkflowState
+import org.synapseworks.pageharbor.ui.portability.ScannerMigrationSource
 
 class HomeScreenTest {
     @get:Rule
@@ -63,6 +69,116 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("RME PDF Scanner").assertIsDisplayed()
+    }
+
+    @Test
+    fun emptyLibraryDisablesBackupCreationButKeepsRestoreEnabled() {
+        composeTestRule.setContent {
+            PageHarborApp(
+                libraryHasDocuments = false,
+                portabilityState = PortabilityWorkflowState.BackupRestore(
+                    BackupVerificationStatusUiModel.NeverBackedUp,
+                ),
+            )
+        }
+
+        composeTestRule.onNodeWithText("No documents to back up").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Back up now").assertIsNotEnabled()
+        composeTestRule.onNodeWithText("Restore backup").assertIsEnabled()
+    }
+
+    @Test
+    fun nonEmptyLibraryEnablesBackupCreation() {
+        composeTestRule.setContent {
+            PageHarborApp(
+                libraryHasDocuments = true,
+                portabilityState = PortabilityWorkflowState.BackupRestore(
+                    BackupVerificationStatusUiModel.NeverBackedUp,
+                ),
+            )
+        }
+
+        composeTestRule.onNodeWithText("Back up now").assertIsEnabled()
+        composeTestRule.onNodeWithText("Restore backup").assertIsEnabled()
+    }
+
+    @Test
+    fun emptyLibraryDisablesMoveToNewPhoneButLeavesReceivingRestoreAvailable() {
+        composeTestRule.setContent {
+            PageHarborApp(
+                libraryHasDocuments = false,
+                portabilityState = PortabilityWorkflowState.NewPhone(),
+            )
+        }
+
+        composeTestRule.onNodeWithText("No documents to move yet.").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Create backup").assertIsNotEnabled()
+        composeTestRule.onNodeWithText("Restore backup").assertIsEnabled()
+    }
+
+    @Test
+    fun nonEmptyLibraryEnablesMoveToNewPhone() {
+        composeTestRule.setContent {
+            PageHarborApp(
+                libraryHasDocuments = true,
+                portabilityState = PortabilityWorkflowState.NewPhone(),
+            )
+        }
+
+        composeTestRule.onNodeWithText("Create backup").assertIsEnabled()
+        composeTestRule.onNodeWithText("Restore backup").assertIsEnabled()
+    }
+
+    @Test
+    fun emptyLibraryDisablesMoreDestinationMoveActionWithExplanation() {
+        composeTestRule.setContent {
+            PageHarborApp(libraryHasDocuments = false)
+        }
+
+        composeTestRule.onNodeWithText("More").performClick()
+        composeTestRule.onNodeWithText("Move to a new phone").assertIsNotEnabled()
+        composeTestRule.onNodeWithText(
+            "No documents to move yet. Restore remains available in Backup & restore.",
+        ).assertIsDisplayed()
+        composeTestRule.onNodeWithText("Backup & restore").assertIsEnabled()
+    }
+
+    @Test
+    fun microsoftLensUsesTheGenericMigrationActions() {
+        var selectedSource by mutableStateOf(ScannerMigrationSource.OTHER)
+        var fileSelections = 0
+        var folderSelections = 0
+        composeTestRule.setContent {
+            PageHarborApp(
+                portabilityState = PortabilityWorkflowState.MigrationSource(selectedSource),
+                portabilityCallbacks = PortabilityCallbacks(
+                    onMigrationSourceSelected = { selectedSource = it },
+                    onSelectMigrationFiles = { fileSelections += 1 },
+                    onSelectMigrationFolder = { folderSelections += 1 },
+                ),
+            )
+        }
+
+        listOf(
+            "CamScanner",
+            "Adobe Scan / Acrobat",
+            "Genius Scan",
+            "Microsoft Lens",
+            "Other scanner",
+        ).forEach { source -> composeTestRule.onNodeWithText(source).assertIsDisplayed() }
+        composeTestRule.onNodeWithText("Microsoft Lens").performClick()
+        composeTestRule.onNodeWithText(
+            "Export or share your existing scans from Microsoft Lens as PDF, then choose RME. " +
+                "Choose exported PDFs using Android's file picker.",
+        ).assertIsDisplayed()
+
+        composeTestRule.onNodeWithText("Select files").performClick()
+        composeTestRule.onNodeWithText("Select folder").performClick()
+        composeTestRule.runOnIdle {
+            assertEquals(ScannerMigrationSource.MICROSOFT_LENS, selectedSource)
+            assertEquals(1, fileSelections)
+            assertEquals(1, folderSelections)
+        }
     }
 
     @Test
@@ -500,7 +616,7 @@ class HomeScreenTest {
 
         composeTestRule.onNodeWithText("Document").assertIsDisplayed()
         composeTestRule.onNodeWithText("Page 1 of 3").assertIsDisplayed()
-        listOf("Add", "Edit", "OCR", "Share", "More").forEach { action ->
+        listOf("Add", "Edit", "OCR", "Share", "Actions").forEach { action ->
             composeTestRule.onNodeWithText(action).assertIsDisplayed()
         }
         openDocumentMore()
@@ -521,7 +637,7 @@ class HomeScreenTest {
         composeTestRule.onAllNodesWithText("Home").assertCountEquals(0)
         composeTestRule.onAllNodesWithText("Documents").assertCountEquals(0)
         composeTestRule.onAllNodesWithText("Tools").assertCountEquals(0)
-        listOf("Add", "Edit", "OCR", "Share", "More").forEach { action ->
+        listOf("Add", "Edit", "OCR", "Share", "Actions").forEach { action ->
             composeTestRule.onNodeWithText(action).assertIsDisplayed()
         }
     }
@@ -1077,6 +1193,7 @@ class HomeScreenTest {
             .assertIsDisplayed()
         composeTestRule.onNodeWithText("Version: ${BuildConfig.VERSION_NAME}")
             .assertIsDisplayed()
+        composeTestRule.onAllNodesWithText("Version: 1.5.0").assertCountEquals(0)
         composeTestRule.onNodeWithText("Build: ${BuildConfig.VERSION_CODE}")
             .assertIsDisplayed()
         composeTestRule.onNodeWithText("Build type: ${BuildConfig.BUILD_TYPE_LABEL}")
@@ -1345,7 +1462,7 @@ class HomeScreenTest {
             )
         }
 
-        listOf("Add", "Edit", "OCR", "Share", "More").forEach { action ->
+        listOf("Add", "Edit", "OCR", "Share", "Actions").forEach { action ->
             composeTestRule.onNodeWithText(action).assertIsDisplayed()
         }
         openDocumentEdit()
@@ -1598,7 +1715,7 @@ class HomeScreenTest {
                 .and(hasText("Document")),
         ).assertIsDisplayed()
         composeTestRule.onAllNodesWithText("Document").assertCountEquals(1)
-        composeTestRule.onNodeWithText("More").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Actions").assertIsDisplayed()
     }
 
     @Test
@@ -1685,6 +1802,53 @@ class HomeScreenTest {
     }
 
     @Test
+    fun phase7dPortabilitySurfacesRemainReachableAcrossResponsiveWidthsAtLargeFont() {
+        val width = mutableStateOf(320.dp)
+        var workflow by mutableStateOf<PortabilityWorkflowState>(
+            PortabilityWorkflowState.MigrationSource(ScannerMigrationSource.MICROSOFT_LENS),
+        )
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 2f)) {
+                Box(modifier = androidx.compose.ui.Modifier.size(width = width.value, height = 900.dp)) {
+                    PageHarborApp(
+                        libraryHasDocuments = false,
+                        portabilityState = workflow,
+                    )
+                }
+            }
+        }
+
+        listOf(320.dp, 600.dp, 840.dp).forEach { targetWidth ->
+            composeTestRule.runOnIdle { width.value = targetWidth }
+            composeTestRule.onNodeWithText("Microsoft Lens").performScrollTo().assertIsDisplayed()
+            composeTestRule.onNodeWithText("Select files").performScrollTo().assertIsDisplayed()
+            composeTestRule.onNodeWithText("Select folder").performScrollTo().assertIsDisplayed()
+        }
+
+        composeTestRule.runOnIdle {
+            workflow = PortabilityWorkflowState.BackupRestore(
+                BackupVerificationStatusUiModel.NeverBackedUp,
+            )
+        }
+        listOf(320.dp, 600.dp, 840.dp).forEach { targetWidth ->
+            composeTestRule.runOnIdle { width.value = targetWidth }
+            composeTestRule.onNodeWithText("No documents to back up")
+                .performScrollTo()
+                .assertIsDisplayed()
+            composeTestRule.onNodeWithText("Restore backup").performScrollTo().assertIsDisplayed()
+        }
+
+        composeTestRule.runOnIdle { workflow = PortabilityWorkflowState.NewPhone() }
+        listOf(320.dp, 600.dp, 840.dp).forEach { targetWidth ->
+            composeTestRule.runOnIdle { width.value = targetWidth }
+            composeTestRule.onNodeWithText("No documents to move yet.")
+                .performScrollTo()
+                .assertIsDisplayed()
+            composeTestRule.onNodeWithText("Restore backup").performScrollTo().assertIsDisplayed()
+        }
+    }
+
+    @Test
     fun ocrResultNavigationControlsRemainReachableAtTwoHundredPercentFont() {
         val selectedPage = mutableStateOf(0)
         composeTestRule.setContent {
@@ -1733,7 +1897,7 @@ class HomeScreenTest {
     }
 
     private fun openDocumentMore() {
-        composeTestRule.onNodeWithText("More").performClick()
+        composeTestRule.onNodeWithText("Actions").performClick()
         composeTestRule.onNodeWithText("Document actions").assertIsDisplayed()
     }
 

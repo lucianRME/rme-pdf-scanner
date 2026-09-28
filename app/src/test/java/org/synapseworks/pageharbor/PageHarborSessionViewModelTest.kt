@@ -471,6 +471,18 @@ class PageHarborSessionViewModelTest {
     }
 
     @Test
+    fun recreationKeepsExplicitHomeDestinationWithAnActiveDocument() {
+        val session = completedSession("first")
+        session.screen = PageHarborScreen.Home
+
+        session.resetTransientStateForRecreation()
+
+        assertEquals(PageHarborScreen.Home, session.screen)
+        assertEquals(scanSummary(pageCount = 1), session.scannerState)
+        assertEquals(listOf("first"), session.pageReferences())
+    }
+
+    @Test
     fun scannerPagesEnterTheSharedSessionAndRotationKeepsIdentity() {
         val session = completedSession("first")
         val page = session.documentPages.single()
