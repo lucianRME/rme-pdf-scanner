@@ -1,30 +1,33 @@
 # RME: PDF & Document Scanner
 
-Privacy-first, open-source document scanning for Android, with offline OCR, searchable PDFs, and a local document library.
+Privacy-first, open-source Android document scanning with multilingual on-device OCR, full-library search, searchable PDFs, migration, portable backup, and no RME account or cloud backend.
 
-[Google Play](https://play.google.com/store/apps/details?id=org.synapseworks.pageharbor) · [Website](https://synapseworks.org/rme-pdf-scanner/) · [v1.4.0 release](https://github.com/lucianRME/rme-pdf-scanner/releases/tag/v1.4.0) · [Privacy](https://synapseworks.org/rme-pdf-scanner/privacy/) · [Apache-2.0 license](LICENSE)
+[Google Play](https://play.google.com/store/apps/details?id=org.synapseworks.pageharbor) · [Website](https://synapseworks.org/rme-pdf-scanner/) · [v1.6.0 release](https://github.com/lucianRME/rme-pdf-scanner/releases/tag/v1.6.0) · [Privacy](https://synapseworks.org/rme-pdf-scanner/privacy/) · [Apache-2.0 license](LICENSE)
 
-**No ads. No account. No RME analytics or tracking. No RME document cloud.** Documents can stay in an app-private local library, and the RME application manifest has no `INTERNET` permission.
+**No ads. No account. No RME analytics or tracking. No RME document cloud.** Documents can stay in an app-private local library, and RME requests no `INTERNET` permission.
 
 ## What you can do
 
-- **Scan and import:** Scan paper documents, up to 20 pages in a document workflow; import multiple JPEG, PNG, WebP, or PDF files; or receive supported files through Android sharing.
-- **Manage documents:** Save and reopen documents locally. Search titles and text extracted by user-initiated OCR; organize with folders; rename, move, delete, and sort. The library adapts between list and grid layouts.
+- **Scan and import:** Scan multi-page paper documents, up to 20 pages in a document workflow; import multiple JPEG, PNG, WebP, or PDF files; or receive supported files through Android sharing.
+- **Manage documents:** Keep a persistent local library with folders and subfolders. Rename, move, delete, sort, and reopen documents without an RME account or cloud service.
 - **Edit pages:** Add, reorder, rotate, or remove pages. Apply Auto Enhance, Grayscale, B&W, or High Contrast while keeping the page preview visible in the editing workspace.
-- **Use Tools:** Import files, Merge documents, Split / Extract pages, and Extract text.
-- **Create and export:** Run offline OCR, copy extracted text, create searchable PDFs, export PDFs or JPEG pages, and save or share through Android system flows.
-
-The v1.4 interface has **Home | Documents | Tools | More** navigation and a one-handed Scan button. A dedicated document workspace keeps **Add | Edit | OCR | Share | More** actions close to the page preview.
+- **Recognize and review text:** Run multilingual on-device OCR for Latin, Chinese, Japanese, Korean, and Devanagari scripts. Latin recognition is built in; optional script models may be downloaded by Google Play services. Review and correct recognized text, re-run OCR for a page or document, or use batch OCR.
+- **Search the library:** Search titles and recognized text across the full local library, see matching snippets, and jump directly to matching pages.
+- **Create and export:** Create multilingual searchable PDFs, use local smart document naming, export PDFs or JPEG pages, and save or share through Android system flows.
+- **Use document tools:** Merge documents, split documents, extract pages, and extract text.
+- **Move existing scans:** Import from CamScanner, Adobe Scan / Acrobat, or Genius Scan, with PDF migration guidance for Microsoft Lens.
+- **Back up and transfer:** Create and restore portable backups, optionally encrypt backup files, and move an RME library to a new phone.
+- **Protect app access:** Optionally require Android device authentication when opening RME.
 
 ## Install
 
-Get RME PDF Scanner from [Google Play](https://play.google.com/store/apps/details?id=org.synapseworks.pageharbor) or the APK on [GitHub Releases](https://github.com/lucianRME/rme-pdf-scanner/releases). The current stable release is [v1.4.0](https://github.com/lucianRME/rme-pdf-scanner/releases/tag/v1.4.0), released in September 2026. Release builds are covered by unit, instrumentation, accessibility, and device testing.
+Get RME PDF Scanner from [Google Play](https://play.google.com/store/apps/details?id=org.synapseworks.pageharbor) or the APK on [GitHub Releases](https://github.com/lucianRME/rme-pdf-scanner/releases). The current stable release is [v1.6.0](https://github.com/lucianRME/rme-pdf-scanner/releases/tag/v1.6.0), released in October 2026. Release builds are covered by unit, instrumentation, accessibility, and device testing.
 
 ## Privacy
 
-Saved documents, thumbnails, metadata, and optional OCR text live in RME's app-private local library. OCR and document-content processing happen on-device. RME does not operate a backend that receives or stores your documents, require an account, show ads, or run its own analytics or tracking. Exports go to the destination or receiving app you choose through Android's system save and share flows. The RME application manifest declares no `INTERNET` permission.
+Saved documents, thumbnails, metadata, and optional OCR text live in RME's app-private local library. Recognition and document-content processing run on-device. RME does not operate a backend that receives or stores your documents, require an account, show ads, or run its own analytics or tracking. Exports go to the destination or receiving app you choose through Android's system save and share flows. RME requests no `INTERNET` permission.
 
-RME uses Google ML Kit Document Scanner and bundled ML Kit text recognition; these Google components are not part of RME's open-source code. Google Play services may obtain scanner resources, and ML Kit may send technical diagnostics under Google's practices. This is not a promise that every system component works without network access. Read the [full privacy policy](https://synapseworks.org/rme-pdf-scanner/privacy/) and [third-party notices](THIRD_PARTY_NOTICES.md).
+RME uses Google ML Kit Document Scanner and ML Kit text recognition; these Google components are not part of RME's open-source code. Latin recognition is bundled with the app. Optional Chinese, Japanese, Korean, and Devanagari OCR models, as well as scanner resources, may be downloaded or updated by Google Play services. Recognition runs on-device after the required model is available. ML Kit may send technical diagnostics under Google's practices. This is not a promise that every system component works without network access. Read the [full privacy policy](https://synapseworks.org/rme-pdf-scanner/privacy/) and [third-party notices](THIRD_PARTY_NOTICES.md).
 
 ## Open source and development
 
