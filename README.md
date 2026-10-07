@@ -43,6 +43,18 @@ cd rme-pdf-scanner
 
 The debug APK is written to `app/build/outputs/apk/debug/`. Release signing credentials are not included in the repository; see [release-signing guidance](docs/RELEASE_SIGNING.md) for local verification and release builds.
 
+## ⭐ Show your support
+
+If RME is useful to you, please consider supporting the project:
+
+- **⭐ Star this repository** — it helps more people discover RME
+- **🐛 Report issues** — bug reports and real-world feedback help improve the app
+- **💡 Suggest features** — ideas are welcome through GitHub Issues
+- **📣 Share RME** — especially with people looking for a privacy-first Android scanner
+- **🔧 Contribute** — code contributions and improvements are welcome
+
+[![GitHub stars](https://img.shields.io/github/stars/lucianRME/rme-pdf-scanner?style=social)](https://github.com/lucianRME/rme-pdf-scanner/stargazers)
+
 ## Contributing and support
 
 [Issues and feature requests](https://github.com/lucianRME/rme-pdf-scanner/issues) and code contributions are welcome. Please do not attach sensitive documents to reports or test materials.
