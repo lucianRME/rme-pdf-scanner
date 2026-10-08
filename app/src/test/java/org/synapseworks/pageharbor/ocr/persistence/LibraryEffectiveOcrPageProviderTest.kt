@@ -13,6 +13,7 @@ import org.synapseworks.pageharbor.library.LibraryEffectiveOcrLine
 import org.synapseworks.pageharbor.library.LibraryEffectiveOcrPage
 import org.synapseworks.pageharbor.library.LibraryOcrArtifactVerification
 import org.synapseworks.pageharbor.library.LibraryOcrCorrectionAlignment
+import org.synapseworks.pageharbor.library.LibraryTextSourceKind
 import org.synapseworks.pageharbor.ocr.OcrDurablePageCurrentness
 import org.synapseworks.pageharbor.ocr.OcrPageAddress
 import org.synapseworks.pageharbor.ocr.OcrRecognitionCurrentness
@@ -238,6 +239,52 @@ class LibraryEffectiveOcrPageProviderTest {
     }
 
     @Test
+    fun importedPdfTextNeverPretendsToHavePositionedOcrGeometry() = runBlocking {
+        val currentness = currentness(activeArtifactRevision = 2L)
+        val provider = provider(
+            storedPage(
+                textSourceKind = LibraryTextSourceKind.PDF_EMBEDDED_TEXT,
+                actualScript = null,
+                lines = emptyList(),
+                sourceGeometryLines = emptyList(),
+            ),
+        )
+
+        assertEquals(
+            EffectiveOcrPageProvision.Unavailable(
+                EffectiveOcrPageUnavailableReason.POSITIONED_LAYOUT_NOT_AVAILABLE,
+            ),
+            provider.provide(request(currentness)),
+        )
+    }
+
+    @Test
+    fun correctionOverImportedPdfTextRemainsAuthoritativeDuringGeometryRefresh() = runBlocking {
+        val currentness = currentness(activeArtifactRevision = 2L)
+        val provider = provider(
+            storedPage(
+                effectiveText = "Corrected imported text",
+                correctedText = "Corrected imported text",
+                alignment = LibraryOcrCorrectionAlignment.FREEFORM,
+                correctionBaseArtifactRevision = 2L,
+                textSourceKind = LibraryTextSourceKind.PDF_EMBEDDED_TEXT,
+                actualScript = null,
+                lines = emptyList(),
+                sourceGeometryLines = emptyList(),
+            ),
+        )
+
+        assertEquals(
+            EffectiveOcrPageProvision.CorrectedTextOnly(
+                address = OcrPageAddress("document-1", "page-1"),
+                effectiveText = "Corrected imported text",
+                currentness = currentness,
+            ),
+            provider.provide(request(currentness)),
+        )
+    }
+
+    @Test
     fun providerFailureIsReturnedWithoutLeakingExceptionDetails() = runBlocking {
         val provider = LibraryEffectiveOcrPageProvider { _, _ -> error("sensitive detail") }
 
@@ -292,6 +339,8 @@ class LibraryEffectiveOcrPageProviderTest {
         uprightHeight: Int? = 2_000,
         verification: LibraryOcrArtifactVerification =
             LibraryOcrArtifactVerification.CURRENT_VERIFIED,
+        textSourceKind: LibraryTextSourceKind = LibraryTextSourceKind.LOCAL_OCR,
+        actualScript: String? = "LATIN",
         lines: List<LibraryEffectiveOcrLine> = listOf(line()),
         sourceGeometryLines: List<LibraryEffectiveOcrLine> = lines,
     ) = LibraryEffectiveOcrPage(
@@ -315,8 +364,14 @@ class LibraryEffectiveOcrPageProviderTest {
         uprightWidth = uprightWidth,
         uprightHeight = uprightHeight,
         verification = verification,
-        actualScript = "LATIN",
+        actualScript = actualScript,
         recognizerId = "rme-mlkit-latin",
+        textSourceKind = textSourceKind,
+        sourceDescriptor = if (textSourceKind == LibraryTextSourceKind.PDF_EMBEDDED_TEXT) {
+            "pdf-sha256:fixture:page:0:extractor:test"
+        } else {
+            null
+        },
         lines = lines,
         sourceGeometryLines = sourceGeometryLines,
     )

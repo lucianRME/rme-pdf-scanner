@@ -27,7 +27,7 @@ import androidx.room.RoomDatabase
         OcrBatchJobEntity::class,
         OcrBatchItemEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class LibraryDatabase : RoomDatabase() {
@@ -42,7 +42,7 @@ abstract class LibraryDatabase : RoomDatabase() {
                 context.applicationContext,
                 LibraryDatabase::class.java,
                 LIBRARY_DATABASE_NAME,
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
                 .also { database -> instance = database }
         }

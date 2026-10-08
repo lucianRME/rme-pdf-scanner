@@ -167,6 +167,7 @@ android {
 
     sourceSets {
         getByName("phase2Test").manifest.srcFile("src/phase2Test/AndroidManifest.xml")
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
     }
 
 }

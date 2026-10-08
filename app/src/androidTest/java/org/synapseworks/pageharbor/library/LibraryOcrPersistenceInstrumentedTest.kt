@@ -538,6 +538,66 @@ class LibraryOcrPersistenceInstrumentedTest {
     }
 
     @Test
+    fun importedTextCorrectionSurvivesOcrReplacementUntilExplicitRevert() = runBlocking {
+        val stored = page("page-embedded", 0, "hash-embedded", null)
+        dao.replaceDocument(document(), listOf(stored), "")
+        val initial = requireNotNull(dao.ocrPageSnapshot(DOCUMENT_ID, stored.pageId))
+        val importedDraft = draft(initial, "embedded original token").copy(
+            actualScript = null,
+            recognizerId = "PDF_TEXT_LAYER_V1",
+            delivery = "LOCAL_PDFBOX",
+            textSourceKind = LibraryTextSourceKind.PDF_EMBEDDED_TEXT,
+            sourceDescriptor = "pdf-sha256:fixture:page:0:extractor:PDF_TEXT_LAYER_V1",
+        )
+        assertEquals(
+            LibraryOcrCommitResult.APPLIED,
+            dao.commitOcrArtifact(initial, importedDraft, 10),
+        )
+        assertEquals(
+            stored.pageId,
+            dao.pageSearchPage("embedded*", Long.MAX_VALUE, "", 10).single().pageId,
+        )
+
+        val beforeCorrection = requireNotNull(dao.ocrPageSnapshot(DOCUMENT_ID, stored.pageId))
+        assertEquals(
+            LibraryOcrCommitResult.APPLIED,
+            dao.saveOcrCorrection(
+                beforeCorrection,
+                LibraryOcrCorrectionDraft(
+                    correctedText = "authoritative corrected token",
+                    alignment = LibraryOcrCorrectionAlignment.FREEFORM,
+                ),
+                11,
+            ),
+        )
+        assertTrue(dao.pageSearchPage("embedded*", Long.MAX_VALUE, "", 10).isEmpty())
+        assertEquals(
+            stored.pageId,
+            dao.pageSearchPage("authoritative*", Long.MAX_VALUE, "", 10).single().pageId,
+        )
+
+        val beforeOcr = requireNotNull(dao.ocrPageSnapshot(DOCUMENT_ID, stored.pageId))
+        assertEquals(
+            LibraryOcrCommitResult.APPLIED,
+            dao.commitOcrArtifact(beforeOcr, draft(beforeOcr, "fresh ocr token"), 12),
+        )
+        val corrected = requireNotNull(dao.effectiveOcrPage(DOCUMENT_ID, stored.pageId))
+        assertEquals("authoritative corrected token", corrected.effectiveText)
+        assertEquals(LibraryTextSourceKind.PDF_EMBEDDED_TEXT, corrected.textSourceKind)
+        assertTrue(dao.pageSearchPage("fresh*", Long.MAX_VALUE, "", 10).isEmpty())
+
+        val beforeRevert = requireNotNull(dao.ocrPageSnapshot(DOCUMENT_ID, stored.pageId))
+        assertEquals(LibraryOcrCommitResult.APPLIED, dao.revertOcrCorrection(beforeRevert, 13))
+        val reverted = requireNotNull(dao.effectiveOcrPage(DOCUMENT_ID, stored.pageId))
+        assertEquals("fresh ocr token", reverted.effectiveText)
+        assertEquals(LibraryTextSourceKind.LOCAL_OCR, reverted.textSourceKind)
+        assertEquals(
+            stored.pageId,
+            dao.pageSearchPage("fresh*", Long.MAX_VALUE, "", 10).single().pageId,
+        )
+    }
+
+    @Test
     fun batchPopulationScalesInBoundedChunksForFiveFiftyAndOneHundredDocuments() = runBlocking {
         val runtime = Runtime.getRuntime()
         val heapBefore = runtime.totalMemory() - runtime.freeMemory()

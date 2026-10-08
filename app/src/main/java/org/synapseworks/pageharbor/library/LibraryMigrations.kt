@@ -440,6 +440,32 @@ internal val MIGRATION_2_3 = object : Migration(2, 3) {
     }
 }
 
+internal val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL("ALTER TABLE `library_documents` ADD COLUMN `document_date_epoch_day` INTEGER")
+        database.execSQL("ALTER TABLE `library_documents` ADD COLUMN `document_date_provenance` TEXT")
+        database.execSQL("ALTER TABLE `library_documents` ADD COLUMN `document_date_confidence` TEXT")
+        database.execSQL("ALTER TABLE `library_documents` ADD COLUMN `original_created_at` INTEGER")
+        database.execSQL("ALTER TABLE `library_documents` ADD COLUMN `original_created_at_provenance` TEXT")
+        database.execSQL("ALTER TABLE `library_documents` ADD COLUMN `source_modified_at_provenance` TEXT")
+        database.execSQL("ALTER TABLE `library_documents` ADD COLUMN `source_provenance_kind` TEXT")
+        database.execSQL("ALTER TABLE `library_documents` ADD COLUMN `source_provenance_label` TEXT")
+        database.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_library_documents_library_state_document_date_epoch_day_imported_at_row_id` " +
+                "ON `library_documents` (`library_state`, `document_date_epoch_day`, `imported_at`, `row_id`)",
+        )
+        database.execSQL("ALTER TABLE `library_data_operation_items` ADD COLUMN `original_created_at` INTEGER")
+        database.execSQL(
+            "ALTER TABLE `library_page_ocr_artifacts` ADD COLUMN `text_source_kind` " +
+                "TEXT NOT NULL DEFAULT 'LOCAL_OCR'",
+        )
+        database.execSQL("ALTER TABLE `library_page_ocr_artifacts` ADD COLUMN `source_descriptor` TEXT")
+        database.query("PRAGMA foreign_key_check").use { cursor ->
+            check(!cursor.moveToFirst()) { "Foreign-key violation after library migration 3 to 4" }
+        }
+    }
+}
+
 private fun assertV3Backfill(database: SupportSQLiteDatabase) {
     fun scalar(sql: String): Long = database.query(sql).use { cursor ->
         check(cursor.moveToFirst())

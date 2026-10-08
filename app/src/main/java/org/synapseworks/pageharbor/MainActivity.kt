@@ -1065,7 +1065,10 @@ class MainActivity : FragmentActivity() {
                 completedDocuments = operation.progress.completedDocuments,
                 totalDocuments = operation.progress.totalDocuments,
                 currentDocument = null,
-                currentStage = if (operation.progress.isCopyingDocument) {
+                currentStage = if (operation.progress.isPreparingSearch) {
+                    "Preparing search: ${operation.progress.processedSearchPages} of " +
+                        "${operation.progress.totalSearchPages} pages"
+                } else if (operation.progress.isCopyingDocument) {
                     "Copying and validating current document"
                 } else {
                     "Publishing completed documents"
@@ -1153,6 +1156,10 @@ class MainActivity : FragmentActivity() {
                 retryable = issue.retryable,
             )
         },
+        searchReadyDocuments = searchReadyDocumentCount,
+        partiallySearchReadyDocuments = partiallySearchReadyDocumentCount,
+        failedSearchPreparationDocuments = failedSearchPreparationDocumentCount,
+        searchPreparationCancelled = searchPreparationCancelled,
     )
 
     private fun MigrationIssueReason.safeMigrationIssueMessage(): String = when (this) {

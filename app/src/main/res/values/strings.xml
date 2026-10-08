@@ -276,6 +276,7 @@
     <string name="library_folder_delete">Delete folder</string>
     <string name="library_sort_updated">Recently updated</string>
     <string name="library_sort_created">Recently created</string>
+    <string name="library_sort_document_date">Document date</string>
     <string name="library_sort_title">Title</string>
     <string name="library_sort_action">Sort: %1$s</string>
     <string name="library_more_actions">More actions for %1$s</string>
@@ -284,6 +285,8 @@
     <string name="library_clear_selection">Clear</string>
     <string name="library_merge_action">Merge</string>
     <string name="library_document_metadata">%1$d pages · updated %2$s</string>
+    <string name="library_document_date_metadata">%1$d pages · document date %2$s</string>
+    <string name="library_imported_metadata">%1$d pages · imported %2$s</string>
     <string name="library_document_folder">Folder: %1$s</string>
     <string name="library_search_match_title">Title match</string>
     <string name="library_search_match_ocr">Recognized-text match</string>

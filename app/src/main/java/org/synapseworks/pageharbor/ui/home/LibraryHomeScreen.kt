@@ -115,7 +115,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
 import java.text.DateFormat
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.launch
 import org.synapseworks.pageharbor.R
 import org.synapseworks.pageharbor.document.importing.DocumentImportUiState
@@ -2014,8 +2018,18 @@ private fun LibraryDocumentItem(
     onMove: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val formattedDate = remember(document.modifiedAtMillis) {
-        DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(document.modifiedAtMillis))
+    val formattedDate = remember(
+        document.documentDateEpochDay,
+        document.importedAtMillis,
+        document.modifiedAtMillis,
+    ) {
+        document.documentDateEpochDay?.let { epochDay ->
+            DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)
+                .withLocale(Locale.getDefault())
+                .format(LocalDate.ofEpochDay(epochDay))
+        } ?: DateFormat.getDateInstance(DateFormat.MEDIUM).format(
+            Date(document.importedAtMillis ?: document.modifiedAtMillis),
+        )
     }
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -2103,7 +2117,15 @@ private fun DocumentDetails(
             overflow = TextOverflow.Ellipsis,
         )
         Text(
-            text = stringResource(R.string.library_document_metadata, document.pageCount, formattedDate),
+            text = stringResource(
+                when {
+                    document.documentDateEpochDay != null -> R.string.library_document_date_metadata
+                    document.importedAtMillis != null -> R.string.library_imported_metadata
+                    else -> R.string.library_document_metadata
+                },
+                document.pageCount,
+                formattedDate,
+            ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -2439,6 +2461,7 @@ private val LibrarySortOrder.labelResource: Int
     get() = when (this) {
         LibrarySortOrder.MODIFIED_DESC -> R.string.library_sort_updated
         LibrarySortOrder.CREATED_DESC -> R.string.library_sort_created
+        LibrarySortOrder.DOCUMENT_DATE_DESC -> R.string.library_sort_document_date
         LibrarySortOrder.TITLE_ASC -> R.string.library_sort_title
     }
 

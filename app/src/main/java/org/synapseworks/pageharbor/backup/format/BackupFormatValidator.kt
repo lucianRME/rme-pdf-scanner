@@ -18,7 +18,11 @@ object BackupFormatValidator {
         supportedRequiredFeatures: Set<String> = emptySet(),
         limits: BackupFormatLimits = BackupFormatLimits(),
     ) {
-        if (manifest.formatVersion !in setOf(RME_BACKUP_FORMAT_VERSION_V1, RME_BACKUP_FORMAT_VERSION_V2) ||
+        if (manifest.formatVersion !in setOf(
+                RME_BACKUP_FORMAT_VERSION_V1,
+                RME_BACKUP_FORMAT_VERSION_V2,
+                RME_BACKUP_FORMAT_VERSION_V3,
+            ) ||
             manifest.minimumReaderVersion !in 1..RME_BACKUP_READER_VERSION ||
             manifest.minimumReaderVersion != manifest.formatVersion
         ) {
@@ -62,7 +66,9 @@ object BackupFormatValidator {
                 invalidMetadata("A v1 manifest cannot declare v2 OCR metadata.")
             }
 
-            RME_BACKUP_FORMAT_VERSION_V2 -> {
+            RME_BACKUP_FORMAT_VERSION_V2,
+            RME_BACKUP_FORMAT_VERSION_V3,
+            -> {
                 val ocr = manifest.ocr
                     ?: invalidMetadata("A v2 manifest must declare OCR metadata.")
                 validateOcrManifestShape(ocr, limits)
@@ -164,6 +170,7 @@ object BackupFormatValidator {
             if (document.pageCount < 0 || document.sourceAssetCount < 0) {
                 invalidMetadata("A document count is invalid.")
             }
+            validateDocumentProvenance(document)
             if (documentsById.put(document.documentId, document) != null) {
                 duplicateMetadataId("document")
             }
@@ -245,6 +252,51 @@ object BackupFormatValidator {
         }
     }
 
+    internal fun validateDocumentProvenance(document: BackupDocumentRecord) {
+        val dateFields = listOf(
+            document.documentDateEpochDay,
+            document.documentDateProvenance,
+            document.documentDateConfidence,
+        )
+        if (dateFields.any { it != null } && dateFields.any { it == null }) {
+            invalidMetadata("Document date provenance is incomplete.")
+        }
+        document.documentDateProvenance?.let {
+            if (it !in setOf("EXPORT_METADATA", "USER_CONFIRMED", "FILE_METADATA")) {
+                invalidMetadata("Document date provenance is invalid.")
+            }
+        }
+        document.documentDateConfidence?.let {
+            if (it !in setOf("EXACT", "AMBIGUOUS")) invalidMetadata("Document date confidence is invalid.")
+        }
+        document.originalCreatedAtProvenance?.let {
+            if (document.originalCreatedAtEpochMillis == null || it !in setOf("EXPORT_METADATA", "FILE_METADATA")) {
+                invalidMetadata("Original creation-time provenance is invalid.")
+            }
+        }
+        document.sourceModifiedAtProvenance?.let {
+            if (document.sourceModifiedAtEpochMillis == null || it !in setOf("EXPORT_METADATA", "FILE_METADATA")) {
+                invalidMetadata("Source modification-time provenance is invalid.")
+            }
+        }
+        listOf(
+            document.originalCreatedAtEpochMillis,
+            document.sourceModifiedAtEpochMillis,
+            document.importedAtEpochMillis,
+        ).filterNotNull().forEach { requireNonNegative(it, "A document timestamp is invalid.") }
+        document.sourceProvenanceLabel?.let {
+            requireBoundedText(it, 80, "A source provenance label is invalid.")
+            if (document.sourceProvenanceKind == null) {
+                invalidMetadata("A source provenance label requires a source kind.")
+            }
+        }
+        document.sourceProvenanceKind?.let {
+            if (it !in SOURCE_PROVENANCE_KINDS) {
+                invalidMetadata("A source provenance kind is invalid.")
+            }
+        }
+    }
+
     private fun requireAcyclicFolders(foldersById: Map<String, BackupFolderRecord>) {
         val state = HashMap<String, Int>(foldersById.size)
         foldersById.keys.forEach { start ->
@@ -316,5 +368,18 @@ object BackupFormatValidator {
     private fun invalidMetadata(message: String): Nothing = throw backupFailure(
         BackupFormatFailure.INVALID_METADATA,
         message,
+    )
+
+    private val SOURCE_PROVENANCE_KINDS = setOf(
+        "RME_SCAN",
+        "GENERIC_PDF",
+        "GENERIC_IMAGE",
+        "STANDARD_ZIP",
+        "CAMSCANNER_EXPORT",
+        "MICROSOFT_LENS_EXPORT",
+        "ADOBE_SCAN_EXPORT",
+        "GENIUS_SCAN_EXPORT",
+        "RME_BACKUP",
+        "OTHER",
     )
 }

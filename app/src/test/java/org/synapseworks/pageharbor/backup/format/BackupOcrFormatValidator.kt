@@ -201,8 +201,24 @@ internal object BackupOcrFormatValidator {
             invalidMetadata("An OCR artifact revision or line count is invalid.")
         }
         requireText(artifact.rawText, limits)
-        val actualScript = requireNotNullOrInvalid(artifact.actualScript, "An OCR actual script is missing.")
-        if (actualScript !in ACTUAL_SCRIPTS) invalidMetadata("An OCR actual script is unsupported.")
+        when (artifact.textSourceKind) {
+            BackupTextSourceKind.LOCAL_OCR -> {
+                val actualScript = requireNotNullOrInvalid(
+                    artifact.actualScript,
+                    "An OCR actual script is missing.",
+                )
+                if (actualScript !in ACTUAL_SCRIPTS) {
+                    invalidMetadata("An OCR actual script is unsupported.")
+                }
+            }
+
+            BackupTextSourceKind.PDF_EMBEDDED_TEXT -> if (
+                artifact.actualScript != null || artifact.lineCount != 0 ||
+                artifact.sourceDescriptor.isNullOrBlank() || artifact.sourceDescriptor.length > 512
+            ) {
+                invalidMetadata("An imported PDF text artifact has invalid provenance or geometry.")
+            }
+        }
         requireToken(requireNotNullOrInvalid(artifact.recognizerId, "An OCR recognizer ID is missing."), "OCR recognizer ID")
         artifact.clientVersion?.let { requireBoundedText(it, 128, "An OCR client version is invalid.") }
         val fingerprint = artifact.inputFingerprint

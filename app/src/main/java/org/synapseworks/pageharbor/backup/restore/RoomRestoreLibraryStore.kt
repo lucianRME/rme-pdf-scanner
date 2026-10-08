@@ -195,10 +195,18 @@ internal class RoomRestoreLibraryStore(
             contentHashVersion = source.fingerprint.version,
             contentSha256 = source.fingerprint.sha256,
             contentByteCount = source.pageByteLength,
-            sourceModifiedAtMillis = source.firstSourceModifiedAtEpochMillis,
-            importedAtMillis = clock.nowEpochMillis(),
+            sourceModifiedAtMillis = source.document.sourceModifiedAtEpochMillis,
+            importedAtMillis = source.document.importedAtEpochMillis,
             contentRevision = documentState?.contentRevision ?: 0L,
             ocrScriptPreference = documentState?.scriptPreference,
+            documentDateEpochDay = source.document.documentDateEpochDay,
+            documentDateProvenance = source.document.documentDateProvenance,
+            documentDateConfidence = source.document.documentDateConfidence,
+            originalCreatedAtMillis = source.document.originalCreatedAtEpochMillis,
+            originalCreatedAtProvenance = source.document.originalCreatedAtProvenance,
+            sourceModifiedAtProvenance = source.document.sourceModifiedAtProvenance,
+            sourceProvenanceKind = source.document.sourceProvenanceKind,
+            sourceProvenanceLabel = source.document.sourceProvenanceLabel,
         )
 
         val revisionId = java.util.UUID.randomUUID().toString()
@@ -747,6 +755,8 @@ private fun BackupOcrArtifactRecord.toLibraryEntity(): LibraryPageOcrArtifactEnt
         delivery = delivery,
         recognizedAtMillis = recognizedAtEpochMillis,
         rawText = rawText,
+        textSourceKind = textSourceKind.name,
+        sourceDescriptor = sourceDescriptor,
     )
 }
 
@@ -829,6 +839,10 @@ private fun LibraryPageOcrArtifactEntity.toBackupRecord(lineCount: Int): BackupO
         recognizedAtEpochMillis = recognizedAtMillis,
         rawText = rawText,
         lineCount = lineCount,
+        textSourceKind = org.synapseworks.pageharbor.backup.format.BackupTextSourceKind.valueOf(
+            textSourceKind,
+        ),
+        sourceDescriptor = sourceDescriptor,
     )
 }
 

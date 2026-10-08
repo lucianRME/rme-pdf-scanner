@@ -23,6 +23,7 @@ import org.synapseworks.pageharbor.backup.format.BackupOcrLineRecord
 import org.synapseworks.pageharbor.backup.format.BackupOcrPageStateRecord
 import org.synapseworks.pageharbor.backup.format.BackupOcrPoint
 import org.synapseworks.pageharbor.backup.format.BackupOcrVerificationState
+import org.synapseworks.pageharbor.backup.format.BackupTextSourceKind
 import org.synapseworks.pageharbor.library.LibraryDao
 import org.synapseworks.pageharbor.library.LibraryBackupOcrCorrectionLineRow
 import org.synapseworks.pageharbor.library.LibraryDocumentEntity
@@ -401,6 +402,16 @@ internal class RoomLibraryBackupSnapshotSource(
         contentSha256 = contentSha256,
         pageCount = actualPageCount,
         sourceAssetCount = actualSourceAssetCount,
+        documentDateEpochDay = documentDateEpochDay,
+        documentDateProvenance = documentDateProvenance,
+        documentDateConfidence = documentDateConfidence,
+        originalCreatedAtEpochMillis = originalCreatedAtMillis,
+        originalCreatedAtProvenance = originalCreatedAtProvenance,
+        sourceModifiedAtEpochMillis = sourceModifiedAtMillis,
+        sourceModifiedAtProvenance = sourceModifiedAtProvenance,
+        importedAtEpochMillis = importedAtMillis,
+        sourceProvenanceKind = sourceProvenanceKind,
+        sourceProvenanceLabel = sourceProvenanceLabel,
     )
 
     private fun org.synapseworks.pageharbor.library.LibraryPageOcrArtifactEntity.toBackupRecord(
@@ -452,6 +463,8 @@ internal class RoomLibraryBackupSnapshotSource(
             recognizedAtEpochMillis = recognizedAtMillis,
             rawText = rawText,
             lineCount = lineCount,
+            textSourceKind = BackupTextSourceKind.valueOf(textSourceKind),
+            sourceDescriptor = sourceDescriptor,
         )
     }
 

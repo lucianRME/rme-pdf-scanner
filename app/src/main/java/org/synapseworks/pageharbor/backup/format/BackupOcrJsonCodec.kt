@@ -197,6 +197,8 @@ internal object BackupOcrJsonCodec {
         append(",\"recognizedAtEpochMillis\":").append(record.recognizedAtEpochMillis ?: "null")
         append(",\"rawText\":").append(jsonString(record.rawText))
         append(",\"lineCount\":").append(record.lineCount)
+        append(",\"textSourceKind\":").append(jsonString(record.textSourceKind.name))
+        append(",\"sourceDescriptor\":").append(nullableJsonString(record.sourceDescriptor))
         append('}')
     }
 
@@ -236,6 +238,10 @@ internal object BackupOcrJsonCodec {
             recognizedAtEpochMillis = root.requiredNullableLong("recognizedAtEpochMillis"),
             rawText = root.requiredString("rawText"),
             lineCount = root.requiredInt("lineCount"),
+            textSourceKind = root.optionalNullableString("textSourceKind")
+                ?.let { enumValue<BackupTextSourceKind>(it, "text source kind") }
+                ?: BackupTextSourceKind.LOCAL_OCR,
+            sourceDescriptor = root.optionalNullableString("sourceDescriptor"),
         )
     }
 

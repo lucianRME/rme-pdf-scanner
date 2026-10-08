@@ -86,11 +86,18 @@ data class MigrationCompletionUiModel(
     val duplicatesSkipped: Int,
     val failedItems: Int,
     val issues: List<MigrationIssueUiModel> = emptyList(),
+    val searchReadyDocuments: Int = 0,
+    val partiallySearchReadyDocuments: Int = 0,
+    val failedSearchPreparationDocuments: Int = 0,
+    val searchPreparationCancelled: Boolean = false,
 ) {
     init {
         require(importedDocuments >= 0)
         require(duplicatesSkipped >= 0)
         require(failedItems >= 0)
+        require(searchReadyDocuments >= 0)
+        require(partiallySearchReadyDocuments >= 0)
+        require(failedSearchPreparationDocuments >= 0)
     }
 }
 

@@ -260,6 +260,16 @@ object BackupJsonCodec {
         append(",\"contentSha256\":").append(nullableJsonString(record.contentSha256))
         append(",\"pageCount\":").append(record.pageCount)
         append(",\"sourceAssetCount\":").append(record.sourceAssetCount)
+        append(",\"documentDateEpochDay\":").append(record.documentDateEpochDay ?: "null")
+        append(",\"documentDateProvenance\":").append(nullableJsonString(record.documentDateProvenance))
+        append(",\"documentDateConfidence\":").append(nullableJsonString(record.documentDateConfidence))
+        append(",\"originalCreatedAtEpochMillis\":").append(record.originalCreatedAtEpochMillis ?: "null")
+        append(",\"originalCreatedAtProvenance\":").append(nullableJsonString(record.originalCreatedAtProvenance))
+        append(",\"sourceModifiedAtEpochMillis\":").append(record.sourceModifiedAtEpochMillis ?: "null")
+        append(",\"sourceModifiedAtProvenance\":").append(nullableJsonString(record.sourceModifiedAtProvenance))
+        append(",\"importedAtEpochMillis\":").append(record.importedAtEpochMillis ?: "null")
+        append(",\"sourceProvenanceKind\":").append(nullableJsonString(record.sourceProvenanceKind))
+        append(",\"sourceProvenanceLabel\":").append(nullableJsonString(record.sourceProvenanceLabel))
         append('}')
     }
 
@@ -275,6 +285,16 @@ object BackupJsonCodec {
             contentSha256 = root.requiredNullableString("contentSha256"),
             pageCount = root.requiredInt("pageCount"),
             sourceAssetCount = root.requiredInt("sourceAssetCount"),
+            documentDateEpochDay = root.optionalNullableLong("documentDateEpochDay"),
+            documentDateProvenance = root.optionalNullableString("documentDateProvenance"),
+            documentDateConfidence = root.optionalNullableString("documentDateConfidence"),
+            originalCreatedAtEpochMillis = root.optionalNullableLong("originalCreatedAtEpochMillis"),
+            originalCreatedAtProvenance = root.optionalNullableString("originalCreatedAtProvenance"),
+            sourceModifiedAtEpochMillis = root.optionalNullableLong("sourceModifiedAtEpochMillis"),
+            sourceModifiedAtProvenance = root.optionalNullableString("sourceModifiedAtProvenance"),
+            importedAtEpochMillis = root.optionalNullableLong("importedAtEpochMillis"),
+            sourceProvenanceKind = root.optionalNullableString("sourceProvenanceKind"),
+            sourceProvenanceLabel = root.optionalNullableString("sourceProvenanceLabel"),
         )
     }
 

@@ -5,8 +5,9 @@ import java.io.OutputStream
 
 const val RME_BACKUP_FORMAT_VERSION_V1: Int = 1
 const val RME_BACKUP_FORMAT_VERSION_V2: Int = 2
-const val RME_BACKUP_FORMAT_VERSION: Int = RME_BACKUP_FORMAT_VERSION_V2
-const val RME_BACKUP_READER_VERSION: Int = 2
+const val RME_BACKUP_FORMAT_VERSION_V3: Int = 3
+const val RME_BACKUP_FORMAT_VERSION: Int = RME_BACKUP_FORMAT_VERSION_V3
+const val RME_BACKUP_READER_VERSION: Int = 3
 
 const val RME_BACKUP_MANIFEST_PATH: String = "manifest.json"
 const val RME_BACKUP_FOLDERS_PATH: String = "metadata/folders.jsonl"
@@ -113,6 +114,16 @@ data class BackupDocumentRecord(
     val contentSha256: String?,
     val pageCount: Int,
     val sourceAssetCount: Int,
+    val documentDateEpochDay: Long? = null,
+    val documentDateProvenance: String? = null,
+    val documentDateConfidence: String? = null,
+    val originalCreatedAtEpochMillis: Long? = null,
+    val originalCreatedAtProvenance: String? = null,
+    val sourceModifiedAtEpochMillis: Long? = null,
+    val sourceModifiedAtProvenance: String? = null,
+    val importedAtEpochMillis: Long? = null,
+    val sourceProvenanceKind: String? = null,
+    val sourceProvenanceLabel: String? = null,
 )
 
 data class BackupPageRecord(

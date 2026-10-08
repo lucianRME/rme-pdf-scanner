@@ -50,7 +50,8 @@ data class LibraryBackupOcrCorrectionLineRow(
 abstract class LibraryDao {
     @Query(
         """
-        SELECT d.document_id, d.title, d.created_at, d.modified_at, d.page_count,
+        SELECT d.document_id, d.title, d.created_at, d.modified_at,
+               d.document_date_epoch_day, d.document_date_provenance, d.imported_at, d.page_count,
                d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status
         FROM library_documents AS d
         LEFT JOIN library_folders AS f ON f.folder_id = d.folder_id
@@ -63,7 +64,8 @@ abstract class LibraryDao {
 
     @Query(
         """
-        SELECT d.document_id, d.title, d.created_at, d.modified_at, d.page_count,
+        SELECT d.document_id, d.title, d.created_at, d.modified_at,
+               d.document_date_epoch_day, d.document_date_provenance, d.imported_at, d.page_count,
                d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status
         FROM library_documents AS d
         LEFT JOIN library_folders AS f ON f.folder_id = d.folder_id
@@ -76,7 +78,26 @@ abstract class LibraryDao {
 
     @Query(
         """
-        SELECT d.document_id, d.title, d.created_at, d.modified_at, d.page_count,
+        SELECT d.document_id, d.title, d.created_at, d.modified_at,
+               d.document_date_epoch_day, d.document_date_provenance, d.imported_at, d.page_count,
+               d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status
+        FROM library_documents AS d
+        LEFT JOIN library_folders AS f ON f.folder_id = d.folder_id
+        WHERE d.library_state = 'ACTIVE'
+          AND (:folderId IS NULL OR d.folder_id = :folderId)
+        ORDER BY d.document_date_epoch_day IS NULL ASC,
+                 d.document_date_epoch_day DESC,
+                 d.imported_at IS NULL ASC,
+                 d.imported_at DESC,
+                 d.row_id ASC
+        """,
+    )
+    abstract fun observeDocumentsByDocumentDate(folderId: String?): Flow<List<LibraryDocumentListingRow>>
+
+    @Query(
+        """
+        SELECT d.document_id, d.title, d.created_at, d.modified_at,
+               d.document_date_epoch_day, d.document_date_provenance, d.imported_at, d.page_count,
                d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status
         FROM library_documents AS d
         LEFT JOIN library_folders AS f ON f.folder_id = d.folder_id
@@ -89,7 +110,8 @@ abstract class LibraryDao {
 
     @Query(
         """
-        SELECT d.document_id, d.title, d.created_at, d.modified_at, d.page_count,
+        SELECT d.document_id, d.title, d.created_at, d.modified_at,
+               d.document_date_epoch_day, d.document_date_provenance, d.imported_at, d.page_count,
                d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status,
                NULL AS page_id, NULL AS page_position,
                CASE WHEN lower(c.title) LIKE '%' || lower(:rawQuery) || '%'
@@ -113,7 +135,8 @@ abstract class LibraryDao {
 
     @Query(
         """
-        SELECT d.document_id, d.title, d.created_at, d.modified_at, d.page_count,
+        SELECT d.document_id, d.title, d.created_at, d.modified_at,
+               d.document_date_epoch_day, d.document_date_provenance, d.imported_at, d.page_count,
                d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status,
                p.page_id, p.page_position,
                'OCR' AS match_type,
@@ -136,7 +159,8 @@ abstract class LibraryDao {
 
     @Query(
         """
-        SELECT d.document_id, d.title, d.created_at, d.modified_at, d.page_count,
+        SELECT d.document_id, d.title, d.created_at, d.modified_at,
+               d.document_date_epoch_day, d.document_date_provenance, d.imported_at, d.page_count,
                d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status,
                NULL AS page_id, NULL AS page_position,
                CASE WHEN lower(c.title) LIKE '%' || lower(:rawQuery) || '%'
@@ -164,7 +188,8 @@ abstract class LibraryDao {
 
     @Query(
         """
-        SELECT d.document_id, d.title, d.created_at, d.modified_at, d.page_count,
+        SELECT d.document_id, d.title, d.created_at, d.modified_at,
+               d.document_date_epoch_day, d.document_date_provenance, d.imported_at, d.page_count,
                d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status,
                p.page_id, p.page_position,
                'OCR' AS match_type,
@@ -271,6 +296,17 @@ abstract class LibraryDao {
 
     @Query(
         """
+        SELECT a.* FROM library_page_ocr_artifacts AS a
+        JOIN library_pages AS p
+          ON p.page_id = a.page_id AND p.active_ocr_artifact_revision = a.artifact_revision
+        WHERE p.page_id = :pageId
+        LIMIT 1
+        """,
+    )
+    abstract suspend fun activeTextArtifact(pageId: String): LibraryPageOcrArtifactEntity?
+
+    @Query(
+        """
         SELECT d.document_id, p.page_id, p.page_position,
                COALESCE(c.corrected_text, active.raw_text) AS effective_text,
                selected.raw_text,
@@ -284,7 +320,8 @@ abstract class LibraryDao {
                selected.input_fingerprint_version, selected.input_fingerprint,
                selected.coordinate_system_version, selected.transform_version
                , selected.upright_width, selected.upright_height,
-               selected.verification_state, selected.actual_script, selected.recognizer_id
+               selected.verification_state, selected.actual_script, selected.recognizer_id,
+               selected.text_source_kind, selected.source_descriptor
         FROM library_pages AS p
         JOIN library_documents AS d ON d.document_id = p.document_id
         JOIN library_page_ocr_artifacts AS active
@@ -1088,6 +1125,8 @@ abstract class LibraryDao {
                 delivery = draft.delivery,
                 recognizedAtMillis = draft.recognizedAtMillis,
                 rawText = draft.rawText,
+                textSourceKind = draft.textSourceKind.name,
+                sourceDescriptor = draft.sourceDescriptor,
             ),
         )
         if (draft.lines.isNotEmpty()) {
@@ -2544,6 +2583,18 @@ abstract class LibraryDao {
     )
     protected abstract suspend fun activatePendingRestoreDocuments(operationId: String): Int
 
+    @Query(
+        """
+        UPDATE library_documents
+        SET imported_at = :importedAt
+        WHERE pending_operation_id = :operationId AND library_state = 'PENDING'
+        """,
+    )
+    protected abstract suspend fun stampPendingMigrationImportTime(
+        operationId: String,
+        importedAt: Long,
+    ): Int
+
     @Transaction
     open suspend fun insertRestoreOperation(
         operation: LibraryDataOperationEntity,
@@ -2865,6 +2916,7 @@ abstract class LibraryDao {
         require(pendingRestoreDocumentCount(operationId) == activatedOperation.importedDocumentCount)
         require(pendingRestoreFolderCount(operationId) == expectedFolderCount)
         activatePendingRestoreFolders(operationId)
+        check(stampPendingMigrationImportTime(operationId, modifiedAt) == activatedOperation.importedDocumentCount)
         val activatedDocumentCount = activatePendingRestoreDocuments(operationId)
         require(activatedDocumentCount == activatedOperation.importedDocumentCount)
         activatePreparedRestoreItems(operationId)
@@ -3011,6 +3063,8 @@ private fun LibraryEffectiveOcrPageRow.toEffectiveOcrPage(
     verification = LibraryOcrArtifactVerification.valueOf(verificationState),
     actualScript = actualScript,
     recognizerId = recognizerId,
+    textSourceKind = LibraryTextSourceKind.valueOf(textSourceKind),
+    sourceDescriptor = sourceDescriptor,
     lines = effectiveLines,
     sourceGeometryLines = sourceGeometryLines,
 )

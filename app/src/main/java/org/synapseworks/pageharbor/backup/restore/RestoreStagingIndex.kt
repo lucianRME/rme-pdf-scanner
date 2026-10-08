@@ -37,6 +37,7 @@ import org.synapseworks.pageharbor.backup.format.RME_BACKUP_DOCUMENTS_PATH
 import org.synapseworks.pageharbor.backup.format.RME_BACKUP_FOLDERS_PATH
 import org.synapseworks.pageharbor.backup.format.RME_BACKUP_FORMAT_VERSION_V1
 import org.synapseworks.pageharbor.backup.format.RME_BACKUP_FORMAT_VERSION_V2
+import org.synapseworks.pageharbor.backup.format.RME_BACKUP_FORMAT_VERSION_V3
 import org.synapseworks.pageharbor.backup.format.RME_BACKUP_MANIFEST_PATH
 import org.synapseworks.pageharbor.backup.format.RME_BACKUP_OCR_ARTIFACTS_PATH
 import org.synapseworks.pageharbor.backup.format.RME_BACKUP_OCR_CORRECTIONS_PATH
@@ -657,7 +658,9 @@ internal class RestoreStagingIndex(
     private fun verifyRequiredEntries(manifest: BackupManifest) {
         val required = when (manifest.formatVersion) {
             RME_BACKUP_FORMAT_VERSION_V1 -> BASE_REQUIRED_ENTRIES
-            RME_BACKUP_FORMAT_VERSION_V2 -> BASE_REQUIRED_ENTRIES + setOf(
+            RME_BACKUP_FORMAT_VERSION_V2,
+            RME_BACKUP_FORMAT_VERSION_V3,
+            -> BASE_REQUIRED_ENTRIES + setOf(
                 RME_BACKUP_OCR_DOCUMENT_STATES_PATH,
                 RME_BACKUP_OCR_PAGE_STATES_PATH,
                 RME_BACKUP_OCR_ARTIFACTS_PATH,
@@ -725,6 +728,7 @@ internal class RestoreStagingIndex(
             timestamps(record.createdAtEpochMillis, record.modifiedAtEpochMillis)
             if (record.contentHashVersion <= 0 || record.pageCount < 0 || record.sourceAssetCount < 0) invalidMetadata()
             record.contentSha256?.let(::sha256)
+            BackupFormatValidator.validateDocumentProvenance(record)
         }
         scanJson(TABLE_PAGES, BackupJsonCodec::decodePage) { record: BackupPageRecord ->
             stableId(record.pageId, "pageId")
@@ -1093,8 +1097,16 @@ internal class RestoreStagingIndex(
         stableId(artifact.pageId, "pageId")
         if (artifact.artifactRevision <= 0L || artifact.lineCount !in 0..limits.maximumOcrLinesPerArtifact ||
             artifact.rawText.length > limits.maximumStringCharacters || artifact.rawText.any { it == '\u0000' } ||
-            artifact.actualScript !in ACTUAL_SCRIPTS || artifact.recognizerId.isNullOrBlank()
+            artifact.recognizerId.isNullOrBlank()
         ) invalidMetadata()
+        when (artifact.textSourceKind) {
+            org.synapseworks.pageharbor.backup.format.BackupTextSourceKind.LOCAL_OCR ->
+                if (artifact.actualScript !in ACTUAL_SCRIPTS) invalidMetadata()
+            org.synapseworks.pageharbor.backup.format.BackupTextSourceKind.PDF_EMBEDDED_TEXT ->
+                if (artifact.actualScript != null || artifact.lineCount != 0 ||
+                    artifact.sourceDescriptor.isNullOrBlank() || artifact.sourceDescriptor.length > 512
+                ) invalidMetadata()
+        }
         if (artifact.verificationState == BackupOcrVerificationState.CURRENT_VERIFIED &&
             (artifact.capturedPageVisualRevision == null || artifact.capturedDocumentContentRevision == null ||
                 artifact.inputFingerprint == null || artifact.pipelineVersion == null || artifact.delivery == null ||

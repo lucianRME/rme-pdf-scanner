@@ -9,6 +9,7 @@ import org.synapseworks.pageharbor.document.importing.InboundShareResource
 import org.synapseworks.pageharbor.portability.StorageEstimate
 import org.synapseworks.pageharbor.portability.StoragePreflight
 import org.synapseworks.pageharbor.portability.StoragePreflightResult
+import org.synapseworks.pageharbor.searchprep.SearchPreparationReport
 
 data class MigrationFileResource(
     val uri: Uri,
@@ -37,7 +38,10 @@ data class PreparedMigrationBatch internal constructor(
 )
 
 sealed interface MigrationExecutionResult {
-    data class Completed(val report: MigrationBatchReport) : MigrationExecutionResult
+    data class Completed(
+        val report: MigrationBatchReport,
+        val searchPreparation: SearchPreparationReport? = null,
+    ) : MigrationExecutionResult
 
     data class InsufficientStorage(
         val estimate: StorageEstimate,

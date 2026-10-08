@@ -137,6 +137,80 @@ class LibraryRepositoryInstrumentedTest {
     }
 
     @Test
+    fun documentDateSortIsDeterministicAndNeverSubstitutesFileOrImportTimes() = runBlocking {
+        val dao = database.libraryDao()
+        suspend fun insert(
+            id: String,
+            documentDate: Long?,
+            importedAt: Long?,
+            sourceModifiedAt: Long?,
+        ) {
+            dao.replaceDocument(
+                LibraryDocumentEntity(
+                    documentId = id,
+                    title = id,
+                    createdAtMillis = 1,
+                    modifiedAtMillis = 2,
+                    pageCount = 1,
+                    folderId = null,
+                    thumbnailRelativePath = null,
+                    ocrStatus = LibraryOcrStatus.NOT_INDEXED.name,
+                    sourceModifiedAtMillis = sourceModifiedAt,
+                    importedAtMillis = importedAt,
+                    documentDateEpochDay = documentDate,
+                    documentDateProvenance = documentDate?.let {
+                        LibraryDocumentDateProvenance.USER_CONFIRMED.name
+                    },
+                    documentDateConfidence = documentDate?.let {
+                        LibraryDocumentDateConfidence.EXACT.name
+                    },
+                ),
+                listOf(
+                    LibraryPageEntity(
+                        pageId = "page-$id",
+                        documentId = id,
+                        position = 0,
+                        relativePath = "$id/page.jpg",
+                        contentType = "image/jpeg",
+                        sourceCategory = "TEST",
+                        width = 10,
+                        height = 10,
+                        sourceByteCount = 1,
+                        rotationDegrees = 0,
+                        filterName = "ORIGINAL",
+                        ocrText = null,
+                        ocrError = null,
+                        contentSha256 = "hash-$id",
+                    ),
+                ),
+                "",
+            )
+        }
+
+        insert("dated-old", documentDate = 10, importedAt = 900, sourceModifiedAt = 1_000)
+        insert("dated-new", documentDate = 20, importedAt = 100, sourceModifiedAt = 50)
+        insert("unknown-new-import", documentDate = null, importedAt = 800, sourceModifiedAt = 9_999)
+        insert("unknown-old-import", documentDate = null, importedAt = 700, sourceModifiedAt = 10_000)
+        insert("unknown-no-import", documentDate = null, importedAt = null, sourceModifiedAt = 20_000)
+
+        val ordered = dao.observeDocumentsByDocumentDate(null).first()
+        assertEquals(
+            listOf(
+                "dated-new",
+                "dated-old",
+                "unknown-new-import",
+                "unknown-old-import",
+                "unknown-no-import",
+            ),
+            ordered.map(LibraryDocumentListingRow::documentId),
+        )
+        val unknown = ordered.associateBy(LibraryDocumentListingRow::documentId)
+            .getValue("unknown-no-import")
+        assertEquals(null, unknown.documentDateEpochDay)
+        assertEquals(null, unknown.documentDateProvenance)
+    }
+
+    @Test
     fun boundedSearchKeepsTitleFirstAndEveryStablePageAtItsCurrentPosition() = runBlocking {
         val saved = repository.saveSession(
             session(

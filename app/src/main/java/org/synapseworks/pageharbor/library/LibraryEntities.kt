@@ -67,6 +67,7 @@ internal fun libraryFolderParentScope(parentFolderId: String?): String = parentF
         Index(value = ["library_state", "folder_id", "modified_at"]),
         Index(value = ["library_state", "content_hash_version", "content_sha256"]),
         Index(value = ["library_state", "page_count", "content_byte_count", "row_id"]),
+        Index(value = ["library_state", "document_date_epoch_day", "imported_at", "row_id"]),
     ],
 )
 data class LibraryDocumentEntity(
@@ -106,9 +107,41 @@ data class LibraryDocumentEntity(
     val contentRevision: Long = 0,
     @ColumnInfo(name = "ocr_script_preference")
     val ocrScriptPreference: String? = null,
+    @ColumnInfo(name = "document_date_epoch_day")
+    val documentDateEpochDay: Long? = null,
+    @ColumnInfo(name = "document_date_provenance")
+    val documentDateProvenance: String? = null,
+    @ColumnInfo(name = "document_date_confidence")
+    val documentDateConfidence: String? = null,
+    @ColumnInfo(name = "original_created_at")
+    val originalCreatedAtMillis: Long? = null,
+    @ColumnInfo(name = "original_created_at_provenance")
+    val originalCreatedAtProvenance: String? = null,
+    @ColumnInfo(name = "source_modified_at_provenance")
+    val sourceModifiedAtProvenance: String? = null,
+    @ColumnInfo(name = "source_provenance_kind")
+    val sourceProvenanceKind: String? = null,
+    @ColumnInfo(name = "source_provenance_label")
+    val sourceProvenanceLabel: String? = null,
 ) {
     init {
         require(ocrScriptPreference == null || ocrScriptPreference.isSupportedOcrSelectionId())
+        require(documentDateProvenance == null ||
+            documentDateProvenance in LibraryDocumentDateProvenance.entries.map { it.name })
+        require(documentDateConfidence == null ||
+            documentDateConfidence in LibraryDocumentDateConfidence.entries.map { it.name })
+        require(originalCreatedAtProvenance == null ||
+            originalCreatedAtProvenance in LibraryFileTimeProvenance.entries.map { it.name })
+        require(sourceModifiedAtProvenance == null ||
+            sourceModifiedAtProvenance in LibraryFileTimeProvenance.entries.map { it.name })
+        require(sourceProvenanceKind == null ||
+            sourceProvenanceKind in LibrarySourceProvenanceKind.entries.map { it.name })
+        require(sourceProvenanceLabel == null || sourceProvenanceLabel.length in 1..80)
+        require(sourceProvenanceLabel == null || sourceProvenanceKind != null)
+        require((documentDateEpochDay == null) == (documentDateProvenance == null))
+        require((documentDateEpochDay == null) == (documentDateConfidence == null))
+        require(originalCreatedAtProvenance == null || originalCreatedAtMillis != null)
+        require(sourceModifiedAtProvenance == null || sourceModifiedAtMillis != null)
     }
 }
 
@@ -344,6 +377,8 @@ data class LibraryDataOperationItemEntity(
     val duplicateDecision: String,
     @ColumnInfo(name = "failure_code")
     val failureCode: String?,
+    @ColumnInfo(name = "original_created_at")
+    val originalCreatedAtMillis: Long? = null,
 )
 
 @Entity(
@@ -446,9 +481,15 @@ data class LibraryPageOcrArtifactEntity(
     val recognizedAtMillis: Long?,
     @ColumnInfo(name = "raw_text")
     val rawText: String,
+    @ColumnInfo(name = "text_source_kind", defaultValue = "'LOCAL_OCR'")
+    val textSourceKind: String = LibraryTextSourceKind.LOCAL_OCR.name,
+    @ColumnInfo(name = "source_descriptor")
+    val sourceDescriptor: String? = null,
 ) {
     init {
         require(actualScript == null || actualScript.isSupportedOcrScriptId())
+        require(textSourceKind in LibraryTextSourceKind.entries.map { it.name })
+        require(sourceDescriptor == null || sourceDescriptor.length in 1..512)
     }
 }
 
@@ -761,6 +802,9 @@ data class LibraryDocumentListingRow(
     val title: String,
     @ColumnInfo(name = "created_at") val createdAtMillis: Long,
     @ColumnInfo(name = "modified_at") val modifiedAtMillis: Long,
+    @ColumnInfo(name = "document_date_epoch_day") val documentDateEpochDay: Long?,
+    @ColumnInfo(name = "document_date_provenance") val documentDateProvenance: String?,
+    @ColumnInfo(name = "imported_at") val importedAtMillis: Long?,
     @ColumnInfo(name = "page_count") val pageCount: Int,
     @ColumnInfo(name = "folder_id") val folderId: String?,
     @ColumnInfo(name = "folder_name") val folderName: String?,
@@ -773,6 +817,9 @@ data class LibrarySearchRow(
     val title: String,
     @ColumnInfo(name = "created_at") val createdAtMillis: Long,
     @ColumnInfo(name = "modified_at") val modifiedAtMillis: Long,
+    @ColumnInfo(name = "document_date_epoch_day") val documentDateEpochDay: Long?,
+    @ColumnInfo(name = "document_date_provenance") val documentDateProvenance: String?,
+    @ColumnInfo(name = "imported_at") val importedAtMillis: Long?,
     @ColumnInfo(name = "page_count") val pageCount: Int,
     @ColumnInfo(name = "folder_id") val folderId: String?,
     @ColumnInfo(name = "folder_name") val folderName: String?,
@@ -807,6 +854,8 @@ data class LibraryEffectiveOcrPageRow(
     @ColumnInfo(name = "verification_state") val verificationState: String,
     @ColumnInfo(name = "actual_script") val actualScript: String?,
     @ColumnInfo(name = "recognizer_id") val recognizerId: String,
+    @ColumnInfo(name = "text_source_kind") val textSourceKind: String,
+    @ColumnInfo(name = "source_descriptor") val sourceDescriptor: String?,
 )
 
 data class LibrarySmartNamingOcrPageRow(

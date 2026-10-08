@@ -317,6 +317,20 @@ internal fun JsonObject.optionalNullableInt(name: String): Int? {
     return value.toInt()
 }
 
+internal fun JsonObject.optionalNullableLong(name: String): Long? {
+    if (!fields.containsKey(name) || fields[name] === JsonNull) return null
+    val token = (fields[name] as? JsonNumber)?.token
+        ?: invalidJson("An optional JSON integer is invalid.")
+    if (!JSON_INTEGER.matches(token)) invalidJson("An optional JSON value is not an integer.")
+    return token.toLongOrNull() ?: invalidJson("A JSON integer is out of range.")
+}
+
+internal fun JsonObject.optionalNullableString(name: String): String? {
+    if (!fields.containsKey(name) || fields[name] === JsonNull) return null
+    return (fields[name] as? JsonString)?.value
+        ?: invalidJson("An optional JSON string is invalid.")
+}
+
 internal fun jsonString(value: String): String = buildString(value.length + 2) {
     append('"')
     value.forEach { character ->

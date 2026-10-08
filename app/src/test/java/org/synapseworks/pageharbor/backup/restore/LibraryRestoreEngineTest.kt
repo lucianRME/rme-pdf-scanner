@@ -378,7 +378,7 @@ class LibraryRestoreEngineTest {
             destination = output,
             manifest = fixture.manifest.copy(
                 formatVersion = RME_BACKUP_FORMAT_VERSION_V2,
-                minimumReaderVersion = RME_BACKUP_READER_VERSION,
+                minimumReaderVersion = RME_BACKUP_FORMAT_VERSION_V2,
                 ocr = BackupOcrManifest.empty(),
             ),
             records = records,

@@ -452,7 +452,18 @@ data class MigrationBatchProgress(
     val currentDocumentId: String?,
     val currentDocumentBytesCopied: Long = 0L,
     val currentDocumentTotalBytes: Long? = null,
+    val phase: MigrationBatchProgressPhase = MigrationBatchProgressPhase.MIGRATION,
+    val searchProcessedPages: Int = 0,
+    val searchTotalPages: Int = 0,
+    val embeddedTextPages: Int = 0,
+    val ocrPages: Int = 0,
+    val failedSearchPages: Int = 0,
 )
+
+enum class MigrationBatchProgressPhase {
+    MIGRATION,
+    SEARCH_PREPARATION,
+}
 
 fun interface MigrationBatchProgressListener {
     fun onProgress(progress: MigrationBatchProgress)

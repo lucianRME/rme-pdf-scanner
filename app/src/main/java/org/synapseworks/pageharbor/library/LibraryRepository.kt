@@ -67,6 +67,7 @@ class LibraryRepository internal constructor(
     ): Flow<List<LibraryDocumentSummary>> = when (sortOrder) {
         LibrarySortOrder.MODIFIED_DESC -> dao.observeDocumentsByModified(folderId)
         LibrarySortOrder.CREATED_DESC -> dao.observeDocumentsByCreated(folderId)
+        LibrarySortOrder.DOCUMENT_DATE_DESC -> dao.observeDocumentsByDocumentDate(folderId)
         LibrarySortOrder.TITLE_ASC -> dao.observeDocumentsByTitle(folderId)
     }.map { rows -> rows.map(LibraryDocumentListingRow::toSummary) }
 
@@ -488,6 +489,9 @@ class LibraryRepository internal constructor(
     ): LibraryOcrPageSnapshot? = operationGate.withStableSnapshot {
         dao.ocrPageSnapshot(documentId, pageId)
     }
+
+    suspend fun activeTextArtifact(pageId: String): LibraryPageOcrArtifactEntity? =
+        operationGate.withStableSnapshot { dao.activeTextArtifact(pageId) }
 
     suspend fun commitOcrArtifact(
         expected: LibraryOcrPageSnapshot,
@@ -1047,6 +1051,14 @@ class LibraryRepository internal constructor(
             sourceModifiedAtMillis = sourceAssetEntities.firstOrNull()?.sourceModifiedAtMillis,
             importedAtMillis = existing?.importedAtMillis ?: now,
             ocrScriptPreference = ocrScriptPreference ?: existing?.ocrScriptPreference,
+            documentDateEpochDay = existing?.documentDateEpochDay,
+            documentDateProvenance = existing?.documentDateProvenance,
+            documentDateConfidence = existing?.documentDateConfidence,
+            originalCreatedAtMillis = existing?.originalCreatedAtMillis,
+            originalCreatedAtProvenance = existing?.originalCreatedAtProvenance,
+            sourceModifiedAtProvenance = existing?.sourceModifiedAtProvenance,
+            sourceProvenanceKind = existing?.sourceProvenanceKind,
+            sourceProvenanceLabel = existing?.sourceProvenanceLabel,
         )
         try {
             dao.replaceDocument(
@@ -1130,6 +1142,11 @@ private fun LibraryDocumentListingRow.toSummary(): LibraryDocumentSummary = Libr
     title = title,
     createdAtMillis = createdAtMillis,
     modifiedAtMillis = modifiedAtMillis,
+    documentDateEpochDay = documentDateEpochDay,
+    documentDateProvenance = documentDateProvenance?.let {
+        runCatching { LibraryDocumentDateProvenance.valueOf(it) }.getOrNull()
+    },
+    importedAtMillis = importedAtMillis,
     pageCount = pageCount,
     folderId = folderId,
     folderName = folderName,
@@ -1143,6 +1160,11 @@ private fun LibrarySearchRow.toSummary(query: String): LibraryDocumentSummary = 
     title = title,
     createdAtMillis = createdAtMillis,
     modifiedAtMillis = modifiedAtMillis,
+    documentDateEpochDay = documentDateEpochDay,
+    documentDateProvenance = documentDateProvenance?.let {
+        runCatching { LibraryDocumentDateProvenance.valueOf(it) }.getOrNull()
+    },
+    importedAtMillis = importedAtMillis,
     pageCount = pageCount,
     folderId = folderId,
     folderName = folderName,
@@ -1172,6 +1194,11 @@ private fun LibraryDocumentEntity.toSummary(folderName: String?): LibraryDocumen
         title = title,
         createdAtMillis = createdAtMillis,
         modifiedAtMillis = modifiedAtMillis,
+        documentDateEpochDay = documentDateEpochDay,
+        documentDateProvenance = documentDateProvenance?.let {
+            runCatching { LibraryDocumentDateProvenance.valueOf(it) }.getOrNull()
+        },
+        importedAtMillis = importedAtMillis,
         pageCount = pageCount,
         folderId = folderId,
         folderName = folderName,

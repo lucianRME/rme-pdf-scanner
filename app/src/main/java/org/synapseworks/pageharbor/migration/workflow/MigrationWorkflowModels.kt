@@ -1,6 +1,7 @@
 package org.synapseworks.pageharbor.migration.workflow
 
 import org.synapseworks.pageharbor.migration.MigrationBatchProgress
+import org.synapseworks.pageharbor.migration.MigrationBatchProgressPhase
 
 /** Scanner choices are guidance hints only; no vendor-specific storage path is assumed. */
 enum class MigrationSourceApp {
@@ -119,6 +120,12 @@ data class MigrationImportProgress(
     val isCopyingDocument: Boolean,
     val currentDocumentBytesCopied: Long,
     val currentDocumentTotalBytes: Long?,
+    val isPreparingSearch: Boolean = false,
+    val processedSearchPages: Int = 0,
+    val totalSearchPages: Int = 0,
+    val embeddedTextPages: Int = 0,
+    val ocrPages: Int = 0,
+    val failedSearchPages: Int = 0,
 ) {
     init {
         require(completedDocuments >= 0)
@@ -134,6 +141,12 @@ internal fun MigrationBatchProgress.toWorkflowProgress() = MigrationImportProgre
     isCopyingDocument = currentDocumentId != null,
     currentDocumentBytesCopied = currentDocumentBytesCopied,
     currentDocumentTotalBytes = currentDocumentTotalBytes,
+    isPreparingSearch = phase == MigrationBatchProgressPhase.SEARCH_PREPARATION,
+    processedSearchPages = searchProcessedPages,
+    totalSearchPages = searchTotalPages,
+    embeddedTextPages = embeddedTextPages,
+    ocrPages = ocrPages,
+    failedSearchPages = failedSearchPages,
 )
 
 enum class MigrationIssueReason {
@@ -178,6 +191,10 @@ data class MigrationCompletionSummary(
     val canRetryFailures: Boolean,
     val canRetryIncomplete: Boolean,
     val issues: List<MigrationCompletionIssue>,
+    val searchReadyDocumentCount: Int = 0,
+    val partiallySearchReadyDocumentCount: Int = 0,
+    val failedSearchPreparationDocumentCount: Int = 0,
+    val searchPreparationCancelled: Boolean = false,
 ) {
     val completedWithoutIssues: Boolean
         get() = !wasCancelled &&
@@ -186,7 +203,10 @@ data class MigrationCompletionSummary(
             cancelledDocumentCount == 0 &&
             unprocessedDocumentCount == 0 &&
             unsupportedSourceCount == 0 &&
-            unreadableSourceCount == 0
+            unreadableSourceCount == 0 &&
+            partiallySearchReadyDocumentCount == 0 &&
+            failedSearchPreparationDocumentCount == 0 &&
+            !searchPreparationCancelled
 }
 
 enum class MigrationWorkflowFailureReason {

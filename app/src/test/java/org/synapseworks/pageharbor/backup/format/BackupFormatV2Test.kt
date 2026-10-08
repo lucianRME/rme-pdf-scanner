@@ -38,7 +38,7 @@ class BackupFormatV2Test {
         val ocr = requireNotNull(verified.ocr)
 
         assertEquals(RME_BACKUP_FORMAT_VERSION_V2, written.manifest.formatVersion)
-        assertEquals(RME_BACKUP_READER_VERSION, written.manifest.minimumReaderVersion)
+        assertEquals(RME_BACKUP_FORMAT_VERSION_V2, written.manifest.minimumReaderVersion)
         assertEquals("AUTOMATIC", ocr.documentStates.single().scriptPreference)
         assertEquals("देवनागरी — 日本語 — Latin", ocr.artifacts.single().rawText)
         assertEquals("LATIN", ocr.artifacts.single().actualScript)
@@ -110,7 +110,7 @@ class BackupFormatV2Test {
         )
         val manifest = fixture.manifest.copy(
             formatVersion = RME_BACKUP_FORMAT_VERSION_V2,
-            minimumReaderVersion = RME_BACKUP_READER_VERSION,
+            minimumReaderVersion = RME_BACKUP_FORMAT_VERSION_V2,
             ocr = BackupOcrManifest.empty(),
         )
         val output = ByteArrayOutputStream()
@@ -159,7 +159,7 @@ class BackupFormatV2Test {
         val records = largeRecordSource(pageCount, pageBytes.size.toLong(), pageSha)
         val manifest = BackupManifest(
             formatVersion = RME_BACKUP_FORMAT_VERSION_V2,
-            minimumReaderVersion = RME_BACKUP_READER_VERSION,
+            minimumReaderVersion = RME_BACKUP_FORMAT_VERSION_V2,
             requiredFeatures = emptyList(),
             backupId = "00000000-0000-4000-8000-000000000016",
             createdAtEpochMillis = 8_000L,
@@ -293,7 +293,7 @@ class BackupFormatV2Test {
         return V2Fixture(
             manifest = fixture.manifest.copy(
                 formatVersion = RME_BACKUP_FORMAT_VERSION_V2,
-                minimumReaderVersion = RME_BACKUP_READER_VERSION,
+                minimumReaderVersion = RME_BACKUP_FORMAT_VERSION_V2,
                 producer = BackupProducer("org.synapseworks.pageharbor", "1.6.0", 17),
                 ocr = BackupOcrManifest.empty(),
             ),

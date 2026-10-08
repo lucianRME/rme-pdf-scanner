@@ -6,6 +6,8 @@ import androidx.room.Room
 import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -22,17 +24,18 @@ class LibrarySchemaTest {
     fun cleanUp() {
         context.deleteDatabase(MIGRATION_DATABASE_NAME)
         context.deleteDatabase(HISTORICAL_V2_MIGRATION_DATABASE_NAME)
+        context.deleteDatabase(HISTORICAL_V3_MIGRATION_DATABASE_NAME)
     }
 
     @Test
-    fun versionThreeCreatesPageAwareFtsAndOcrJournalSchema() {
+    fun versionFourCreatesPageAwareFtsOcrJournalAndProvenanceSchema() {
         val database = Room.inMemoryDatabaseBuilder(context, LibraryDatabase::class.java)
             .allowMainThreadQueries()
             .build()
         try {
             database.openHelper.readableDatabase.query("PRAGMA user_version").use { cursor ->
                 cursor.moveToFirst()
-                assertEquals(3, cursor.getInt(0))
+                assertEquals(4, cursor.getInt(0))
             }
             database.openHelper.readableDatabase.query(
                 "SELECT count(*) FROM library_document_search_v3",
@@ -59,7 +62,7 @@ class LibrarySchemaTest {
     }
 
     @Test
-    fun migrationOneToThreePreservesRowsAndCreatesLegacyArtifactAndPageFts() {
+    fun migrationOneToFourPreservesRowsCreatesLegacyArtifactAndLeavesProvenanceUnknown() {
         context.deleteDatabase(MIGRATION_DATABASE_NAME)
         SQLiteDatabase.openOrCreateDatabase(
             context.getDatabasePath(MIGRATION_DATABASE_NAME),
@@ -188,7 +191,7 @@ class LibrarySchemaTest {
         }
 
         val room = Room.databaseBuilder(context, LibraryDatabase::class.java, MIGRATION_DATABASE_NAME)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
             .allowMainThreadQueries()
             .build()
         try {
@@ -197,7 +200,11 @@ class LibrarySchemaTest {
             database.query(
                 """
                 SELECT row_id, library_state, pending_operation_id, content_sha256,
-                       content_revision, ocr_script_preference
+                       content_revision, ocr_script_preference,
+                       document_date_epoch_day, document_date_provenance,
+                       document_date_confidence, original_created_at,
+                       original_created_at_provenance, source_modified_at_provenance,
+                       source_provenance_kind, source_provenance_label
                 FROM library_documents WHERE document_id = 'document-1'
                 """.trimIndent(),
             ).use { cursor ->
@@ -208,6 +215,7 @@ class LibrarySchemaTest {
                 assertNull(cursor.getString(3))
                 assertEquals(0L, cursor.getLong(4))
                 assertNull(cursor.getString(5))
+                (6..13).forEach { column -> assertTrue(cursor.isNull(column)) }
                 assertFalse(cursor.moveToNext())
             }
             database.query(
@@ -295,7 +303,8 @@ class LibrarySchemaTest {
             database.query(
                 """
                 SELECT p.active_ocr_artifact_revision, p.ocr_state_revision,
-                       a.raw_text, a.verification_state, a.actual_script, a.recognizer_id
+                       a.raw_text, a.verification_state, a.actual_script, a.recognizer_id,
+                       a.text_source_kind, a.source_descriptor
                 FROM library_pages AS p
                 JOIN library_page_ocr_artifacts AS a
                   ON a.page_id = p.page_id
@@ -310,6 +319,8 @@ class LibrarySchemaTest {
                 assertEquals(LibraryOcrArtifactVerification.LEGACY_UNVERIFIED.name, cursor.getString(3))
                 assertEquals("LATIN", cursor.getString(4))
                 assertEquals(LEGACY_OCR_RECOGNIZER_ID, cursor.getString(5))
+                assertEquals(LibraryTextSourceKind.LOCAL_OCR.name, cursor.getString(6))
+                assertTrue(cursor.isNull(7))
             }
             database.query("PRAGMA foreign_key_check").use { cursor ->
                 assertEquals(0, cursor.count)
@@ -321,13 +332,13 @@ class LibrarySchemaTest {
             context,
             LibraryDatabase::class.java,
             MIGRATION_DATABASE_NAME,
-        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
             .allowMainThreadQueries()
             .build()
         try {
             reopened.openHelper.readableDatabase.query("PRAGMA user_version").use { cursor ->
                 assertTrue(cursor.moveToFirst())
-                assertEquals(3, cursor.getInt(0))
+                assertEquals(4, cursor.getInt(0))
             }
             reopened.openHelper.readableDatabase.query(
                 "SELECT COUNT(*) FROM library_documents WHERE document_id='document-1'",
@@ -341,7 +352,7 @@ class LibrarySchemaTest {
     }
 
     @Test
-    fun migrationHistoricalVersionTwoToThreePreservesRepresentativeDataAndReopens() {
+    fun migrationHistoricalVersionTwoToFourPreservesRepresentativeDataAndReopens() {
         val name = HISTORICAL_V2_MIGRATION_DATABASE_NAME
         HistoricalV2DatabaseFixture.create(context, name)
 
@@ -373,12 +384,12 @@ class LibrarySchemaTest {
             }
         }
 
-        fun openV3() = Room.databaseBuilder(context, LibraryDatabase::class.java, name)
-            .addMigrations(MIGRATION_2_3)
+        fun openV4() = Room.databaseBuilder(context, LibraryDatabase::class.java, name)
+            .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
             .allowMainThreadQueries()
             .build()
 
-        val migrated = openV3()
+        val migrated = openV4()
         try {
             val room = migrated
             val db = room.openHelper.writableDatabase
@@ -453,7 +464,8 @@ class LibrarySchemaTest {
                 assertEquals("SAFE_FAILURE", cursor.getString(2))
             }
             db.query(
-                "SELECT page_id, raw_text, verification_state, actual_script, recognizer_id " +
+                "SELECT page_id, raw_text, verification_state, actual_script, recognizer_id, " +
+                    "text_source_kind, source_descriptor " +
                     "FROM library_page_ocr_artifacts ORDER BY page_id",
             ).use { cursor ->
                 assertTrue(cursor.moveToFirst())
@@ -462,10 +474,14 @@ class LibrarySchemaTest {
                 assertEquals(LibraryOcrArtifactVerification.LEGACY_UNVERIFIED.name, cursor.getString(2))
                 assertEquals("LATIN", cursor.getString(3))
                 assertEquals(LEGACY_OCR_RECOGNIZER_ID, cursor.getString(4))
+                assertEquals(LibraryTextSourceKind.LOCAL_OCR.name, cursor.getString(5))
+                assertTrue(cursor.isNull(6))
                 assertTrue(cursor.moveToNext())
                 assertEquals("page-primary-2", cursor.getString(0))
                 assertEquals("second legacy text", cursor.getString(1))
                 assertEquals(LibraryOcrArtifactVerification.LEGACY_UNVERIFIED.name, cursor.getString(2))
+                assertEquals(LibraryTextSourceKind.LOCAL_OCR.name, cursor.getString(5))
+                assertTrue(cursor.isNull(6))
                 assertFalse(cursor.moveToNext())
             }
             db.query(
@@ -533,15 +549,16 @@ class LibrarySchemaTest {
                 assertEquals(0, cursor.getInt(0))
             }
             db.query("PRAGMA foreign_key_check").use { cursor -> assertEquals(0, cursor.count) }
+            assertHistoricalProvenanceUnknown(db)
         } finally {
             migrated.close()
         }
-        val reopened = openV3()
+        val reopened = openV4()
         try {
             val room = reopened
             room.openHelper.readableDatabase.query("PRAGMA user_version").use { cursor ->
                 assertTrue(cursor.moveToFirst())
-                assertEquals(3, cursor.getInt(0))
+                assertEquals(4, cursor.getInt(0))
             }
             room.openHelper.readableDatabase.query(
                 "SELECT COUNT(*) FROM library_documents",
@@ -566,6 +583,175 @@ class LibrarySchemaTest {
             reopened.close()
         }
         context.deleteDatabase(name)
+    }
+
+    @Test
+    fun migrationFrozenVersionThreeToFourPreservesKnownTimesAndAddsOnlyUnknownProvenance() {
+        val name = HISTORICAL_V3_MIGRATION_DATABASE_NAME
+        createDatabaseFromFrozenSchema(name, version = 3).apply {
+            execSQL(
+                """
+                INSERT INTO library_documents
+                    (row_id, document_id, title, created_at, modified_at, page_count,
+                     folder_id, thumbnail_path, ocr_status, library_state,
+                     content_hash_version, content_sha256, content_byte_count,
+                     source_modified_at, imported_at, content_revision, ocr_script_preference)
+                VALUES (77, 'v3-document', 'Frozen v3', 100, 200, 1,
+                        NULL, NULL, 'INDEXED', 'ACTIVE', 1,
+                        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                        512, 222, 333, 4, 'LATIN')
+                """.trimIndent(),
+            )
+            execSQL(
+                """
+                INSERT INTO library_pages
+                    (page_id, document_id, page_position, relative_path, content_type,
+                     source_category, width, height, source_byte_count, rotation_degrees,
+                     filter_name, ocr_text, ocr_error, content_sha256, visual_revision,
+                     ocr_state_revision, active_ocr_artifact_revision)
+                VALUES ('v3-page', 'v3-document', 0, 'v3/page.jpg', 'image/jpeg',
+                        'TEST', 100, 200, 512, 0, 'ORIGINAL', 'frozen searchable', NULL,
+                        'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                        2, 3, 5)
+                """.trimIndent(),
+            )
+            execSQL(
+                """
+                INSERT INTO library_page_ocr_artifacts
+                    (page_id, artifact_revision, captured_document_content_revision,
+                     captured_page_visual_revision, input_fingerprint_version,
+                     input_fingerprint, verification_state, content_sha256,
+                     rotation_degrees, filter_name, upright_width, upright_height,
+                     coordinate_system_version, transform_version, actual_script,
+                     recognizer_id, pipeline_version, client_version, delivery,
+                     recognized_at, raw_text)
+                VALUES ('v3-page', 5, 4, 2, 1, 'frozen-fingerprint',
+                        'CURRENT_VERIFIED',
+                        'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                        0, 'ORIGINAL', 100, 200, 1, 1, 'LATIN', 'FROZEN_TEST',
+                        'v3', NULL, 'BUNDLED', 150, 'frozen searchable')
+                """.trimIndent(),
+            )
+            execSQL(
+                """
+                INSERT INTO library_document_search_content_v3
+                    (rowid, document_id, title, folder_path, auxiliary_terms)
+                VALUES (77, 'v3-document', 'Frozen v3', '', '')
+                """.trimIndent(),
+            )
+            execSQL(
+                """
+                INSERT INTO library_page_search_content_v3
+                    (rowid, page_id, effective_text, auxiliary_terms)
+                VALUES (88, 'v3-page', 'frozen searchable', '')
+                """.trimIndent(),
+            )
+            execSQL("INSERT INTO library_document_search_v3(library_document_search_v3) VALUES('rebuild')")
+            execSQL("INSERT INTO library_page_search_v3(library_page_search_v3) VALUES('rebuild')")
+            close()
+        }
+
+        val migrated = Room.databaseBuilder(context, LibraryDatabase::class.java, name)
+            .addMigrations(MIGRATION_3_4)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val db = migrated.openHelper.writableDatabase
+            db.query(
+                """
+                SELECT source_modified_at, imported_at, content_revision,
+                       document_date_epoch_day, document_date_provenance,
+                       document_date_confidence, original_created_at,
+                       original_created_at_provenance, source_modified_at_provenance,
+                       source_provenance_kind, source_provenance_label
+                FROM library_documents WHERE document_id='v3-document'
+                """.trimIndent(),
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(222L, cursor.getLong(0))
+                assertEquals(333L, cursor.getLong(1))
+                assertEquals(4L, cursor.getLong(2))
+                (3..10).forEach { column -> assertTrue(cursor.isNull(column)) }
+            }
+            db.query(
+                """
+                SELECT raw_text, text_source_kind, source_descriptor
+                FROM library_page_ocr_artifacts
+                WHERE page_id='v3-page' AND artifact_revision=5
+                """.trimIndent(),
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("frozen searchable", cursor.getString(0))
+                assertEquals(LibraryTextSourceKind.LOCAL_OCR.name, cursor.getString(1))
+                assertTrue(cursor.isNull(2))
+            }
+            db.query(
+                "SELECT page_id FROM library_page_search_v3 " +
+                    "WHERE library_page_search_v3 MATCH 'frozen*'",
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("v3-page", cursor.getString(0))
+            }
+            db.query("PRAGMA foreign_key_check").use { cursor -> assertEquals(0, cursor.count) }
+        } finally {
+            migrated.close()
+        }
+    }
+
+    private fun createDatabaseFromFrozenSchema(
+        name: String,
+        version: Int,
+    ): SQLiteDatabase {
+        context.deleteDatabase(name)
+        val root = InstrumentationRegistry.getInstrumentation().context.assets.open(
+            "org.synapseworks.pageharbor.library.LibraryDatabase/$version.json",
+        ).bufferedReader().use { reader -> JSONObject(reader.readText()) }
+        val schema = root.getJSONObject("database")
+        require(schema.getInt("version") == version)
+        return SQLiteDatabase.openOrCreateDatabase(context.getDatabasePath(name), null).apply {
+            execSQL("PRAGMA foreign_keys=OFF")
+            val entities = schema.getJSONArray("entities")
+            for (entityIndex in 0 until entities.length()) {
+                val entity = entities.getJSONObject(entityIndex)
+                val tableName = entity.getString("tableName")
+                execSQL(entity.getString("createSql").replace("${'$'}{TABLE_NAME}", tableName))
+                val indices = entity.optJSONArray("indices")
+                if (indices != null) {
+                    for (indexPosition in 0 until indices.length()) {
+                        execSQL(
+                            indices.getJSONObject(indexPosition)
+                                .getString("createSql")
+                                .replace("${'$'}{TABLE_NAME}", tableName),
+                        )
+                    }
+                }
+            }
+            val setupQueries = schema.getJSONArray("setupQueries")
+            for (queryIndex in 0 until setupQueries.length()) {
+                execSQL(setupQueries.getString(queryIndex))
+            }
+            this.version = version
+            execSQL("PRAGMA foreign_keys=ON")
+        }
+    }
+
+    private fun assertHistoricalProvenanceUnknown(database: SupportSQLiteDatabase) {
+        database.query(
+            """
+            SELECT COUNT(*) FROM library_documents
+            WHERE document_date_epoch_day IS NOT NULL
+               OR document_date_provenance IS NOT NULL
+               OR document_date_confidence IS NOT NULL
+               OR original_created_at IS NOT NULL
+               OR original_created_at_provenance IS NOT NULL
+               OR source_modified_at_provenance IS NOT NULL
+               OR source_provenance_kind IS NOT NULL
+               OR source_provenance_label IS NOT NULL
+            """.trimIndent(),
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+        }
     }
 
     private fun assertRequiredCompositeIndex(database: SupportSQLiteDatabase) {
@@ -598,6 +784,7 @@ class LibrarySchemaTest {
     private companion object {
         const val MIGRATION_DATABASE_NAME = "library-migration-1-2-test.db"
         const val HISTORICAL_V2_MIGRATION_DATABASE_NAME = "library-historical-migration-2-3-test.db"
+        const val HISTORICAL_V3_MIGRATION_DATABASE_NAME = "library-historical-migration-3-4-test.db"
         const val VERSION_ONE_IDENTITY_HASH = "1e51e807e9dfeb571dde417386b439a4"
     }
 }

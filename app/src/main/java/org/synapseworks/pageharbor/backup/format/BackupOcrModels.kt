@@ -18,6 +18,11 @@ enum class BackupOcrVerificationState {
     LEGACY_UNVERIFIED,
 }
 
+enum class BackupTextSourceKind {
+    LOCAL_OCR,
+    PDF_EMBEDDED_TEXT,
+}
+
 data class BackupOcrInputFingerprint(
     val version: Int,
     val value: String,
@@ -46,6 +51,8 @@ data class BackupOcrArtifactRecord(
     val recognizedAtEpochMillis: Long?,
     val rawText: String,
     val lineCount: Int,
+    val textSourceKind: BackupTextSourceKind = BackupTextSourceKind.LOCAL_OCR,
+    val sourceDescriptor: String? = null,
 )
 
 enum class BackupOcrCorrectionAlignment {

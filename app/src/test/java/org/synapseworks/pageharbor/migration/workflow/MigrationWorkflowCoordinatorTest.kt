@@ -14,6 +14,7 @@ import org.junit.Test
 import org.synapseworks.pageharbor.library.duplicate.DuplicateKind
 import org.synapseworks.pageharbor.migration.InspectedMigrationSource
 import org.synapseworks.pageharbor.migration.MigrationBatchProgress
+import org.synapseworks.pageharbor.migration.MigrationBatchProgressPhase
 import org.synapseworks.pageharbor.migration.MigrationBatchProgressListener
 import org.synapseworks.pageharbor.migration.MigrationBatchReport
 import org.synapseworks.pageharbor.migration.MigrationBatchSourceKind
@@ -34,6 +35,9 @@ import org.synapseworks.pageharbor.migration.MigrationTreeDiscoveryResult
 import org.synapseworks.pageharbor.migration.PreparedMigrationBatch
 import org.synapseworks.pageharbor.migration.RejectedMigrationSource
 import org.synapseworks.pageharbor.portability.StorageEstimate
+import org.synapseworks.pageharbor.searchprep.SearchPreparationDocumentResult
+import org.synapseworks.pageharbor.searchprep.SearchPreparationOutcome
+import org.synapseworks.pageharbor.searchprep.SearchPreparationReport
 
 class MigrationWorkflowCoordinatorTest {
     @Test
@@ -340,6 +344,78 @@ class MigrationWorkflowCoordinatorTest {
         }
 
     @Test
+    fun `incomplete search preparation remains visible and retries without reimporting`() =
+        withFixture { fixture ->
+            val prepared = preparedBatch()
+            fixture.service.prepared = prepared
+            val ids = prepared.preview.documents.map { it.id }
+            fixture.service.executeHandler = { batch, _, _, _ ->
+                MigrationExecutionResult.Completed(
+                    report = report(
+                        batch.preview.documents.mapIndexed { index, _ ->
+                            documentReport(index, MigrationDocumentStatus.PUBLISHED)
+                        },
+                    ),
+                    searchPreparation = SearchPreparationReport(
+                        operationId = "search-operation",
+                        documents = listOf(
+                            searchResult(ids[0], SearchPreparationOutcome.SEARCH_READY),
+                            searchResult(ids[1], SearchPreparationOutcome.PARTIAL),
+                            searchResult(ids[2], SearchPreparationOutcome.CANCELLED),
+                        ),
+                        cancelled = true,
+                    ),
+                )
+            }
+            fixture.service.retrySearchPreparationHandler = { operationId, _, listener ->
+                assertEquals("search-operation", operationId)
+                listener.onProgress(
+                    MigrationBatchProgress(
+                        completedDocuments = 3,
+                        totalDocuments = 3,
+                        currentDocumentId = null,
+                        phase = MigrationBatchProgressPhase.SEARCH_PREPARATION,
+                        searchProcessedPages = 6,
+                        searchTotalPages = 6,
+                        embeddedTextPages = 3,
+                        ocrPages = 3,
+                    ),
+                )
+                SearchPreparationReport(
+                    operationId = operationId,
+                    documents = ids.map { searchResult(it, SearchPreparationOutcome.SEARCH_READY) },
+                    cancelled = false,
+                )
+            }
+            prepareFiles(fixture)
+            assertTrue(fixture.coordinator.importDocuments())
+
+            val first = fixture.coordinator.state.value.operation as
+                MigrationOperationStatus.Completed
+            assertEquals(1, first.completion.searchReadyDocumentCount)
+            assertEquals(1, first.completion.partiallySearchReadyDocumentCount)
+            assertTrue(first.completion.searchPreparationCancelled)
+            assertFalse(first.completion.completedWithoutIssues)
+            assertTrue(fixture.events.isEmpty())
+
+            assertTrue(fixture.coordinator.retryFailures())
+
+            val completed = fixture.coordinator.state.value.operation as
+                MigrationOperationStatus.Completed
+            assertEquals(3, completed.completion.searchReadyDocumentCount)
+            assertEquals(0, completed.completion.partiallySearchReadyDocumentCount)
+            assertEquals(0, completed.completion.failedSearchPreparationDocumentCount)
+            assertFalse(completed.completion.searchPreparationCancelled)
+            assertTrue(completed.completion.completedWithoutIssues)
+            assertEquals(1, fixture.service.retrySearchPreparationCalls)
+            assertEquals(1, fixture.service.executeCalls)
+            assertEquals(
+                listOf(MigrationWorkflowEvent.VerifiedMigrationCompleted),
+                fixture.events,
+            )
+        }
+
+    @Test
     fun `inbound share enters preparation directly and never exposes provider reference`() =
         withFixture { fixture ->
             fixture.service.prepared = preparedBatch()
@@ -417,6 +493,7 @@ private class FakeMigrationWorkflowService : MigrationWorkflowService {
     var capturedDecisions: MigrationDuplicateDecisions? = null
     var retryFailureCalls = 0
     var retryIncompleteCalls = 0
+    var retrySearchPreparationCalls = 0
     var recoveryCalls = 0
     var prepareCalls = 0
     var executeCalls = 0
@@ -451,6 +528,11 @@ private class FakeMigrationWorkflowService : MigrationWorkflowService {
         MigrationCancellationSignal,
         MigrationBatchProgressListener,
     ) -> MigrationExecutionResult = { _, _, _, _, _ -> error("Unexpected retry incomplete") }
+    var retrySearchPreparationHandler: suspend (
+        String,
+        MigrationCancellationSignal,
+        MigrationBatchProgressListener,
+    ) -> SearchPreparationReport = { _, _, _ -> error("Unexpected search preparation retry") }
 
     override suspend fun recoverInterruptedOperations(): Int {
         recoveryCalls += 1
@@ -522,7 +604,32 @@ private class FakeMigrationWorkflowService : MigrationWorkflowService {
             progressListener,
         )
     }
+
+    override suspend fun retrySearchPreparation(
+        operationId: String,
+        cancellationSignal: MigrationCancellationSignal,
+        progressListener: MigrationBatchProgressListener,
+    ): SearchPreparationReport {
+        retrySearchPreparationCalls += 1
+        return retrySearchPreparationHandler(
+            operationId,
+            cancellationSignal,
+            progressListener,
+        )
+    }
 }
+
+private fun searchResult(
+    documentId: String,
+    outcome: SearchPreparationOutcome,
+): SearchPreparationDocumentResult = SearchPreparationDocumentResult(
+    documentId = documentId,
+    outcome = outcome,
+    pageCount = 2,
+    embeddedTextPages = if (outcome == SearchPreparationOutcome.SEARCH_READY) 1 else 0,
+    ocrPages = if (outcome == SearchPreparationOutcome.SEARCH_READY) 1 else 0,
+    failedPages = if (outcome == SearchPreparationOutcome.SEARCH_READY) 0 else 2,
+)
 
 private fun preparedBatch(includeRejectedSources: Boolean = false): PreparedMigrationBatch {
     val documents = listOf(

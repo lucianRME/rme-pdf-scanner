@@ -11,6 +11,7 @@ import org.synapseworks.pageharbor.library.LibraryEffectiveOcrLine
 import org.synapseworks.pageharbor.library.LibraryEffectiveOcrPage
 import org.synapseworks.pageharbor.library.LibraryOcrArtifactVerification
 import org.synapseworks.pageharbor.library.LibraryOcrCorrectionAlignment
+import org.synapseworks.pageharbor.library.LibraryTextSourceKind
 import org.synapseworks.pageharbor.library.LibraryRepository
 import org.synapseworks.pageharbor.ocr.OcrPageLayout
 import org.synapseworks.pageharbor.ocr.OcrScript
@@ -87,6 +88,18 @@ class LibraryEffectiveOcrPageProvider internal constructor(
             fingerprint != expected.inputFingerprint
         ) {
             return EffectiveOcrPageProvision.Stale
+        }
+
+        if (stored.textSourceKind == LibraryTextSourceKind.PDF_EMBEDDED_TEXT) {
+            return if (stored.correctedText != null) {
+                EffectiveOcrPageProvision.CorrectedTextOnly(
+                    address = request.address,
+                    effectiveText = stored.correctedText,
+                    currentness = expected,
+                )
+            } else {
+                unavailable(EffectiveOcrPageUnavailableReason.POSITIONED_LAYOUT_NOT_AVAILABLE)
+            }
         }
 
         val width = stored.uprightWidth?.takeIf { it > 0 }

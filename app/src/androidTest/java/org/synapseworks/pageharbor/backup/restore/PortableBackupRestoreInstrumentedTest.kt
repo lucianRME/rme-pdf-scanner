@@ -50,7 +50,10 @@ import org.synapseworks.pageharbor.image.DocumentFilter
 import org.synapseworks.pageharbor.library.LibraryDao
 import org.synapseworks.pageharbor.library.LibraryDatabase
 import org.synapseworks.pageharbor.library.LibraryDocumentEntity
+import org.synapseworks.pageharbor.library.LibraryDocumentDateConfidence
+import org.synapseworks.pageharbor.library.LibraryDocumentDateProvenance
 import org.synapseworks.pageharbor.library.LibraryEffectiveOcrPage
+import org.synapseworks.pageharbor.library.LibraryFileTimeProvenance
 import org.synapseworks.pageharbor.library.LibraryFileStore
 import org.synapseworks.pageharbor.library.LibraryFolderEntity
 import org.synapseworks.pageharbor.library.LibraryOcrArtifactDraft
@@ -70,6 +73,8 @@ import org.synapseworks.pageharbor.library.LibraryRepository
 import org.synapseworks.pageharbor.library.LibraryResult
 import org.synapseworks.pageharbor.library.LibrarySourceAssetEntity
 import org.synapseworks.pageharbor.library.LibrarySourceAssetSource
+import org.synapseworks.pageharbor.library.LibrarySourceProvenanceKind
+import org.synapseworks.pageharbor.library.LibraryTextSourceKind
 import org.synapseworks.pageharbor.library.duplicate.DocumentFingerprintV1
 import org.synapseworks.pageharbor.library.duplicate.FingerprintPage
 import org.synapseworks.pageharbor.portability.export.PortableExportPdfWriteResult
@@ -354,6 +359,8 @@ class PortableBackupRestoreInstrumentedTest {
         val repository = LibraryRepository(context, rig.dao, rig.fileStore)
         val search = requireNotNull(repository.observeSearch("quartz")).first()
         assertEquals(listOf(LONG_DOCUMENT_TITLE), search.map { it.title })
+        val importedSearch = requireNotNull(repository.observeSearch("obsidian")).first()
+        assertEquals(listOf(SHORT_DOCUMENT_TITLE), importedSearch.map { it.title })
 
         val documents = rig.dao.activeDocumentsPage(-1L, 10)
         assertEquals(2, documents.size)
@@ -383,6 +390,16 @@ class PortableBackupRestoreInstrumentedTest {
             input.read(signature) == signature.size && signature.contentEquals("%PDF-".toByteArray())
         })
         assertEquals(LONG_PAGE_COUNT, pdfPageCount(sourceFile))
+
+        val shortDocument = documents.single { it.title == SHORT_DOCUMENT_TITLE }
+        val embeddedPage = rig.dao.pages(shortDocument.documentId).first()
+        val embedded = requireNotNull(
+            rig.dao.effectiveOcrPage(shortDocument.documentId, embeddedPage.pageId),
+        )
+        assertEquals("embedded obsidian original", embedded.rawText)
+        assertEquals(EMBEDDED_CORRECTION_SENTINEL, embedded.effectiveText)
+        assertEquals(LibraryTextSourceKind.PDF_EMBEDDED_TEXT, embedded.textSourceKind)
+        assertTrue(embedded.lines.isEmpty())
 
         val export = ByteArrayOutputStream()
         assertEquals(
@@ -441,7 +458,52 @@ class PortableBackupRestoreInstrumentedTest {
             sourcePdf = null,
         )
         seedVerifiedOcrWithCorrection(rig)
+        seedEmbeddedTextWithCorrection(rig)
         originalPdf.delete()
+    }
+
+    private suspend fun seedEmbeddedTextWithCorrection(rig: LibraryRig) {
+        val page = rig.dao.pages(SHORT_DOCUMENT_ID).first()
+        val expected = requireNotNull(rig.dao.ocrPageSnapshot(SHORT_DOCUMENT_ID, page.pageId))
+        assertEquals(
+            LibraryOcrCommitResult.APPLIED,
+            rig.dao.commitOcrArtifact(
+                expected = expected,
+                draft = LibraryOcrArtifactDraft(
+                    inputFingerprintVersion = 1,
+                    inputFingerprint = "sha256:embedded-input",
+                    contentSha256 = requireNotNull(expected.contentSha256),
+                    rotationDegrees = expected.rotationDegrees,
+                    filterName = expected.filterName,
+                    uprightWidth = PAGE_WIDTH,
+                    uprightHeight = PAGE_HEIGHT,
+                    coordinateSystemVersion = 1,
+                    transformVersion = 1,
+                    actualScript = null,
+                    recognizerId = "PDF_TEXT_LAYER_V1",
+                    pipelineVersion = "PDF_TEXT_LAYER_V1",
+                    clientVersion = null,
+                    delivery = "LOCAL_PDFBOX",
+                    recognizedAtMillis = SHORT_MODIFIED_AT + 1,
+                    rawText = "embedded obsidian original",
+                    textSourceKind = LibraryTextSourceKind.PDF_EMBEDDED_TEXT,
+                    sourceDescriptor = "pdf-sha256:instrumentation:page:0:extractor:PDF_TEXT_LAYER_V1",
+                ),
+                modifiedAt = SHORT_MODIFIED_AT + 1,
+            ),
+        )
+        val recognized = requireNotNull(rig.dao.ocrPageSnapshot(SHORT_DOCUMENT_ID, page.pageId))
+        assertEquals(
+            LibraryOcrCommitResult.APPLIED,
+            rig.dao.saveOcrCorrection(
+                expected = recognized,
+                correction = LibraryOcrCorrectionDraft(
+                    correctedText = EMBEDDED_CORRECTION_SENTINEL,
+                    alignment = LibraryOcrCorrectionAlignment.FREEFORM,
+                ),
+                modifiedAt = SHORT_MODIFIED_AT + 2,
+            ),
+        )
     }
 
     private suspend fun seedVerifiedOcrWithCorrection(rig: LibraryRig) {
@@ -638,6 +700,32 @@ class PortableBackupRestoreInstrumentedTest {
                 importedAtMillis = createdAt + 1,
                 contentRevision = if (documentId == LONG_DOCUMENT_ID) 7 else 2,
                 ocrScriptPreference = if (documentId == LONG_DOCUMENT_ID) "LATIN" else "AUTOMATIC",
+                documentDateEpochDay = if (documentId == LONG_DOCUMENT_ID) 20_123 else null,
+                documentDateProvenance = if (documentId == LONG_DOCUMENT_ID) {
+                    LibraryDocumentDateProvenance.USER_CONFIRMED.name
+                } else {
+                    null
+                },
+                documentDateConfidence = if (documentId == LONG_DOCUMENT_ID) {
+                    LibraryDocumentDateConfidence.EXACT.name
+                } else {
+                    null
+                },
+                originalCreatedAtMillis = if (documentId == LONG_DOCUMENT_ID) createdAt - 500 else null,
+                originalCreatedAtProvenance = if (documentId == LONG_DOCUMENT_ID) {
+                    LibraryFileTimeProvenance.FILE_METADATA.name
+                } else {
+                    null
+                },
+                sourceModifiedAtProvenance = storedSources.firstOrNull()?.let {
+                    LibraryFileTimeProvenance.FILE_METADATA.name
+                },
+                sourceProvenanceKind = if (sourcePdf != null) {
+                    LibrarySourceProvenanceKind.GENERIC_PDF.name
+                } else {
+                    LibrarySourceProvenanceKind.GENERIC_IMAGE.name
+                },
+                sourceProvenanceLabel = if (sourcePdf != null) "Imported PDF" else "Imported images",
             ),
             pages = pages,
             ocrText = pages.joinToString("\n\n") { it.ocrText.orEmpty() },
@@ -730,6 +818,16 @@ class PortableBackupRestoreInstrumentedTest {
                 contentSha256 = requireNotNull(document.contentSha256),
                 contentRevision = document.contentRevision,
                 scriptPreference = document.ocrScriptPreference,
+                documentDateEpochDay = document.documentDateEpochDay,
+                documentDateProvenance = document.documentDateProvenance,
+                documentDateConfidence = document.documentDateConfidence,
+                originalCreatedAt = document.originalCreatedAtMillis,
+                originalCreatedAtProvenance = document.originalCreatedAtProvenance,
+                sourceModifiedAt = document.sourceModifiedAtMillis,
+                sourceModifiedAtProvenance = document.sourceModifiedAtProvenance,
+                importedAt = document.importedAtMillis,
+                sourceProvenanceKind = document.sourceProvenanceKind,
+                sourceProvenanceLabel = document.sourceProvenanceLabel,
                 pages = pages,
                 sources = sources,
             )
@@ -888,6 +986,16 @@ class PortableBackupRestoreInstrumentedTest {
         val contentSha256: String,
         val contentRevision: Long,
         val scriptPreference: String?,
+        val documentDateEpochDay: Long?,
+        val documentDateProvenance: String?,
+        val documentDateConfidence: String?,
+        val originalCreatedAt: Long?,
+        val originalCreatedAtProvenance: String?,
+        val sourceModifiedAt: Long?,
+        val sourceModifiedAtProvenance: String?,
+        val importedAt: Long?,
+        val sourceProvenanceKind: String?,
+        val sourceProvenanceLabel: String?,
         val pages: List<LogicalPage>,
         val sources: List<LogicalSource>,
     )
@@ -944,6 +1052,7 @@ class PortableBackupRestoreInstrumentedTest {
         const val SHORT_PAGE_COUNT = 3
         const val ORIGINAL_SOURCE_MODIFIED_AT = 1_719_999_900_000L
         const val OCR_SENTINEL = "private quartz archive sentinel"
+        const val EMBEDDED_CORRECTION_SENTINEL = "corrected obsidian imported text"
         const val NORMALIZED_DOCUMENT_ID = "document"
         const val NORMALIZED_PAGE_ID = "page"
         const val PAGE_WIDTH = 96

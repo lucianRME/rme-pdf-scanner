@@ -20,7 +20,42 @@ enum class LibraryDocumentState {
 enum class LibrarySortOrder {
     MODIFIED_DESC,
     CREATED_DESC,
+    DOCUMENT_DATE_DESC,
     TITLE_ASC,
+}
+
+enum class LibraryTextSourceKind {
+    LOCAL_OCR,
+    PDF_EMBEDDED_TEXT,
+}
+
+enum class LibraryDocumentDateProvenance {
+    EXPORT_METADATA,
+    USER_CONFIRMED,
+    FILE_METADATA,
+}
+
+enum class LibraryDocumentDateConfidence {
+    EXACT,
+    AMBIGUOUS,
+}
+
+enum class LibraryFileTimeProvenance {
+    EXPORT_METADATA,
+    FILE_METADATA,
+}
+
+enum class LibrarySourceProvenanceKind {
+    RME_SCAN,
+    GENERIC_PDF,
+    GENERIC_IMAGE,
+    STANDARD_ZIP,
+    CAMSCANNER_EXPORT,
+    MICROSOFT_LENS_EXPORT,
+    ADOBE_SCAN_EXPORT,
+    GENIUS_SCAN_EXPORT,
+    RME_BACKUP,
+    OTHER,
 }
 
 enum class LibrarySearchMatch {
@@ -83,6 +118,9 @@ data class LibraryDocumentSummary(
     val title: String,
     val createdAtMillis: Long,
     val modifiedAtMillis: Long,
+    val documentDateEpochDay: Long? = null,
+    val documentDateProvenance: LibraryDocumentDateProvenance? = null,
+    val importedAtMillis: Long? = null,
     val pageCount: Int,
     val folderId: String?,
     val folderName: String?,
@@ -141,7 +179,7 @@ data class LibraryOcrArtifactDraft(
     val uprightHeight: Int,
     val coordinateSystemVersion: Int,
     val transformVersion: Int,
-    val actualScript: String,
+    val actualScript: String?,
     val recognizerId: String,
     val pipelineVersion: String,
     val clientVersion: String?,
@@ -149,6 +187,8 @@ data class LibraryOcrArtifactDraft(
     val recognizedAtMillis: Long,
     val rawText: String,
     val lines: List<LibraryOcrLineDraft> = emptyList(),
+    val textSourceKind: LibraryTextSourceKind = LibraryTextSourceKind.LOCAL_OCR,
+    val sourceDescriptor: String? = null,
 ) {
     init {
         require(inputFingerprintVersion > 0)
@@ -158,7 +198,9 @@ data class LibraryOcrArtifactDraft(
         require(filterName.isNotBlank())
         require(uprightWidth > 0 && uprightHeight > 0)
         require(coordinateSystemVersion > 0 && transformVersion > 0)
-        require(actualScript.isSupportedOcrScriptId())
+        require(actualScript == null || actualScript.isSupportedOcrScriptId())
+        require(textSourceKind != LibraryTextSourceKind.LOCAL_OCR || actualScript != null)
+        require(sourceDescriptor == null || sourceDescriptor.length in 1..512)
         require(recognizerId.isNotBlank())
         require(pipelineVersion.isNotBlank())
         require(delivery.isNotBlank())
@@ -253,6 +295,8 @@ data class LibraryEffectiveOcrPage(
     val verification: LibraryOcrArtifactVerification,
     val actualScript: String?,
     val recognizerId: String,
+    val textSourceKind: LibraryTextSourceKind = LibraryTextSourceKind.LOCAL_OCR,
+    val sourceDescriptor: String? = null,
     val lines: List<LibraryEffectiveOcrLine>,
     /** Verified source geometry retained for conservative freeform PDF reconciliation. */
     val sourceGeometryLines: List<LibraryEffectiveOcrLine> = lines,

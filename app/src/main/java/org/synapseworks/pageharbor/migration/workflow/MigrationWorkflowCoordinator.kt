@@ -29,6 +29,8 @@ import org.synapseworks.pageharbor.migration.MigrationPublicationFailure
 import org.synapseworks.pageharbor.migration.MigrationSourceIssue
 import org.synapseworks.pageharbor.migration.PreparedMigrationBatch
 import org.synapseworks.pageharbor.migration.migrationBatchStorageEstimate
+import org.synapseworks.pageharbor.searchprep.SearchPreparationOutcome
+import org.synapseworks.pageharbor.searchprep.SearchPreparationReport
 
 /**
  * Configuration-safe, UI-neutral owner for bulk migration. Provider references and the prepared
@@ -56,6 +58,7 @@ internal class MigrationWorkflowCoordinator(
     private var preparedBatch: PreparedMigrationBatch? = null
     private var previewSummary: MigrationPreviewSummary? = null
     private var previousReport: MigrationBatchReport? = null
+    private val searchPreparationReports = linkedMapOf<String, SearchPreparationReport>()
     private var possibleSelectionToDocumentId = emptyMap<MigrationDuplicateSelectionId, String>()
     private var approvedPossibleDocumentIds = emptySet<String>()
     private var migrationMilestoneEmitted = false
@@ -161,7 +164,8 @@ internal class MigrationWorkflowCoordinator(
 
     fun importDocuments(): Boolean = startImport(MigrationImportMode.INITIAL)
 
-    fun retryFailures(): Boolean = startImport(MigrationImportMode.RETRY_FAILURES)
+    fun retryFailures(): Boolean =
+        startImport(MigrationImportMode.RETRY_FAILURES) || startSearchPreparationRetry()
 
     fun retryIncomplete(): Boolean {
         val failedReason = synchronized(lock) {
@@ -176,7 +180,8 @@ internal class MigrationWorkflowCoordinator(
                     startImport(MigrationImportMode.INITIAL)
                 }
             }
-            else -> startImport(MigrationImportMode.RETRY_INCOMPLETE)
+            else -> startImport(MigrationImportMode.RETRY_INCOMPLETE) ||
+                startSearchPreparationRetry()
         }
     }
 
@@ -477,6 +482,9 @@ internal class MigrationWorkflowCoordinator(
                     )
                 }
                 previousReport = cumulative
+                result.searchPreparation?.let { report ->
+                    searchPreparationReports[report.operationId] = report
+                }
                 val updatedPreview = retained.prepared.toSummary(
                     selection = retained.summary.source,
                     pageCount = retained.prepared.preview.pageCount ?: retained.summary.pageCount,
@@ -486,6 +494,7 @@ internal class MigrationWorkflowCoordinator(
                 )
                 previewSummary = updatedPreview
                 val completion = cumulative.toCompletion(retained.prepared)
+                    .withSearchPreparation(searchPreparationSummaryLocked())
                 mutableState.value = MigrationWorkflowState(
                     MigrationOperationStatus.Completed(updatedPreview, completion),
                 )
@@ -523,6 +532,50 @@ internal class MigrationWorkflowCoordinator(
                     canRetry = true,
                 ),
             )
+        }
+    }
+
+    private fun startSearchPreparationRetry(): Boolean {
+        val retained = synchronized(lock) {
+            if (closed || activeJob != null) return false
+            val status = mutableState.value.operation as? MigrationOperationStatus.Completed
+                ?: return false
+            val report = searchPreparationReports.values.firstOrNull { candidate ->
+                candidate.cancelled || candidate.documents.any {
+                    it.outcome != SearchPreparationOutcome.SEARCH_READY
+                }
+            } ?: return false
+            RetainedSearchPreparationRetry(status.preview, status.completion, report)
+        }
+        val initial = retained.report.toInitialProgress()
+        return launchRun(
+            retained.preview.source,
+            MigrationOperationStatus.Importing(retained.preview, initial),
+        ) { run ->
+            val report = service.retrySearchPreparation(
+                operationId = retained.report.operationId,
+                cancellationSignal = run.cancellation,
+                progressListener = MigrationBatchProgressListener { progress ->
+                    publishImportProgress(run, progress)
+                },
+            )
+            synchronized(lock) {
+                if (closed || activeRun !== run) return@synchronized
+                searchPreparationReports[report.operationId] = report
+                val completion = retained.completion
+                    .withSearchPreparation(searchPreparationSummaryLocked())
+                mutableState.value = MigrationWorkflowState(
+                    MigrationOperationStatus.Completed(retained.preview, completion),
+                )
+                if (
+                    !migrationMilestoneEmitted &&
+                    completion.completedWithoutIssues &&
+                    completion.publishedDocumentCount > 0
+                ) {
+                    migrationMilestoneEmitted = true
+                    eventChannel.trySend(MigrationWorkflowEvent.VerifiedMigrationCompleted)
+                }
+            }
         }
     }
 
@@ -619,6 +672,7 @@ internal class MigrationWorkflowCoordinator(
         preparedBatch = null
         previewSummary = null
         previousReport = null
+        searchPreparationReports.clear()
         possibleSelectionToDocumentId = emptyMap()
         approvedPossibleDocumentIds = emptySet()
     }
@@ -662,11 +716,67 @@ internal class MigrationWorkflowCoordinator(
         val approvedDocumentIds: Set<String>,
     )
 
+    private data class RetainedSearchPreparationRetry(
+        val preview: MigrationPreviewSummary,
+        val completion: MigrationCompletionSummary,
+        val report: SearchPreparationReport,
+    )
+
+    private fun searchPreparationSummaryLocked(): SearchPreparationSummary {
+        val latestByDocument = linkedMapOf<String, SearchPreparationOutcome>()
+        searchPreparationReports.values.forEach { report ->
+            report.documents.forEach { document ->
+                latestByDocument[document.documentId] = document.outcome
+            }
+        }
+        return SearchPreparationSummary(
+            ready = latestByDocument.values.count { it == SearchPreparationOutcome.SEARCH_READY },
+            partial = latestByDocument.values.count { it == SearchPreparationOutcome.PARTIAL },
+            failed = latestByDocument.values.count { it == SearchPreparationOutcome.FAILED },
+            cancelled = latestByDocument.values.any { it == SearchPreparationOutcome.CANCELLED },
+        )
+    }
+
     private enum class MigrationImportMode {
         INITIAL,
         RETRY_FAILURES,
         RETRY_INCOMPLETE,
     }
+}
+
+private data class SearchPreparationSummary(
+    val ready: Int,
+    val partial: Int,
+    val failed: Int,
+    val cancelled: Boolean,
+)
+
+private fun MigrationCompletionSummary.withSearchPreparation(
+    summary: SearchPreparationSummary,
+): MigrationCompletionSummary = copy(
+    searchReadyDocumentCount = summary.ready,
+    partiallySearchReadyDocumentCount = summary.partial,
+    failedSearchPreparationDocumentCount = summary.failed,
+    searchPreparationCancelled = summary.cancelled,
+)
+
+private fun SearchPreparationReport.toInitialProgress(): MigrationImportProgress {
+    val processed = documents.count { it.outcome == SearchPreparationOutcome.SEARCH_READY }
+    return MigrationImportProgress(
+        completedDocuments = processed,
+        totalDocuments = documents.size,
+        isCopyingDocument = false,
+        currentDocumentBytesCopied = 0L,
+        currentDocumentTotalBytes = null,
+        isPreparingSearch = true,
+        processedSearchPages = documents.sumOf { document ->
+            document.embeddedTextPages + document.ocrPages + document.failedPages
+        },
+        totalSearchPages = documents.sumOf { it.pageCount },
+        embeddedTextPages = documents.sumOf { it.embeddedTextPages },
+        ocrPages = documents.sumOf { it.ocrPages },
+        failedSearchPages = documents.sumOf { it.failedPages },
+    )
 }
 
 private fun PreparedMigrationBatch.toSummary(

@@ -25,6 +25,8 @@ import org.synapseworks.pageharbor.library.LibraryDocumentEntity
 import org.synapseworks.pageharbor.library.LibraryDocumentState
 import org.synapseworks.pageharbor.library.LibraryFileStore
 import org.synapseworks.pageharbor.library.LibraryOcrStatus
+import org.synapseworks.pageharbor.library.LibraryFileTimeProvenance
+import org.synapseworks.pageharbor.library.LibrarySourceProvenanceKind
 import org.synapseworks.pageharbor.library.LibraryOperationCoordinator
 import org.synapseworks.pageharbor.library.LibraryOperationGate
 import org.synapseworks.pageharbor.library.LibraryPageEntity
@@ -195,6 +197,14 @@ internal class RoomVerifiedMigrationExecutor(
                     duplicateDecision,
                 ),
                 failureCode = null,
+                originalCreatedAtMillis = document.dateCandidates
+                    .filter {
+                        it.kind == MigrationDateCandidateKind.ORIGINAL_FILE_CREATED &&
+                            it.authoritativeForKind
+                    }
+                    .mapNotNull(MigrationDateCandidate::instantMillis)
+                    .distinct()
+                    .singleOrNull(),
             )
             sources += document.sources.mapIndexed { sourcePosition, inspected ->
                 inspected.toJournalSource(itemId, sourcePosition)
@@ -729,7 +739,28 @@ internal class RoomVerifiedMigrationExecutor(
                 contentSha256 = fingerprint.sha256,
                 contentByteCount = staged.pages.sumOf { it.byteCount },
                 sourceModifiedAtMillis = item.sourceModifiedAtMillis,
-                importedAtMillis = now,
+                importedAtMillis = null,
+                originalCreatedAtMillis = item.originalCreatedAtMillis,
+                originalCreatedAtProvenance = item.originalCreatedAtMillis?.let {
+                    LibraryFileTimeProvenance.FILE_METADATA.name
+                },
+                sourceModifiedAtProvenance = item.sourceModifiedAtMillis?.let {
+                    LibraryFileTimeProvenance.FILE_METADATA.name
+                },
+                sourceProvenanceKind = if (
+                    plan.grouping == MigrationDocumentGrouping.SINGLE_PDF
+                ) {
+                    LibrarySourceProvenanceKind.GENERIC_PDF.name
+                } else {
+                    LibrarySourceProvenanceKind.GENERIC_IMAGE.name
+                },
+                sourceProvenanceLabel = if (
+                    plan.grouping == MigrationDocumentGrouping.SINGLE_PDF
+                ) {
+                    "PDF import"
+                } else {
+                    "Image import"
+                },
             )
             val currentSources = operationGate.withStableSnapshot { dao.operationSources(item.itemId) }
             val verifiedSources = currentSources.mapIndexed { index, source ->

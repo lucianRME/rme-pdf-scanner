@@ -21,9 +21,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.synapseworks.pageharbor.library.LibraryDatabase
+import org.synapseworks.pageharbor.library.LibraryFileTimeProvenance
 import org.synapseworks.pageharbor.library.LibraryFileStore
+import org.synapseworks.pageharbor.library.LibraryOcrCommitResult
+import org.synapseworks.pageharbor.library.LibraryOcrCorrectionAlignment
+import org.synapseworks.pageharbor.library.LibraryOcrCorrectionDraft
 import org.synapseworks.pageharbor.library.LibraryOperationGate
 import org.synapseworks.pageharbor.library.LibraryDocumentState
+import org.synapseworks.pageharbor.library.LibraryRepository
+import org.synapseworks.pageharbor.library.LibrarySourceProvenanceKind
+import org.synapseworks.pageharbor.library.LibraryTextSourceKind
 import org.synapseworks.pageharbor.library.duplicate.DuplicateKind
 import org.synapseworks.pageharbor.backup.engine.FileLibraryBackupWorkspace
 import org.synapseworks.pageharbor.backup.engine.LibraryBackupClock
@@ -33,6 +40,7 @@ import org.synapseworks.pageharbor.backup.engine.LibraryBackupIdSource
 import org.synapseworks.pageharbor.backup.engine.LibraryBackupStoragePreflight
 import org.synapseworks.pageharbor.backup.engine.RoomLibraryBackupSnapshotSource
 import org.synapseworks.pageharbor.backup.format.BackupProducer
+import org.synapseworks.pageharbor.backup.format.RME_BACKUP_FORMAT_VERSION_V3
 import org.synapseworks.pageharbor.backup.restore.FileRestoreStagingWorkspace
 import org.synapseworks.pageharbor.backup.restore.LibraryRestoreEngine
 import org.synapseworks.pageharbor.backup.restore.RestoreArchiveSource
@@ -41,6 +49,20 @@ import org.synapseworks.pageharbor.backup.restore.RestoreMergePolicy
 import org.synapseworks.pageharbor.backup.restore.RestoreResult
 import org.synapseworks.pageharbor.backup.restore.RestoreStoragePreflight
 import org.synapseworks.pageharbor.backup.restore.RoomRestoreLibraryStore
+import org.synapseworks.pageharbor.searchprep.AndroidSearchPreparationCoordinator
+import org.synapseworks.pageharbor.searchprep.ExtractedPdfPage
+import org.synapseworks.pageharbor.searchprep.PdfEmbeddedTextExtraction
+import org.synapseworks.pageharbor.searchprep.PdfEmbeddedTextExtractor
+import org.synapseworks.pageharbor.searchprep.SearchPreparationOutcome
+import org.synapseworks.pageharbor.searchprep.SearchPreparationProgressListener
+import org.synapseworks.pageharbor.ocr.OcrModelDelivery
+import org.synapseworks.pageharbor.ocr.OcrPageLayout
+import org.synapseworks.pageharbor.ocr.OcrPageRecognitionOutcome
+import org.synapseworks.pageharbor.ocr.OcrRecognizerProvenance
+import org.synapseworks.pageharbor.ocr.OcrScript
+import org.synapseworks.pageharbor.ocr.OcrTextBounds
+import org.synapseworks.pageharbor.ocr.OcrTextLine
+import org.synapseworks.pageharbor.ocr.persistence.ScriptedOcrSessionRunner
 
 @RunWith(AndroidJUnit4::class)
 class RoomVerifiedMigrationExecutorInstrumentedTest {
@@ -92,6 +114,12 @@ class RoomVerifiedMigrationExecutorInstrumentedTest {
                 val active = rig.dao.activeDocumentsPage(-1L, 10)
                 assertEquals(checkpoint.name, 2, active.size)
                 assertTrue(active.all { it.libraryState == LibraryDocumentState.ACTIVE.name })
+                assertTrue(active.all { it.importedAtMillis != null })
+                assertTrue(active.all { it.documentDateEpochDay == null })
+                assertTrue(active.all { it.documentDateProvenance == null })
+                assertTrue(active.all { it.originalCreatedAtMillis == null })
+                assertTrue(active.all { it.sourceModifiedAtProvenance == "FILE_METADATA" })
+                assertTrue(active.all { it.sourceProvenanceKind == "GENERIC_IMAGE" })
                 assertEquals(2, active.sumOf { it.pageCount })
                 assertEquals(2, rig.dao.foldersPage(0, 10).size)
                 assertTrue(rig.dao.pendingDocuments(operationId).isEmpty())
@@ -314,6 +342,91 @@ class RoomVerifiedMigrationExecutorInstrumentedTest {
             assertEquals(2, sourceDocuments.size)
             assertEquals(3, sourceDocuments.sumOf { it.pageCount })
             assertEquals(1, sourceDocuments.sumOf { sourceRig.dao.sourceAssets(it.documentId).size })
+            val migratedPdf = sourceDocuments.single { it.title == "Migrated PDF" }
+            val repository = LibraryRepository(
+                context = context,
+                dao = sourceRig.dao,
+                fileStore = sourceRig.fileStore,
+                operationGate = sourceRig.operationGate,
+            )
+            val preparation = AndroidSearchPreparationCoordinator(
+                context = context,
+                dao = sourceRig.dao,
+                repository = repository,
+                fileStore = sourceRig.fileStore,
+                operationGate = sourceRig.operationGate,
+                runner = ScriptedOcrSessionRunner { request ->
+                    OcrPageRecognitionOutcome.Success(
+                        descriptor = request.descriptor,
+                        rawText = "Raster OCR page two",
+                        layout = OcrPageLayout(
+                            imageWidthPx = 600,
+                            imageHeightPx = 800,
+                            lines = listOf(
+                                OcrTextLine(
+                                    text = "Raster OCR page two",
+                                    bounds = OcrTextBounds(32f, 80f, 430f, 130f),
+                                ),
+                            ),
+                        ),
+                        provenance = OcrRecognizerProvenance(
+                            actualScript = OcrScript.LATIN,
+                            recognizerId = "M3_TEST_OCR",
+                            pipelineVersion = "M3_TEST_V1",
+                            delivery = OcrModelDelivery.BUNDLED,
+                        ),
+                    )
+                },
+                defaultOcrSelection = {
+                    org.synapseworks.pageharbor.ocr.OcrScriptSelection.Explicit(
+                        org.synapseworks.pageharbor.ocr.OcrScript.LATIN,
+                    )
+                },
+            ).prepare(
+                documentIds = listOf(migratedPdf.documentId),
+                cancellationSignal = NeverCancelMigration,
+                progressListener = SearchPreparationProgressListener { },
+            )
+            val preparationResult = preparation.documents.single()
+            val preparationDiagnostics = sourceRig.dao.pages(migratedPdf.documentId).joinToString {
+                "position=${it.position},artifact=${it.activeOcrArtifactRevision},error=${it.ocrError}"
+            }
+            assertEquals(
+                "report=$preparationResult pages=[$preparationDiagnostics]",
+                SearchPreparationOutcome.SEARCH_READY,
+                preparationResult.outcome,
+            )
+            assertEquals(1, preparation.documents.single().embeddedTextPages)
+            assertEquals(1, preparation.documents.single().ocrPages)
+            val importedHit = repository.searchHits("migration embedded", limit = 10).single()
+            assertEquals(migratedPdf.documentId, importedHit.documentId)
+            assertEquals(0, importedHit.currentPagePosition)
+            val firstArtifact = requireNotNull(
+                sourceRig.dao.activeTextArtifact(
+                    sourceRig.dao.pages(migratedPdf.documentId).first().pageId,
+                ),
+            )
+            assertEquals(LibraryTextSourceKind.PDF_EMBEDDED_TEXT.name, firstArtifact.textSourceKind)
+            val correctedPage = sourceRig.dao.pages(migratedPdf.documentId).first()
+            assertEquals(
+                LibraryOcrCommitResult.APPLIED,
+                repository.saveOcrCorrection(
+                    requireNotNull(
+                        repository.captureOcrPageSnapshot(
+                            migratedPdf.documentId,
+                            correctedPage.pageId,
+                        ),
+                    ),
+                    LibraryOcrCorrectionDraft(
+                        correctedText = "Corrected migration compass",
+                        alignment = LibraryOcrCorrectionAlignment.FREEFORM,
+                    ),
+                ),
+            )
+            assertTrue(repository.searchHits("migration embedded", limit = 10).isEmpty())
+            val correctedHit = repository.searchHits("corrected migration compass", limit = 10).single()
+            assertEquals(migratedPdf.documentId, correctedHit.documentId)
+            assertEquals(0, correctedHit.currentPagePosition)
 
             val backupResult = LibraryBackupEngine(
                 snapshotSource = RoomLibraryBackupSnapshotSource(sourceRig.dao, sourceRig.fileStore),
@@ -331,6 +444,7 @@ class RoomVerifiedMigrationExecutorInstrumentedTest {
             ) as LibraryBackupCreationResult.Verified
             val backup = backupResult.artifact
             try {
+                assertEquals(RME_BACKUP_FORMAT_VERSION_V3, backup.manifest.formatVersion)
                 assertEquals(2, backup.manifest.summary.documentCount)
                 assertEquals(3, backup.manifest.summary.pageCount)
                 assertEquals(2, backup.manifest.summary.folderCount)
@@ -373,6 +487,44 @@ class RoomVerifiedMigrationExecutorInstrumentedTest {
                         1,
                         restoredDocuments.sumOf { restoreDao.sourceAssets(it.documentId).size },
                     )
+                    val restoredPdf = restoredDocuments.single { it.title == "Migrated PDF" }
+                    assertEquals(null, restoredPdf.documentDateEpochDay)
+                    assertEquals(null, restoredPdf.originalCreatedAtMillis)
+                    assertEquals(migratedPdf.sourceModifiedAtMillis, restoredPdf.sourceModifiedAtMillis)
+                    assertEquals(migratedPdf.importedAtMillis, restoredPdf.importedAtMillis)
+                    assertEquals(
+                        LibraryFileTimeProvenance.FILE_METADATA.name,
+                        restoredPdf.sourceModifiedAtProvenance,
+                    )
+                    assertEquals(
+                        LibrarySourceProvenanceKind.GENERIC_PDF.name,
+                        restoredPdf.sourceProvenanceKind,
+                    )
+                    val restoredRepository = LibraryRepository(
+                        context = context,
+                        dao = restoreDao,
+                        fileStore = restoreStore,
+                        operationGate = LibraryOperationGate(),
+                    )
+                    val restoredHit = restoredRepository.searchHits(
+                        "corrected migration compass",
+                        limit = 10,
+                    ).single()
+                    assertEquals(restoredPdf.documentId, restoredHit.documentId)
+                    assertEquals(0, restoredHit.currentPagePosition)
+                    val restoredFirstPage = restoreDao.pages(restoredPdf.documentId).first()
+                    val restoredEffective = requireNotNull(
+                        restoreDao.effectiveOcrPage(
+                            restoredPdf.documentId,
+                            restoredFirstPage.pageId,
+                        ),
+                    )
+                    assertEquals("Migration embedded page one", restoredEffective.rawText.trim())
+                    assertEquals("Corrected migration compass", restoredEffective.effectiveText)
+                    assertEquals(
+                        LibraryTextSourceKind.PDF_EMBEDDED_TEXT,
+                        restoredEffective.textSourceKind,
+                    )
                     restoredDocuments.forEach { document ->
                         val pages = restoreDao.pages(document.documentId)
                         assertEquals(pages.indices.toList(), pages.map { it.position })
@@ -391,6 +543,91 @@ class RoomVerifiedMigrationExecutorInstrumentedTest {
             } finally {
                 backup.close()
             }
+        }
+    }
+
+    @Test
+    fun searchPreparationRecoversProcessDeathAndRetriesCancellationIdempotently() = runBlocking {
+        withRig("search-preparation-recovery") { rig ->
+            val plan = rig.mixedPdfAndImagePlan()
+            val migration = rig.executor().execute(
+                plan,
+                plan.importAllDuplicateCandidates(),
+                NeverCancelMigration,
+                MigrationBatchProgressListener { },
+            )
+            assertEquals(2, migration.publishedCount)
+            val document = rig.dao.activeDocumentsPage(-1L, 10)
+                .single { it.title == "Migrated PDF" }
+            val repository = LibraryRepository(
+                context = context,
+                dao = rig.dao,
+                fileStore = rig.fileStore,
+                operationGate = rig.operationGate,
+            )
+            val crash = AndroidSearchPreparationCoordinator(
+                context = context,
+                dao = rig.dao,
+                repository = repository,
+                fileStore = rig.fileStore,
+                extractor = PdfEmbeddedTextExtractor { _, _, _, _ ->
+                    throw SimulatedProcessDeath()
+                },
+                operationGate = rig.operationGate,
+            )
+            val interrupted = runCatching {
+                crash.prepare(
+                    listOf(document.documentId),
+                    NeverCancelMigration,
+                    SearchPreparationProgressListener { },
+                )
+            }.exceptionOrNull()
+            assertTrue(interrupted is SimulatedProcessDeath)
+
+            val deterministicExtractor = PdfEmbeddedTextExtractor {
+                    _, expectedPageCount, isCancelled, onPage ->
+                repeat(expectedPageCount) { pageIndex ->
+                    if (isCancelled()) throw kotlinx.coroutines.CancellationException()
+                    onPage(
+                        ExtractedPdfPage(
+                            pageIndex,
+                            "Recovered local text for page ${pageIndex + 1}",
+                        ),
+                    )
+                }
+                PdfEmbeddedTextExtraction.Completed(expectedPageCount)
+            }
+            val recovered = AndroidSearchPreparationCoordinator(
+                context = context,
+                dao = rig.dao,
+                repository = repository,
+                fileStore = rig.fileStore,
+                extractor = deterministicExtractor,
+                operationGate = rig.operationGate,
+            )
+            assertEquals(1, recovered.recoverInterruptedOperations())
+            assertEquals(0, recovered.recoverInterruptedOperations())
+            assertTrue(
+                rig.dao.pages(document.documentId).all { page ->
+                    rig.dao.activeTextArtifact(page.pageId)?.textSourceKind ==
+                        LibraryTextSourceKind.PDF_EMBEDDED_TEXT.name
+                },
+            )
+
+            val cancelled = recovered.prepare(
+                listOf(document.documentId),
+                MigrationCancellationSignal { true },
+                SearchPreparationProgressListener { },
+            )
+            assertTrue(cancelled.cancelled)
+            assertEquals(SearchPreparationOutcome.CANCELLED, cancelled.documents.single().outcome)
+            val retried = recovered.retry(
+                cancelled.operationId,
+                NeverCancelMigration,
+                SearchPreparationProgressListener { },
+            )
+            assertEquals(SearchPreparationOutcome.SEARCH_READY, retried.documents.single().outcome)
+            assertEquals(2, retried.documents.single().embeddedTextPages)
         }
     }
 
@@ -705,8 +942,37 @@ class RoomVerifiedMigrationExecutorInstrumentedTest {
         try {
             repeat(pageCount) { index ->
                 val page = document.startPage(
-                    PdfDocument.PageInfo.Builder(100, 140, index + 1).create(),
+                    PdfDocument.PageInfo.Builder(600, 800, index + 1).create(),
                 )
+                if (index == 0) {
+                    page.canvas.drawText(
+                        "Migration embedded page one",
+                        32f,
+                        72f,
+                        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                            color = Color.BLACK
+                            textSize = 32f
+                        },
+                    )
+                } else {
+                    val rasterText = Bitmap.createBitmap(600, 800, Bitmap.Config.ARGB_8888)
+                    try {
+                        val rasterCanvas = android.graphics.Canvas(rasterText)
+                        rasterCanvas.drawColor(Color.WHITE)
+                        rasterCanvas.drawText(
+                            "Raster OCR page two",
+                            32f,
+                            120f,
+                            android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                                color = Color.BLACK
+                                textSize = 42f
+                            },
+                        )
+                        page.canvas.drawBitmap(rasterText, 0f, 0f, null)
+                    } finally {
+                        rasterText.recycle()
+                    }
+                }
                 document.finishPage(page)
             }
             FileOutputStream(file).use(document::writeTo)

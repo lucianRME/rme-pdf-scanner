@@ -274,7 +274,10 @@ fun MigrationCompletionScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val hasIssues = report.failedItems > 0 || report.issues.isNotEmpty()
+    val hasSearchIssues = report.partiallySearchReadyDocuments > 0 ||
+        report.failedSearchPreparationDocuments > 0 ||
+        report.searchPreparationCancelled
+    val hasIssues = report.failedItems > 0 || report.issues.isNotEmpty() || hasSearchIssues
     PortabilityScreen(
         title = "Migration complete",
         onBack = onBack,
@@ -283,8 +286,8 @@ fun MigrationCompletionScreen(
         PortabilityIntro(
             title = if (hasIssues) "Completed with some issues" else "Documents moved to RME",
             supportingText = if (hasIssues) {
-                "Successful documents are already available. Retry only failed items without " +
-                    "importing successful documents again."
+                "Successful documents are already available. Incomplete import or search work " +
+                    "can be retried without importing successful documents again."
             } else {
                 "Your imported documents are now available in the local RME library."
             },
@@ -295,8 +298,22 @@ fun MigrationCompletionScreen(
                 "Imported" to report.importedDocuments.toString(),
                 "Exact duplicates skipped" to report.duplicatesSkipped.toString(),
                 "Failed" to report.failedItems.toString(),
+                "Search ready" to report.searchReadyDocuments.toString(),
+                "Search partial" to report.partiallySearchReadyDocuments.toString(),
+                "Search failed" to report.failedSearchPreparationDocuments.toString(),
             ),
         )
+
+        if (hasSearchIssues) {
+            PortabilitySection(title = "Search preparation") {
+                Text(
+                    text = "Imported documents remain available. Retry incomplete work to " +
+                        "finish local text extraction, OCR, and search indexing.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
 
         if (report.issues.isNotEmpty()) {
             PortabilitySection(title = "Issues") {
@@ -333,12 +350,15 @@ fun MigrationCompletionScreen(
                 ),
             )
             if (hasIssues) {
-                add(PortabilityAction(label = "View issues", onClick = onViewIssues))
+                if (report.issues.isNotEmpty()) {
+                    add(PortabilityAction(label = "View issues", onClick = onViewIssues))
+                }
                 add(
                     PortabilityAction(
-                        label = "Retry failed items",
+                        label = "Retry incomplete work",
                         onClick = onRetryFailedItems,
-                        enabled = report.failedItems > 0 && report.issues.any { it.retryable },
+                        enabled = hasSearchIssues ||
+                            (report.failedItems > 0 && report.issues.any { it.retryable }),
                     ),
                 )
             }

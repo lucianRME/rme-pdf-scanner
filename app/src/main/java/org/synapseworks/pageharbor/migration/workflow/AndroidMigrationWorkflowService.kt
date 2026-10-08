@@ -13,6 +13,12 @@ import org.synapseworks.pageharbor.migration.MigrationPreviewProgressListener
 import org.synapseworks.pageharbor.migration.MigrationTreeDiscoveryProgressListener
 import org.synapseworks.pageharbor.migration.PreparedMigrationBatch
 import org.synapseworks.pageharbor.migration.MigrationBatchReport
+import org.synapseworks.pageharbor.migration.MigrationBatchProgress
+import org.synapseworks.pageharbor.migration.MigrationBatchProgressPhase
+import org.synapseworks.pageharbor.migration.MigrationTerminalSourceOutcome
+import org.synapseworks.pageharbor.searchprep.AndroidSearchPreparationCoordinator
+import org.synapseworks.pageharbor.searchprep.SearchPreparationReport
+import org.synapseworks.pageharbor.searchprep.SearchPreparationProgressListener
 
 /** An operation-local SAF reference whose diagnostic rendering cannot reveal the provider URI. */
 internal class MigrationSafReference private constructor(internal val value: String) {
@@ -93,6 +99,12 @@ internal interface MigrationWorkflowService {
         cancellationSignal: MigrationCancellationSignal,
         progressListener: MigrationBatchProgressListener,
     ): MigrationExecutionResult
+
+    suspend fun retrySearchPreparation(
+        operationId: String,
+        cancellationSignal: MigrationCancellationSignal,
+        progressListener: MigrationBatchProgressListener,
+    ): SearchPreparationReport
 }
 
 /** Thin Android adapter. All policy and retained state live in [MigrationWorkflowCoordinator]. */
@@ -100,9 +112,11 @@ internal class AndroidMigrationWorkflowService(
     context: Context,
     private val coordinator: AndroidBulkMigrationCoordinator =
         AndroidBulkMigrationCoordinator(context.applicationContext),
+    private val searchPreparation: AndroidSearchPreparationCoordinator =
+        AndroidSearchPreparationCoordinator(context.applicationContext),
 ) : MigrationWorkflowService {
     override suspend fun recoverInterruptedOperations(): Int =
-        coordinator.recoverInterruptedOperations()
+        coordinator.recoverInterruptedOperations() + searchPreparation.recoverInterruptedOperations()
 
     override suspend fun prepare(
         input: MigrationPreparationInput,
@@ -154,9 +168,8 @@ internal class AndroidMigrationWorkflowService(
         decisions: MigrationDuplicateDecisions,
         cancellationSignal: MigrationCancellationSignal,
         progressListener: MigrationBatchProgressListener,
-    ): MigrationExecutionResult = coordinator.execute(
-        prepared,
-        decisions,
+    ): MigrationExecutionResult = prepareSearch(
+        coordinator.execute(prepared, decisions, cancellationSignal, progressListener),
         cancellationSignal,
         progressListener,
     )
@@ -167,10 +180,14 @@ internal class AndroidMigrationWorkflowService(
         decisions: MigrationDuplicateDecisions,
         cancellationSignal: MigrationCancellationSignal,
         progressListener: MigrationBatchProgressListener,
-    ): MigrationExecutionResult = coordinator.retryFailures(
-        prepared,
-        previousReport,
-        decisions,
+    ): MigrationExecutionResult = prepareSearch(
+        coordinator.retryFailures(
+            prepared,
+            previousReport,
+            decisions,
+            cancellationSignal,
+            progressListener,
+        ),
         cancellationSignal,
         progressListener,
     )
@@ -181,11 +198,69 @@ internal class AndroidMigrationWorkflowService(
         decisions: MigrationDuplicateDecisions,
         cancellationSignal: MigrationCancellationSignal,
         progressListener: MigrationBatchProgressListener,
-    ): MigrationExecutionResult = coordinator.retryIncomplete(
-        prepared,
-        previousReport,
-        decisions,
+    ): MigrationExecutionResult = prepareSearch(
+        coordinator.retryIncomplete(
+            prepared,
+            previousReport,
+            decisions,
+            cancellationSignal,
+            progressListener,
+        ),
         cancellationSignal,
         progressListener,
     )
+
+    override suspend fun retrySearchPreparation(
+        operationId: String,
+        cancellationSignal: MigrationCancellationSignal,
+        progressListener: MigrationBatchProgressListener,
+    ): SearchPreparationReport = searchPreparation.retry(
+        operationId = operationId,
+        cancellationSignal = cancellationSignal,
+        progressListener = searchProgressListener(progressListener),
+    )
+
+    private suspend fun prepareSearch(
+        result: MigrationExecutionResult,
+        cancellationSignal: MigrationCancellationSignal,
+        progressListener: MigrationBatchProgressListener,
+    ): MigrationExecutionResult {
+        val completed = result as? MigrationExecutionResult.Completed ?: return result
+        val documentIds = completed.report.durableCompletion?.sources.orEmpty()
+            .asSequence()
+            .filter {
+                it.outcome in setOf(
+                    MigrationTerminalSourceOutcome.IMPORTED,
+                    MigrationTerminalSourceOutcome.IMPORTED_DESPITE_DUPLICATE,
+                )
+            }
+            .mapNotNull { it.documentId }
+            .distinct()
+            .toList()
+        if (documentIds.isEmpty()) return completed
+        val prepared = searchPreparation.prepare(
+            documentIds,
+            cancellationSignal,
+            searchProgressListener(progressListener),
+        )
+        return completed.copy(searchPreparation = prepared)
+    }
+
+    private fun searchProgressListener(
+        progressListener: MigrationBatchProgressListener,
+    ) = SearchPreparationProgressListener { progress ->
+        progressListener.onProgress(
+            MigrationBatchProgress(
+                completedDocuments = progress.processedDocuments,
+                totalDocuments = progress.totalDocuments,
+                currentDocumentId = progress.currentDocumentId,
+                phase = MigrationBatchProgressPhase.SEARCH_PREPARATION,
+                searchProcessedPages = progress.processedPages,
+                searchTotalPages = progress.totalPages,
+                embeddedTextPages = progress.embeddedTextPages,
+                ocrPages = progress.ocrPages,
+                failedSearchPages = progress.failedPages,
+            ),
+        )
+    }
 }
