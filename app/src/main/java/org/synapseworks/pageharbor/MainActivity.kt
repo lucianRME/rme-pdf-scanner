@@ -93,6 +93,7 @@ import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfSaveState
 import org.synapseworks.pageharbor.document.searchablepdf.deleteStaleSearchablePdfs
 import org.synapseworks.pageharbor.document.searchablepdf.isInProgress
 import org.synapseworks.pageharbor.document.searchablepdf.searchablePdfSaveStateForProgress
+import org.synapseworks.pageharbor.document.targetsize.deleteStaleTargetSizePdfs
 import org.synapseworks.pageharbor.document.session.DocumentPage
 import org.synapseworks.pageharbor.document.session.DocumentSession
 import org.synapseworks.pageharbor.document.session.readDocumentImageMetadata
@@ -474,6 +475,7 @@ class MainActivity : FragmentActivity() {
             deleteStaleSharedPdfs(cacheDir)
             deleteStaleSearchablePdfs(cacheDir)
             deleteStaleNormalPdfs(cacheDir)
+            deleteStaleTargetSizePdfs(cacheDir)
             if (session.documentPages.isEmpty()) {
                 deleteStaleDocumentImports(cacheDir)
             }

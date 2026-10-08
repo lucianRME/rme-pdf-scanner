@@ -2,6 +2,7 @@ package org.synapseworks.pageharbor.document.searchablepdf
 
 import android.content.Context
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
@@ -9,6 +10,7 @@ import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import com.tom_roush.pdfbox.pdmodel.graphics.image.JPEGFactory
 import com.tom_roush.pdfbox.pdmodel.graphics.state.RenderingMode
 import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStream
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.coroutineContext
@@ -43,6 +45,8 @@ data class SearchablePdfPage(
 data class SearchablePdfRequest(
     val pages: List<SearchablePdfPage>,
     val outputFile: File,
+    /** Optional private directory for PdfBox scratch data; defaults to the app cache. */
+    val scratchDirectory: File? = null,
 )
 
 sealed interface SearchablePdfGenerationResult {
@@ -90,7 +94,17 @@ class PdfBoxSearchablePdfGenerator(context: Context) : SearchablePdfGenerator {
                 coroutineContext.ensureActive()
                 PDFBoxResourceLoader.init(applicationContext)
                 var textLayerPageCount = 0
-                PDDocument().use { document ->
+                val scratchDirectory = request.scratchDirectory ?: applicationContext.cacheDir
+                if (!scratchDirectory.isDirectory) {
+                    cleanupOutput(request.outputFile)
+                    return@withContext SearchablePdfGenerationResult.Failure(
+                        SearchablePdfGenerationError.OUTPUT_UNAVAILABLE,
+                    )
+                }
+                val memoryUsage = MemoryUsageSetting
+                    .setupMixed(SEARCHABLE_PDF_MAX_MAIN_MEMORY_BYTES)
+                    .setTempDir(scratchDirectory)
+                PDDocument(memoryUsage).use { document ->
                     val fontSet = InvisibleUnicodePdfFontSet(
                         document = document,
                         texts = request.pages.asSequence().flatMap { page ->
@@ -132,6 +146,11 @@ class PdfBoxSearchablePdfGenerator(context: Context) : SearchablePdfGenerator {
                     }
                     coroutineContext.ensureActive()
                     request.outputFile.outputStream().use(document::save)
+                    // PdfBox owns the save stream lifecycle. Reopen only to fsync the completed
+                    // file after every PDF object and stream has been closed.
+                    FileOutputStream(request.outputFile, true).use { output ->
+                        output.fd.sync()
+                    }
                 }
                 SearchablePdfGenerationResult.Success(
                     pageCount = request.pages.size,
@@ -203,3 +222,5 @@ class PdfBoxSearchablePdfGenerator(context: Context) : SearchablePdfGenerator {
     private data object PageImageException : Exception()
 
 }
+
+private const val SEARCHABLE_PDF_MAX_MAIN_MEMORY_BYTES = 8L * 1_024L * 1_024L

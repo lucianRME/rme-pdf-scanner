@@ -8,9 +8,11 @@ import android.graphics.BitmapRegionDecoder
 import android.graphics.Matrix
 import android.graphics.Rect
 import android.media.ExifInterface
+import androidx.core.graphics.scale
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import kotlin.coroutines.cancellation.CancellationException
 import org.synapseworks.pageharbor.document.session.DEFAULT_DOCUMENT_INPUT_LIMITS
 import org.synapseworks.pageharbor.document.session.DocumentImageConstraintViolation
 import org.synapseworks.pageharbor.document.session.DocumentImageMetadata
@@ -22,6 +24,18 @@ import org.synapseworks.pageharbor.image.DocumentFilter
 import org.synapseworks.pageharbor.image.DocumentImageFilterEngine
 
 private const val FilteredJpegQuality = 100
+
+internal data class SizedJpegEncoding(
+    val maximumWidthPx: Int,
+    val maximumHeightPx: Int,
+    val quality: Int,
+) {
+    init {
+        require(maximumWidthPx > 0)
+        require(maximumHeightPx > 0)
+        require(quality in 1..100)
+    }
+}
 
 /**
  * Validates source metadata and encoded bounds before allocating full-resolution bitmaps, then
@@ -121,6 +135,109 @@ fun writeFilteredJpegToDestination(
     }
 }
 
+/**
+ * Target-size companion to [writeFilteredJpegToDestination]. It preserves the same source,
+ * rotation, filter, ownership, and pre-allocation rules while allowing only bounded downsampling
+ * and a caller-selected JPEG quality. It never upscales and retains at most two page bitmaps.
+ */
+internal fun writeSizedJpegToDestination(
+    openSource: () -> InputStream?,
+    destination: OutputStream?,
+    filter: DocumentFilter,
+    rotation: DocumentPageRotation,
+    imageMetadata: DocumentImageMetadata,
+    encoding: SizedJpegEncoding,
+    limits: DocumentInputLimits = DEFAULT_DOCUMENT_INPUT_LIMITS,
+    isCancellationRequested: () -> Boolean = { false },
+): PageExportResult {
+    if (destination == null) return PageExportResult.DestinationUnavailable
+    transformedImagePreflight(imageMetadata, limits = limits)?.let { failure ->
+        destination.closeSafely()
+        return failure
+    }
+
+    var decoded: Bitmap? = null
+    var working: Bitmap? = null
+    var outputBitmap: Bitmap? = null
+    return try {
+        ensureEncodingActive(isCancellationRequested)
+        val orientation = readOrientation(openSource)
+        val bounds = readImageBounds(openSource) ?: run {
+            destination.closeSafely()
+            return PageExportResult.SourceMissing
+        }
+        transformedImagePreflight(
+            metadata = imageMetadata,
+            decodedWidth = bounds.first,
+            decodedHeight = bounds.second,
+            limits = limits,
+        )?.let { failure ->
+            destination.closeSafely()
+            return failure
+        }
+        val sampleSize = targetDecodeSampleSize(
+            sourceWidth = bounds.first,
+            sourceHeight = bounds.second,
+            orientation = orientation,
+            rotation = rotation,
+            encoding = encoding,
+        )
+        decoded = decodeWithSample(openSource, sampleSize) ?: run {
+            destination.closeSafely()
+            return PageExportResult.SourceMissing
+        }
+        ensureEncodingActive(isCancellationRequested)
+        val decodedBitmap = decoded
+        val transformed = transform(decodedBitmap, orientation, rotation)
+        if (transformed !== decodedBitmap) decodedBitmap.recycle()
+        decoded = null
+        working = transformed
+        val scaled = scaleToFit(transformed, encoding.maximumWidthPx, encoding.maximumHeightPx)
+        if (scaled !== transformed) transformed.recycle()
+        working = null
+        outputBitmap = scaled
+        ensureEncodingActive(isCancellationRequested)
+        val filtered = if (filter == DocumentFilter.ORIGINAL) {
+            scaled
+        } else {
+            filterBitmap(scaled, filter, isCancellationRequested)
+        }
+        if (filtered !== scaled) scaled.recycle()
+        outputBitmap = filtered
+        ensureEncodingActive(isCancellationRequested)
+        destination.use { output ->
+            if (filtered.compress(Bitmap.CompressFormat.JPEG, encoding.quality, output)) {
+                output.flush()
+                PageExportResult.Success
+            } else {
+                PageExportResult.WriteFailed
+            }
+        }
+    } catch (error: CancellationException) {
+        destination.closeSafely()
+        throw error
+    } catch (_: IOException) {
+        destination.closeSafely()
+        PageExportResult.WriteFailed
+    } catch (_: SecurityException) {
+        destination.closeSafely()
+        PageExportResult.WriteFailed
+    } catch (_: IllegalArgumentException) {
+        destination.closeSafely()
+        PageExportResult.WriteFailed
+    } catch (_: IllegalStateException) {
+        destination.closeSafely()
+        PageExportResult.WriteFailed
+    } catch (_: OutOfMemoryError) {
+        destination.closeSafely()
+        PageExportResult.WriteFailed
+    } finally {
+        outputBitmap?.recycle()
+        working?.recycle()
+        decoded?.recycle()
+    }
+}
+
 /** Exposed for JVM tests to prove the export path delegates to the shared Slice 1 engine. */
 internal fun applyExportFilter(source: ArgbImage, filter: DocumentFilter): ArgbImage =
     DocumentImageFilterEngine.apply(source, filter)
@@ -152,7 +269,7 @@ internal fun pageSourcePreflight(
     limits: DocumentInputLimits = DEFAULT_DOCUMENT_INPUT_LIMITS,
 ): PageExportResult? = transformedImagePreflight(metadata = metadata, limits = limits)
 
-private fun readOrientation(openSource: () -> InputStream?): Int = runCatching {
+internal fun readOrientation(openSource: () -> InputStream?): Int = runCatching {
     openSource()?.use { source ->
         ExifInterface(source).getAttributeInt(
             ExifInterface.TAG_ORIENTATION,
@@ -178,6 +295,23 @@ internal fun decodeFullResolution(openSource: () -> InputStream?): Bitmap? =
     }
 
 @Suppress("DEPRECATION")
+private fun decodeWithSample(openSource: () -> InputStream?, sampleSize: Int): Bitmap? =
+    openSource()?.use { source ->
+        val decoder = BitmapRegionDecoder.newInstance(source, false) ?: return@use null
+        try {
+            decoder.decodeRegion(
+                Rect(0, 0, decoder.width, decoder.height),
+                BitmapFactory.Options().apply {
+                    inPreferredConfig = Bitmap.Config.ARGB_8888
+                    inSampleSize = sampleSize
+                },
+            )
+        } finally {
+            decoder.recycle()
+        }
+    }
+
+@Suppress("DEPRECATION")
 internal fun readImageBounds(openSource: () -> InputStream?): Pair<Int, Int>? {
     openSource()?.use { source ->
         val decoder = BitmapRegionDecoder.newInstance(source, false) ?: return null
@@ -189,7 +323,7 @@ internal fun readImageBounds(openSource: () -> InputStream?): Pair<Int, Int>? {
     } ?: return null
 }
 
-private fun transform(
+internal fun transform(
     source: Bitmap,
     orientation: Int,
     rotation: DocumentPageRotation,
@@ -220,11 +354,16 @@ private fun transform(
     return Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
 }
 
-private fun filterBitmap(source: Bitmap, filter: DocumentFilter): Bitmap {
+private fun filterBitmap(
+    source: Bitmap,
+    filter: DocumentFilter,
+    isCancellationRequested: () -> Boolean = { false },
+): Bitmap {
     val row = IntArray(source.width)
     val histogram = if (DocumentImageFilterEngine.requiresHistogram(filter)) {
         IntArray(256).also { counts ->
             repeat(source.height) { y ->
+                ensureEncodingActive(isCancellationRequested)
                 source.getPixels(row, 0, source.width, 0, y, source.width, 1)
                 DocumentImageFilterEngine.accumulateLuminanceHistogram(row, counts)
             }
@@ -241,6 +380,7 @@ private fun filterBitmap(source: Bitmap, filter: DocumentFilter): Bitmap {
     var completed = false
     return try {
         repeat(source.height) { y ->
+            ensureEncodingActive(isCancellationRequested)
             source.getPixels(row, 0, source.width, 0, y, source.width, 1)
             DocumentImageFilterEngine.applyRowFilterInPlace(row, plan)
             output.setPixels(row, 0, source.width, 0, y, source.width, 1)
@@ -250,6 +390,51 @@ private fun filterBitmap(source: Bitmap, filter: DocumentFilter): Bitmap {
     } finally {
         if (!completed) output.recycle()
     }
+}
+
+private fun targetDecodeSampleSize(
+    sourceWidth: Int,
+    sourceHeight: Int,
+    orientation: Int,
+    rotation: DocumentPageRotation,
+    encoding: SizedJpegEncoding,
+): Int {
+    val exifSwapsAxes = exifOrientationSwapsAxes(orientation)
+    val sessionSwapsAxes = rotation == DocumentPageRotation.DEGREES_90 ||
+        rotation == DocumentPageRotation.DEGREES_270
+    val swapsAxes = exifSwapsAxes.xor(sessionSwapsAxes)
+    val targetRawWidth = if (swapsAxes) encoding.maximumHeightPx else encoding.maximumWidthPx
+    val targetRawHeight = if (swapsAxes) encoding.maximumWidthPx else encoding.maximumHeightPx
+    var sample = 1
+    while (
+        sourceWidth / (sample * 2) >= targetRawWidth &&
+        sourceHeight / (sample * 2) >= targetRawHeight
+    ) {
+        sample *= 2
+    }
+    return sample
+}
+
+internal fun exifOrientationSwapsAxes(orientation: Int): Boolean = orientation in setOf(
+    ExifInterface.ORIENTATION_TRANSPOSE,
+    ExifInterface.ORIENTATION_ROTATE_90,
+    ExifInterface.ORIENTATION_TRANSVERSE,
+    ExifInterface.ORIENTATION_ROTATE_270,
+)
+
+private fun scaleToFit(source: Bitmap, maximumWidth: Int, maximumHeight: Int): Bitmap {
+    if (source.width <= maximumWidth && source.height <= maximumHeight) return source
+    val scale = minOf(
+        maximumWidth.toDouble() / source.width.toDouble(),
+        maximumHeight.toDouble() / source.height.toDouble(),
+    )
+    val width = (source.width * scale).toInt().coerceAtLeast(1)
+    val height = (source.height * scale).toInt().coerceAtLeast(1)
+    return source.scale(width, height)
+}
+
+private fun ensureEncodingActive(isCancellationRequested: () -> Boolean) {
+    if (isCancellationRequested()) throw CancellationException("Target-size encoding cancelled")
 }
 
 internal data class TransformedImageWorkingSet(

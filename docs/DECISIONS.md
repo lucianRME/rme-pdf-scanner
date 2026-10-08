@@ -309,3 +309,32 @@ task away from the app, force-stopping it, or process death can interrupt active
 atomic publication and journals prevent a partial document or restore from becoming visible, and the
 user can retry incomplete migration items. Persistent background execution remains deferred until a
 separate permission and lifecycle review explicitly approves it.
+
+## ADR-018: Bounded Local Target-size PDF Reconstruction
+
+Decision:
+Prepare target-size PDFs as new private-cache artifacts from the current ordered effective page
+assets. Classify retained PDF provenance before reconstruction, allocate exact decimal-byte budgets
+deterministically, calibrate at most three representative pages, and permit only one whole-document
+quality-floor refinement after the first full candidate. Success requires the closed file's exact
+size to be at or below the requested maximum and a successful page-count/render validation.
+
+Rationale:
+Upload portals enforce byte maxima, but an unbounded quality loop can consume excessive time,
+storage, and memory or silently make a document unreadable. Existing RME page assets, rotation/filter
+writer, Unicode searchable-PDF generator, and private-prepare export boundary already provide the
+necessary local ownership and cancellation invariants. Reconstructing only supported image-backed
+content also avoids copying hidden original objects into a future redacted or compressed export.
+
+Consequences:
+The engine never overwrites sources, library assets, OCR/correction records, or a user destination.
+It processes one bitmap page at a time, never upscales, uses an explicit resolution/JPEG floor, and
+returns a measured smallest acceptable result when the floor still exceeds the target. Effective
+positioned corrected text is rebuilt through the existing Type 3/ToUnicode path; unpositioned text is
+omitted with an explicit warning rather than fabricated geometry or a false searchability claim.
+
+Encrypted, malformed, interactive, signed, annotated, embedded-file, non-image/vector-only, or
+incompletely reconstructable PDFs are rejected conservatively. The Milestone 5 UI and final SAF
+destination commit remain separate work. No schema, backup-format, dependency, permission,
+networking, analytics, telemetry, account, backend, or cloud behavior is added. See
+[Target-size PDF engine](TARGET_SIZE_PDF_ENGINE.md) for the implementation mapping and bounds.
