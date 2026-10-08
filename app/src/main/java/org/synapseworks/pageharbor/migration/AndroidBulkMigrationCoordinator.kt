@@ -83,6 +83,7 @@ class AndroidBulkMigrationCoordinator(
                 relativeFolderPath = resource.relativeFolderPath,
                 declaredContentType = resource.declaredContentType,
                 platformAccessFlags = resource.grantFlags,
+                origin = MigrationSourceOrigin.FILE_SELECTION,
             )
         }
         val preview = BulkMigrationPlanner(sourceAdapter).preview(
@@ -111,7 +112,9 @@ class AndroidBulkMigrationCoordinator(
         duplicateProgressListener: MigrationBatchProgressListener =
             MigrationBatchProgressListener { },
     ): PreparedMigrationBatch = withContext(Dispatchers.IO) {
-        val sources = resources.map { resource -> sourceAdapter.describe(resource) }
+        val sources = resources.mapIndexed { index, resource ->
+            sourceAdapter.describe(resource, discoveryOrder = index)
+        }
         val preview = BulkMigrationPlanner(sourceAdapter).preview(
             sources,
             cancellationSignal,
@@ -153,7 +156,7 @@ class AndroidBulkMigrationCoordinator(
                 sources = discovery.sources,
                 cancellationSignal = cancellationSignal,
                 progressListener = previewProgressListener,
-            )
+            ).withDiscoveryWarnings(discovery)
         }
         val preview = duplicateAnalyzer.analyze(
             plannedPreview,
@@ -296,6 +299,41 @@ class AndroidBulkMigrationCoordinator(
             // Provider-specific persistence failures do not discard the current read grant.
         }
     }
+}
+
+private fun MigrationPreview.withDiscoveryWarnings(
+    discovery: MigrationTreeDiscoveryResult,
+): MigrationPreview {
+    val discoveryWarnings = buildList {
+        if (discovery.wasTruncated) {
+            add(MigrationPlanWarning(MigrationAnalysisWarning.TREE_TRUNCATED))
+        }
+        if (discovery.unreadableDirectoryCount > 0) {
+            add(
+                MigrationPlanWarning(
+                    warning = MigrationAnalysisWarning.TREE_UNREADABLE_DIRECTORY,
+                    occurrenceCount = discovery.unreadableDirectoryCount,
+                ),
+            )
+        }
+        if (discovery.skippedEntryCount > 0) {
+            add(
+                MigrationPlanWarning(
+                    warning = MigrationAnalysisWarning.TREE_ENTRY_SKIPPED,
+                    occurrenceCount = discovery.skippedEntryCount,
+                ),
+            )
+        }
+        if (discovery.duplicateReferenceCount > 0) {
+            add(
+                MigrationPlanWarning(
+                    warning = MigrationAnalysisWarning.DUPLICATE_SOURCE_REFERENCE,
+                    occurrenceCount = discovery.duplicateReferenceCount,
+                ),
+            )
+        }
+    }
+    return copy(planWarnings = planWarnings + discoveryWarnings)
 }
 
 internal fun migrationBatchStorageEstimate(preview: MigrationPreview): StorageEstimate =

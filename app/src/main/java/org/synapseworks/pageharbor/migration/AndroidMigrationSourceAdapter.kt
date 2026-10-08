@@ -3,28 +3,36 @@ package org.synapseworks.pageharbor.migration
 import android.content.ContentResolver
 import android.content.Context
 import android.database.Cursor
+import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
+import androidx.core.net.toUri
+import java.io.FileNotFoundException
 import java.io.IOException
 import java.io.InputStream
+import org.synapseworks.pageharbor.document.session.DEFAULT_MAX_IMPORTED_DOCUMENT_PAGES
 import org.synapseworks.pageharbor.document.importing.InboundShareResource
 
 /**
  * Tolerant SAF/content-provider adapter. Metadata is never trusted for decoder selection and an
  * omitted/invalid size or timestamp stays null rather than being rewritten as zero.
  */
-class AndroidMigrationSourceAdapter(context: Context) : MigrationSourceAccess {
+class AndroidMigrationSourceAdapter(context: Context) : MigrationSourceAccess, MigrationPdfInspector {
     private val resolver: ContentResolver = context.applicationContext.contentResolver
 
     fun describe(
         resource: InboundShareResource,
         relativeFolderPath: List<String> = emptyList(),
+        discoveryOrder: Int? = null,
     ): MigrationSource = describe(
         uri = resource.uri,
         relativeFolderPath = relativeFolderPath,
         declaredContentType = resource.declaredContentType,
         platformAccessFlags = resource.grantFlags,
+        origin = MigrationSourceOrigin.INBOUND_SHARE,
+        discoveryOrder = discoveryOrder,
+        discoveryOrderEvidence = MigrationDiscoveryOrderEvidence.SOURCE_DECLARED,
     )
 
     fun describe(
@@ -32,6 +40,10 @@ class AndroidMigrationSourceAdapter(context: Context) : MigrationSourceAccess {
         relativeFolderPath: List<String> = emptyList(),
         declaredContentType: String? = null,
         platformAccessFlags: Int = 0,
+        origin: MigrationSourceOrigin = MigrationSourceOrigin.FILE_SELECTION,
+        discoveryOrder: Int? = null,
+        discoveryOrderEvidence: MigrationDiscoveryOrderEvidence =
+            MigrationDiscoveryOrderEvidence.CANONICAL_PROVIDER_INDEPENDENT,
     ): MigrationSource {
         require(relativeFolderPath.none(::isUnsafePathSegment))
         var displayName: String? = null
@@ -73,11 +85,14 @@ class AndroidMigrationSourceAdapter(context: Context) : MigrationSourceAccess {
             platformAccessFlags = platformAccessFlags,
             sizeBytes = sizeBytes,
             modifiedAtMillis = modifiedAtMillis,
+            origin = origin,
+            discoveryOrder = discoveryOrder,
+            discoveryOrderEvidence = discoveryOrderEvidence,
         )
     }
 
     override fun open(source: MigrationSource): InputStream = try {
-        resolver.openInputStream(Uri.parse(source.id))
+        resolver.openInputStream(source.id.toUri())
             ?: throw IOException("Provider returned no stream")
     } catch (exception: SecurityException) {
         throw exception
@@ -85,6 +100,36 @@ class AndroidMigrationSourceAdapter(context: Context) : MigrationSourceAccess {
         throw exception
     } catch (exception: RuntimeException) {
         throw IOException("Provider stream failed", exception)
+    }
+
+    /** Reads only the PDF page tree; no page bitmap is decoded or retained during planning. */
+    override fun inspectPdf(source: MigrationSource): MigrationPdfInspection {
+        return try {
+            val descriptor = resolver.openFileDescriptor(source.id.toUri(), "r")
+                ?: return MigrationPdfInspection.Unavailable
+            descriptor.use { fileDescriptor ->
+                PdfRenderer(fileDescriptor).use { renderer ->
+                    when {
+                        renderer.pageCount <= 0 -> MigrationPdfInspection.Malformed
+                        renderer.pageCount > DEFAULT_MAX_IMPORTED_DOCUMENT_PAGES ->
+                            MigrationPdfInspection.PageLimitExceeded
+                        else -> MigrationPdfInspection.Readable(renderer.pageCount)
+                    }
+                }
+            }
+        } catch (_: FileNotFoundException) {
+            MigrationPdfInspection.Unavailable
+        } catch (_: SecurityException) {
+            MigrationPdfInspection.Unavailable
+        } catch (_: IOException) {
+            MigrationPdfInspection.Malformed
+        } catch (_: IllegalArgumentException) {
+            MigrationPdfInspection.Malformed
+        } catch (_: IllegalStateException) {
+            MigrationPdfInspection.Malformed
+        } catch (_: RuntimeException) {
+            MigrationPdfInspection.Malformed
+        }
     }
 
     private fun Cursor.safeString(column: String): String? {

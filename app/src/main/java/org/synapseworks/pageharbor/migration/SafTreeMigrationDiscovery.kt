@@ -20,6 +20,7 @@ data class MigrationTreeDiscoveryResult(
     val skippedEntryCount: Int,
     val wasCancelled: Boolean,
     val wasTruncated: Boolean,
+    val duplicateReferenceCount: Int = 0,
 )
 
 fun interface MigrationTreeDiscoveryProgressListener {
@@ -84,6 +85,7 @@ internal class RecursiveMigrationTreeEnumerator(
         var skippedEntries = 0
         var enumeratedEntries = 0
         var truncated = false
+        var duplicateReferences = 0
 
         while (queue.isNotEmpty()) {
             currentCoroutineContext().ensureActive()
@@ -131,7 +133,10 @@ internal class RecursiveMigrationTreeEnumerator(
                             depth = directory.depth + 1,
                         ),
                     )
-                } else if (emittedResourceReferences.add(entry.resourceReference)) {
+                } else {
+                    if (!emittedResourceReferences.add(entry.resourceReference)) {
+                        duplicateReferences += 1
+                    }
                     sources += MigrationSource(
                         id = entry.resourceReference,
                         displayName = entry.displayName,
@@ -140,6 +145,10 @@ internal class RecursiveMigrationTreeEnumerator(
                         platformAccessFlags = platformAccessFlags,
                         sizeBytes = entry.sizeBytes,
                         modifiedAtMillis = entry.modifiedAtMillis,
+                        origin = MigrationSourceOrigin.DOCUMENT_TREE,
+                        discoveryOrder = sources.size,
+                        discoveryOrderEvidence =
+                            MigrationDiscoveryOrderEvidence.CANONICAL_PROVIDER_INDEPENDENT,
                     )
                     progressListener.onProgress(sources.size, visitedDirectoryIds.size)
                 }
@@ -155,6 +164,7 @@ internal class RecursiveMigrationTreeEnumerator(
             skippedEntryCount = skippedEntries,
             wasCancelled = cancellationSignal.isCancellationRequested(),
             wasTruncated = truncated,
+            duplicateReferenceCount = duplicateReferences,
         )
     }
 
@@ -165,6 +175,7 @@ internal class RecursiveMigrationTreeEnumerator(
         skippedEntryCount = 0,
         wasCancelled = false,
         wasTruncated = false,
+        duplicateReferenceCount = 0,
     )
 }
 

@@ -1,6 +1,8 @@
 package org.synapseworks.pageharbor.migration
 
 import java.io.InputStream
+import java.text.Normalizer
+import java.util.Locale
 import org.synapseworks.pageharbor.library.duplicate.DuplicateKind
 
 /** Provider metadata is advisory. Null means the provider did not supply a trustworthy value. */
@@ -12,13 +14,27 @@ data class MigrationSource(
     val platformAccessFlags: Int = 0,
     val sizeBytes: Long? = null,
     val modifiedAtMillis: Long? = null,
+    val createdAtMillis: Long? = null,
+    val origin: MigrationSourceOrigin = MigrationSourceOrigin.UNKNOWN,
+    /** Stable only within an import-plan operation; never used to reopen the source. */
+    val discoveryIdentity: String = id,
+    val discoveryOrder: Int? = null,
+    val discoveryOrderEvidence: MigrationDiscoveryOrderEvidence =
+        MigrationDiscoveryOrderEvidence.CANONICAL_PROVIDER_INDEPENDENT,
 ) {
     init {
         require(id.isNotBlank())
+        require(discoveryIdentity.isNotBlank())
         require(sizeBytes == null || sizeBytes >= 0L)
         require(modifiedAtMillis == null || modifiedAtMillis >= 0L)
+        require(createdAtMillis == null || createdAtMillis >= 0L)
+        require(discoveryOrder == null || discoveryOrder >= 0)
         require(relativeFolderPath.none(::isUnsafePathSegment))
     }
+
+    /** Used only for deterministic comparisons; the original display name remains unchanged. */
+    val normalizedDisplayName: String?
+        get() = displayName?.let(::normalizeMigrationFilename)?.takeIf(String::isNotEmpty)
 }
 
 enum class MigrationContentType(val mimeType: String) {
@@ -45,12 +61,29 @@ enum class MigrationSourceIssue {
 data class RejectedMigrationSource(
     val source: MigrationSource,
     val issue: MigrationSourceIssue,
+    val failureDetail: MigrationSourceFailureDetail = when (issue) {
+        MigrationSourceIssue.UNREADABLE -> MigrationSourceFailureDetail.STREAM_UNREADABLE
+        MigrationSourceIssue.UNSUPPORTED_CONTENT ->
+            MigrationSourceFailureDetail.UNSUPPORTED_SIGNATURE
+    },
+    val warnings: List<MigrationAnalysisWarning> = emptyList(),
 )
 
 data class InspectedMigrationSource(
     val source: MigrationSource,
     val contentType: MigrationContentType,
-)
+    val pageCount: Int? = null,
+    val contentSha256: String? = null,
+    val evidence: Set<MigrationEvidenceSource> = setOf(MigrationEvidenceSource.STREAM_SIGNATURE),
+    val warnings: List<MigrationAnalysisWarning> = emptyList(),
+) {
+    init {
+        require(pageCount == null || pageCount > 0)
+        require(contentSha256 == null || SHA_256_REGEX.matches(contentSha256))
+        require(MigrationEvidenceSource.STREAM_SIGNATURE in evidence)
+        if (contentType.isImage) require(pageCount == null || pageCount == 1)
+    }
+}
 
 enum class MigrationDocumentGrouping {
     SINGLE_PDF,
@@ -65,6 +98,12 @@ data class MigrationDocumentPlan(
     val relativeFolderPath: List<String>,
     val sources: List<InspectedMigrationSource>,
     val grouping: MigrationDocumentGrouping,
+    val pages: List<MigrationPlannedPage> = emptyList(),
+    val originalAssets: List<MigrationOriginalAssetPlan> = emptyList(),
+    val dateCandidates: List<MigrationDateCandidate> = emptyList(),
+    val evidence: Set<MigrationEvidenceSource> = emptySet(),
+    val warningCodes: List<MigrationAnalysisWarning> = emptyList(),
+    val ambiguityIds: List<String> = emptyList(),
 ) {
     init {
         require(id.isNotBlank())
@@ -72,6 +111,18 @@ data class MigrationDocumentPlan(
         require(sources.isNotEmpty())
         require(relativeFolderPath.none(::isUnsafePathSegment))
         require(sources.all { it.source.relativeFolderPath == relativeFolderPath })
+        require(pages.map(MigrationPlannedPage::id).distinct().size == pages.size)
+        require(pages.map(MigrationPlannedPage::plannedIndex) == pages.indices.toList())
+        require(
+            pages.all { page ->
+                sources.any { it.source.discoveryIdentity == page.sourceDiscoveryId }
+            },
+        )
+        require(
+            originalAssets.all { asset ->
+                sources.any { it.source.discoveryIdentity == asset.sourceDiscoveryId }
+            },
+        )
         when (grouping) {
             MigrationDocumentGrouping.SINGLE_PDF -> require(
                 sources.size == 1 && sources.single().contentType == MigrationContentType.PDF,
@@ -131,7 +182,22 @@ data class MigrationPreview(
     /** Populated by the Android/Room coordinator's read-only fingerprinting pass. */
     val duplicateDocuments: List<MigrationDuplicatePreview> = emptyList(),
     val duplicateAnalysisComplete: Boolean = false,
+    val requestedSources: List<MigrationSource> = emptyList(),
+    val plannedFolders: List<MigrationFolderCandidate> = emptyList(),
+    val planWarnings: List<MigrationPlanWarning> = emptyList(),
+    val ambiguities: List<MigrationPlanAmbiguity> = emptyList(),
+    val duplicateCandidates: List<MigrationPlanDuplicateCandidate> = emptyList(),
 ) {
+    init {
+        require(requestedSourceCount >= inspectedSourceCount)
+        require(requestedSources.isEmpty() || requestedSources.size == requestedSourceCount)
+        require(
+            requestedSources.isEmpty() ||
+                requestedSources.map(MigrationSource::discoveryIdentity).distinct().size ==
+                requestedSources.size,
+        )
+    }
+
     val exactDuplicateCount: Int
         get() = duplicateDocuments.count { it.duplicateKind == DuplicateKind.EXACT }
 
@@ -161,7 +227,106 @@ data class MigrationPreview(
                 .filterNot(classified::contains)
                 .toSet()
         }
+
+    /** Complete M1 accounting. No requested artifact is omitted, including cancellation tails. */
+    val sourceAccounting: List<MigrationArtifactAccounting>
+        get() {
+            if (requestedSources.isEmpty()) return emptyList()
+            val planIdsBySource = buildMap<String, MutableList<String>> {
+                documents.forEach { document ->
+                    document.sources.forEach { inspected ->
+                        getOrPut(inspected.source.discoveryIdentity, ::mutableListOf) += document.id
+                    }
+                }
+            }
+            val rejectedBySource = rejectedSources.associateBy {
+                it.source.discoveryIdentity
+            }
+            val ambiguitySourceIds = ambiguities.flatMapTo(linkedSetOf()) {
+                it.sourceDiscoveryIds
+            }
+            val plannedDuplicateStrength = buildMap<String, MigrationPlanDuplicateStrength> {
+                duplicateCandidates.forEach { candidate ->
+                    candidate.sourceDiscoveryIds.forEach { sourceId ->
+                        put(sourceId, candidate.strength)
+                    }
+                }
+                duplicateDocuments.forEach { duplicate ->
+                    val strength = duplicate.duplicateKind?.toPlanDuplicateStrengthOrNull()
+                        ?: return@forEach
+                    documents.firstOrNull { it.id == duplicate.documentId }
+                        ?.sources
+                        .orEmpty()
+                        .forEach { put(it.source.discoveryIdentity, strength) }
+                }
+            }
+            val sourceWarnings = buildMap<String, MutableList<MigrationAnalysisWarning>> {
+                documents.flatMap(MigrationDocumentPlan::sources).forEach { inspected ->
+                    getOrPut(inspected.source.discoveryIdentity, ::mutableListOf) += inspected.warnings
+                }
+                rejectedSources.forEach { rejected ->
+                    getOrPut(rejected.source.discoveryIdentity, ::mutableListOf) += rejected.warnings
+                }
+                planWarnings.forEach { warning ->
+                    warning.affectedSourceDiscoveryIds.forEach { sourceId ->
+                        getOrPut(sourceId, ::mutableListOf) += warning.warning
+                    }
+                }
+            }
+            return requestedSources.map { source ->
+                val sourceId = source.discoveryIdentity
+                val rejected = rejectedBySource[sourceId]
+                val duplicateStrength = plannedDuplicateStrength[sourceId]
+                val disposition = when {
+                    rejected?.issue == MigrationSourceIssue.UNSUPPORTED_CONTENT ->
+                        MigrationArtifactDisposition.UNSUPPORTED
+                    rejected != null -> MigrationArtifactDisposition.ANALYSIS_FAILED
+                    duplicateStrength != null -> MigrationArtifactDisposition.DUPLICATE_CANDIDATE
+                    sourceId in ambiguitySourceIds ->
+                        MigrationArtifactDisposition.AMBIGUOUS_REQUIRES_REVIEW
+                    sourceId in planIdsBySource -> MigrationArtifactDisposition.PLANNED_FOR_IMPORT
+                    else -> MigrationArtifactDisposition.CANCELLED_UNPROCESSED
+                }
+                MigrationArtifactAccounting(
+                    sourceDiscoveryId = sourceId,
+                    disposition = disposition,
+                    plannedDocumentIds = planIdsBySource[sourceId].orEmpty(),
+                    duplicateStrength = duplicateStrength,
+                    warnings = sourceWarnings[sourceId].orEmpty().distinct(),
+                )
+            }
+        }
+
+    val sourceSummary: MigrationSourceSummary
+        get() {
+            val accounting = sourceAccounting
+            return MigrationSourceSummary(
+                requestedCount = requestedSourceCount,
+                inspectedCount = inspectedSourceCount,
+                plannedCount = accounting.count {
+                    it.disposition == MigrationArtifactDisposition.PLANNED_FOR_IMPORT
+                },
+                unsupportedCount = accounting.count {
+                    it.disposition == MigrationArtifactDisposition.UNSUPPORTED
+                },
+                analysisFailedCount = accounting.count {
+                    it.disposition == MigrationArtifactDisposition.ANALYSIS_FAILED
+                },
+                reviewRequiredCount = accounting.count {
+                    it.disposition == MigrationArtifactDisposition.AMBIGUOUS_REQUIRES_REVIEW
+                },
+                duplicateCandidateCount = accounting.count {
+                    it.disposition == MigrationArtifactDisposition.DUPLICATE_CANDIDATE
+                },
+                cancelledUnprocessedCount = accounting.count {
+                    it.disposition == MigrationArtifactDisposition.CANCELLED_UNPROCESSED
+                },
+            )
+        }
 }
+
+/** The existing preview is the deterministic M1 import plan; this alias avoids a second model. */
+typealias MigrationImportPlan = MigrationPreview
 
 fun interface MigrationPreviewProgressListener {
     fun onProgress(inspectedSources: Int, totalSources: Int)
@@ -293,3 +458,9 @@ data class MigrationDuplicateDecisions(
 
 internal fun isUnsafePathSegment(segment: String): Boolean =
     segment.isBlank() || segment == "." || segment == ".." || '/' in segment || '\\' in segment
+
+private val SHA_256_REGEX = Regex("^[0-9a-f]{64}$")
+
+internal fun normalizeMigrationFilename(value: String): String = Normalizer
+    .normalize(value.trim(), Normalizer.Form.NFC)
+    .lowercase(Locale.ROOT)

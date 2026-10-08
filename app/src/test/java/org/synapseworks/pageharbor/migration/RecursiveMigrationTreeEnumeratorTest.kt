@@ -1,5 +1,6 @@
 package org.synapseworks.pageharbor.migration
 
+import java.io.ByteArrayInputStream
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -99,6 +100,49 @@ class RecursiveMigrationTreeEnumeratorTest {
         assertFalse(unsafe.any(Char::isISOControl))
         assertEquals(missingOne, missingTwo)
         assertTrue(missingOne.startsWith("Folder-"))
+    }
+
+    @Test
+    fun duplicateProviderReferencesRemainAccountedForAsDuplicateCandidates() = runBlocking {
+        val backend = FakeTreeBackend(
+            mapOf(
+                "root" to listOf(
+                    file("first", "same.pdf").copy(resourceReference = "content://fake/shared"),
+                    file("second", "same.pdf").copy(resourceReference = "content://fake/shared"),
+                ),
+            ),
+        )
+
+        val discovery = RecursiveMigrationTreeEnumerator(backend).discover("tree", 0)
+        val plan = BulkMigrationPlanner(
+            MigrationSourceAccess { ByteArrayInputStream("%PDF-1.7\n".encodeToByteArray()) },
+        ).preview(discovery.sources)
+
+        assertEquals(2, discovery.sources.size)
+        assertEquals(1, discovery.duplicateReferenceCount)
+        assertEquals(1, plan.duplicateCandidates.size)
+        assertEquals(2, plan.sourceSummary.duplicateCandidateCount)
+    }
+
+    @Test
+    fun maximumDepthStopsNestedProviderTreeWithoutRecursion() = runBlocking {
+        val backend = FakeTreeBackend(
+            mapOf(
+                "root" to listOf(directory("one", "One")),
+                "one" to listOf(directory("two", "Two")),
+                "two" to listOf(directory("three", "Three")),
+                "three" to listOf(file("hidden", "hidden.pdf")),
+            ),
+        )
+
+        val result = RecursiveMigrationTreeEnumerator(
+            backend = backend,
+            maximumDepth = 2,
+        ).discover("tree", 0)
+
+        assertTrue(result.wasTruncated)
+        assertEquals(1, result.skippedEntryCount)
+        assertTrue(result.sources.isEmpty())
     }
 
     private class FakeTreeBackend(

@@ -52,6 +52,13 @@ class MigrationCoordinatorModelsTest {
         assertEquals(0, analyzed.differentDocumentCount)
         assertEquals(28L, analyzed.pageCount)
         assertEquals(emptySet<String>(), analyzed.unclassifiedDocumentIds)
+        assertEquals(
+            listOf(MigrationPlanDuplicateStrength.EXACT, MigrationPlanDuplicateStrength.POSSIBLE),
+            analyzed.sourceAccounting.map(MigrationArtifactAccounting::duplicateStrength),
+        )
+        assertTrue(analyzed.sourceAccounting.all {
+            it.disposition == MigrationArtifactDisposition.DUPLICATE_CANDIDATE
+        })
     }
 
     private fun preview(sizes: List<Long?>): MigrationPreview {
@@ -81,6 +88,9 @@ class MigrationCoordinatorModelsTest {
             inspectedSourceCount = sizes.size,
             requestedSourceCount = sizes.size,
             wasCancelled = false,
+            requestedSources = documents.flatMap { document ->
+                document.sources.map(InspectedMigrationSource::source)
+            },
         )
     }
 }
