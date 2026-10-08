@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.FitScreen
 import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
@@ -179,6 +180,7 @@ fun LibraryHomeScreen(
     onCancelImport: () -> Unit,
     onViewScanResult: () -> Unit,
     onFitUploadLimit: () -> Unit = {},
+    onCardCopy: () -> Unit = {},
     onPrivacyInfo: () -> Unit,
     onDismissPrivacyInfo: () -> Unit,
     onAbout: () -> Unit,
@@ -384,6 +386,7 @@ fun LibraryHomeScreen(
                 onCancelImport = onCancelImport,
                 onViewScanResult = onViewScanResult,
                 onFitUploadLimit = onFitUploadLimit,
+                onCardCopy = onCardCopy,
                 onOpenDocuments = { message ->
                     onDestinationSelected(LibraryDestination.Documents)
                     coroutineScope.launch {
@@ -1088,6 +1091,7 @@ private fun ToolsDestination(
     onCancelImport: () -> Unit,
     onViewScanResult: () -> Unit,
     onFitUploadLimit: () -> Unit,
+    onCardCopy: () -> Unit,
     onOpenDocuments: (String) -> Unit,
 ) {
     val focusManager = LocalFocusManager.current
@@ -1173,6 +1177,22 @@ private fun ToolsDestination(
             onClick = {
                 if (hasActiveSession) onFitUploadLimit() else onOpenDocuments(fitLimitGuidance)
             },
+        ),
+        ToolLauncherItemModel(
+            key = "card-copy",
+            icon = Icons.Default.CreditCard,
+            label = stringResource(R.string.card_copy_title),
+            accessibilityLabel = if (!interactionEnabled) {
+                stringResource(
+                    R.string.tools_busy_accessibility,
+                    stringResource(R.string.card_copy_title),
+                )
+            } else {
+                stringResource(R.string.card_copy_tool_accessibility)
+            },
+            searchTerms = listOf("id", "card", "front", "back", "copy"),
+            enabled = interactionEnabled,
+            onClick = onCardCopy,
         ),
         ToolLauncherItemModel(
             key = "ocr",

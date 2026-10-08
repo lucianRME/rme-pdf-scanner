@@ -34,6 +34,12 @@ import org.synapseworks.pageharbor.document.session.LibraryDocumentReference
 import org.synapseworks.pageharbor.document.targetsize.TargetSizeCustomUnit
 import org.synapseworks.pageharbor.document.targetsize.TargetSizePreset
 import org.synapseworks.pageharbor.document.targetsize.TargetSizeWorkflowState
+import org.synapseworks.pageharbor.document.cardcopy.CardCopyAlignment
+import org.synapseworks.pageharbor.document.cardcopy.CardCopyLayout
+import org.synapseworks.pageharbor.document.cardcopy.CardCopyPageSize
+import org.synapseworks.pageharbor.document.cardcopy.CardCopySide
+import org.synapseworks.pageharbor.document.cardcopy.CardCopySpacing
+import org.synapseworks.pageharbor.document.cardcopy.CardCopyWorkflowState
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.image.DocumentFilter
 import org.synapseworks.pageharbor.ocr.OcrUiState
@@ -78,6 +84,7 @@ import org.synapseworks.pageharbor.ui.ocr.OcrBatchSetupDialog
 import org.synapseworks.pageharbor.ui.ocr.OcrBatchStatusDialog
 import org.synapseworks.pageharbor.ui.theme.PageHarborTheme
 import org.synapseworks.pageharbor.ui.targetsize.FitUploadLimitScreen
+import org.synapseworks.pageharbor.ui.cardcopy.CardCopyScreen
 
 @Composable
 fun PageHarborApp(
@@ -149,6 +156,25 @@ fun PageHarborApp(
     onFitLimitShare: () -> Unit = {},
     onFitLimitRetry: () -> Unit = {},
     onFitLimitClose: () -> Unit = {},
+    cardCopyWorkflowState: CardCopyWorkflowState = CardCopyWorkflowState.Hidden,
+    onOpenCardCopy: () -> Unit = {},
+    onCardCopyScan: (CardCopySide) -> Unit = {},
+    onCardCopyImport: (CardCopySide) -> Unit = {},
+    onCardCopyContinueReview: () -> Unit = {},
+    onCardCopyRotate: (CardCopySide, Boolean) -> Unit = { _, _ -> },
+    onCardCopyRemove: (CardCopySide) -> Unit = {},
+    onCardCopySwap: () -> Unit = {},
+    onCardCopyContinueLayout: () -> Unit = {},
+    onCardCopyPageSize: (CardCopyPageSize) -> Unit = {},
+    onCardCopyLayout: (CardCopyLayout) -> Unit = {},
+    onCardCopySpacing: (CardCopySpacing) -> Unit = {},
+    onCardCopyAlignment: (CardCopyAlignment) -> Unit = {},
+    onCardCopyShowPreview: () -> Unit = {},
+    onCardCopyPrepare: () -> Unit = {},
+    onCardCopySave: () -> Unit = {},
+    onCardCopyShare: () -> Unit = {},
+    onCardCopyRetry: () -> Unit = {},
+    onCardCopyBack: () -> Unit = {},
     onExportPages: () -> Unit = {},
     onRecognizeText: () -> Unit = {},
     onRecognizeTextWithLanguage: ((OcrOperationSelection, Boolean) -> Unit)? = null,
@@ -293,11 +319,13 @@ fun PageHarborApp(
             libraryTransientUiBusy,
             ocrReviewState.active,
             targetSizeWorkflowState,
+            cardCopyWorkflowState,
         ) {
             val isBusy = showPrivacyInfo || showAbout || showAppLockSettings ||
                 showOcrLanguageSettings || ocrOperationPrompt != null ||
                 libraryTransientUiBusy || ocrReviewState.active ||
-                targetSizeWorkflowState != TargetSizeWorkflowState.Hidden
+                targetSizeWorkflowState != TargetSizeWorkflowState.Hidden ||
+                cardCopyWorkflowState != CardCopyWorkflowState.Hidden
             onReviewUiBusyChanged(isBusy)
             if (isBusy) exitController.reset()
         }
@@ -498,6 +526,26 @@ fun PageHarborApp(
             onShare = onFitLimitShare,
             onRetry = onFitLimitRetry,
         )
+        cardCopyWorkflowState != CardCopyWorkflowState.Hidden -> CardCopyScreen(
+            state = cardCopyWorkflowState,
+            onBack = onCardCopyBack,
+            onScan = onCardCopyScan,
+            onImport = onCardCopyImport,
+            onContinueReview = onCardCopyContinueReview,
+            onRotate = onCardCopyRotate,
+            onRemove = onCardCopyRemove,
+            onSwap = onCardCopySwap,
+            onContinueLayout = onCardCopyContinueLayout,
+            onPageSize = onCardCopyPageSize,
+            onLayout = onCardCopyLayout,
+            onSpacing = onCardCopySpacing,
+            onAlignment = onCardCopyAlignment,
+            onShowPreview = onCardCopyShowPreview,
+            onPrepare = onCardCopyPrepare,
+            onSave = onCardCopySave,
+            onShare = onCardCopyShare,
+            onRetry = onCardCopyRetry,
+        )
         currentScreen == PageHarborScreen.OcrResult && ocrUiState is OcrUiState.Success -> {
             OcrResultScreen(
                 result = ocrUiState.result,
@@ -629,6 +677,7 @@ fun PageHarborApp(
             onCancelImport = onCancelImport,
             onViewScanResult = { navigateTo(PageHarborScreen.ScanResult) },
             onFitUploadLimit = onOpenFitUploadLimit,
+            onCardCopy = onOpenCardCopy,
             onPrivacyInfo = {
                 showPrivacyInfo = true
             },

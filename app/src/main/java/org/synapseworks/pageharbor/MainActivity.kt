@@ -77,6 +77,14 @@ import org.synapseworks.pageharbor.document.preparePdfForSharing
 import org.synapseworks.pageharbor.document.recomposeNormalPdf
 import org.synapseworks.pageharbor.document.startPageExport
 import org.synapseworks.pageharbor.document.writeFilteredJpegToDestination
+import org.synapseworks.pageharbor.document.cardcopy.CardCopyAcquisition
+import org.synapseworks.pageharbor.document.cardcopy.CardCopyFailure
+import org.synapseworks.pageharbor.document.cardcopy.CardCopySide
+import org.synapseworks.pageharbor.document.cardcopy.CardCopyWorkflowViewModel
+import org.synapseworks.pageharbor.document.cardcopy.CardCopyWorkflowState
+import org.synapseworks.pageharbor.document.cardcopy.cardCopyFilename
+import org.synapseworks.pageharbor.document.cardcopy.cardCopyShareUri
+import org.synapseworks.pageharbor.document.cardcopy.deleteStaleCardCopyFiles
 import org.synapseworks.pageharbor.document.searchablepdf.LocalSearchablePdfExportCoordinator
 import org.synapseworks.pageharbor.document.searchablepdf.EffectiveOcrPageProvider
 import org.synapseworks.pageharbor.document.searchablepdf.EffectiveOcrPageProvision
@@ -227,6 +235,7 @@ class MainActivity : FragmentActivity() {
     private val backupReminder: BackupReminderViewModel by viewModels()
     private val protectedActions: ProtectedActionQueueViewModel by viewModels()
     private val targetSizeWorkflow: TargetSizeWorkflowViewModel by viewModels()
+    private val cardCopyWorkflow: CardCopyWorkflowViewModel by viewModels()
     private val playReviewLauncher by lazy { GooglePlayReviewLauncher() }
     private val appLockAuthenticationController by lazy {
         AndroidXAppLockAuthenticationController(
@@ -433,6 +442,36 @@ class MainActivity : FragmentActivity() {
         )
     }
 
+    private val cardCopyScanLauncher = registerForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult(),
+    ) { result ->
+        runWhenUnlocked(
+            AppLockProtectedEntryPoint.ACTIVITY_RESULT_CALLBACK,
+            PendingProtectedAction.CardCopyScannerResult(
+                result.resultCode,
+                result.data?.let(::Intent),
+            ),
+        )
+    }
+
+    private val cardCopyImageLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        runWhenUnlocked(
+            AppLockProtectedEntryPoint.ACTIVITY_RESULT_CALLBACK,
+            PendingProtectedAction.CardCopyImageResult(uri),
+        )
+    }
+
+    private val createCardCopyPdfLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/pdf"),
+    ) { uri ->
+        runWhenUnlocked(
+            AppLockProtectedEntryPoint.ACTIVITY_RESULT_CALLBACK,
+            PendingProtectedAction.CardCopyPdfDestination(uri),
+        )
+    }
+
     private fun handleSearchablePdfDestinationResult(destinationUri: Uri?) {
         val preparedExport = searchablePdfPreparedExport
         if (destinationUri == null) {
@@ -497,6 +536,7 @@ class MainActivity : FragmentActivity() {
             deleteStaleSearchablePdfs(cacheDir)
             deleteStaleNormalPdfs(cacheDir)
             deleteStaleTargetSizePdfs(cacheDir)
+            deleteStaleCardCopyFiles(cacheDir)
             if (session.documentPages.isEmpty()) {
                 deleteStaleDocumentImports(cacheDir)
             }
@@ -716,6 +756,25 @@ class MainActivity : FragmentActivity() {
                     onFitLimitShare = ::shareTargetSizePdf,
                     onFitLimitRetry = targetSizeWorkflow::retry,
                     onFitLimitClose = targetSizeWorkflow::close,
+                    cardCopyWorkflowState = cardCopyWorkflow.state,
+                    onOpenCardCopy = cardCopyWorkflow::open,
+                    onCardCopyScan = { side -> launchCardCopyScanner(side) },
+                    onCardCopyImport = { side -> launchCardCopyImport(side) },
+                    onCardCopyContinueReview = cardCopyWorkflow::continueToReview,
+                    onCardCopyRotate = cardCopyWorkflow::rotate,
+                    onCardCopyRemove = cardCopyWorkflow::remove,
+                    onCardCopySwap = cardCopyWorkflow::swap,
+                    onCardCopyContinueLayout = cardCopyWorkflow::continueToLayout,
+                    onCardCopyPageSize = cardCopyWorkflow::updatePageSize,
+                    onCardCopyLayout = cardCopyWorkflow::updateLayout,
+                    onCardCopySpacing = cardCopyWorkflow::updateSpacing,
+                    onCardCopyAlignment = cardCopyWorkflow::updateAlignment,
+                    onCardCopyShowPreview = cardCopyWorkflow::showPreview,
+                    onCardCopyPrepare = cardCopyWorkflow::prepare,
+                    onCardCopySave = ::chooseCardCopyDestination,
+                    onCardCopyShare = ::shareCardCopy,
+                    onCardCopyRetry = cardCopyWorkflow::retryPreparation,
+                    onCardCopyBack = cardCopyWorkflow::back,
                     onExportPages = ::exportPages,
                     onRecognizeText = ::recognizeText,
                     onRecognizeTextWithLanguage = { selection, useAsDefault ->
@@ -1802,6 +1861,12 @@ class MainActivity : FragmentActivity() {
                 handleSearchablePdfDestinationResult(action.uri)
             is PendingProtectedAction.TargetSizePdfDestination ->
                 targetSizeWorkflow.onSaveDestination(action.uri)
+            is PendingProtectedAction.CardCopyScannerResult ->
+                handleCardCopyScannerResult(action.resultCode, action.data)
+            is PendingProtectedAction.CardCopyImageResult ->
+                cardCopyWorkflow.onAcquisitionResult(action.uri)
+            is PendingProtectedAction.CardCopyPdfDestination ->
+                cardCopyWorkflow.onSaveDestination(action.uri)
             is PendingProtectedAction.LaunchPortabilityPicker ->
                 launchPortabilityPicker(action.request)
             is PendingProtectedAction.LaunchMigrationPicker -> launchMigrationPicker(action.request)
@@ -2434,6 +2499,87 @@ class MainActivity : FragmentActivity() {
             } finally {
                 session.releaseDocumentSessionLease(lease)
             }
+        }
+    }
+
+    private fun launchCardCopyScanner(side: CardCopySide) {
+        if (!cardCopyWorkflow.beginAcquisition(side, CardCopyAcquisition.SCAN)) return
+        val options = GmsDocumentScannerOptions.Builder()
+            .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_BASE_WITH_FILTER)
+            .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
+            .setGalleryImportAllowed(false)
+            .setPageLimit(1)
+            .build()
+        GmsDocumentScanning.getClient(options)
+            .getStartScanIntent(this)
+            .addOnSuccessListener { sender ->
+                try {
+                    cardCopyScanLauncher.launch(IntentSenderRequest.Builder(sender).build())
+                } catch (_: RuntimeException) {
+                    cardCopyWorkflow.onAcquisitionFailure()
+                }
+            }
+            .addOnFailureListener { cardCopyWorkflow.onAcquisitionFailure() }
+    }
+
+    private fun launchCardCopyImport(side: CardCopySide) {
+        if (!cardCopyWorkflow.beginAcquisition(side, CardCopyAcquisition.IMPORT)) return
+        try {
+            cardCopyImageLauncher.launch(arrayOf("image/jpeg", "image/png", "image/webp"))
+        } catch (_: ActivityNotFoundException) {
+            cardCopyWorkflow.onAcquisitionFailure()
+        } catch (_: RuntimeException) {
+            cardCopyWorkflow.onAcquisitionFailure()
+        }
+    }
+
+    private fun handleCardCopyScannerResult(resultCode: Int, data: Intent?) {
+        if (resultCode == Activity.RESULT_CANCELED) {
+            cardCopyWorkflow.onAcquisitionResult(null)
+            return
+        }
+        if (resultCode != Activity.RESULT_OK) {
+            cardCopyWorkflow.onAcquisitionFailure()
+            return
+        }
+        val uri = runCatching {
+            GmsDocumentScanningResult.fromActivityResultIntent(data)?.pages?.singleOrNull()?.imageUri
+        }.getOrNull()
+        if (uri == null) cardCopyWorkflow.onAcquisitionFailure()
+        else cardCopyWorkflow.onAcquisitionResult(uri)
+    }
+
+    private fun chooseCardCopyDestination() {
+        if (cardCopyWorkflow.state !is CardCopyWorkflowState.Prepared) return
+        cardCopyWorkflow.markSavePickerOpen()
+        try {
+            createCardCopyPdfLauncher.launch(cardCopyFilename())
+        } catch (_: ActivityNotFoundException) {
+            cardCopyWorkflow.onSaveDestination(null)
+        } catch (_: RuntimeException) {
+            cardCopyWorkflow.onSaveDestination(null)
+        }
+    }
+
+    private fun shareCardCopy() {
+        val prepared = cardCopyWorkflow.preparedForShare() ?: run {
+            cardCopyWorkflow.markShareFailed()
+            return
+        }
+        val uri = cardCopyShareUri(this, prepared) ?: run {
+            cardCopyWorkflow.markShareFailed()
+            return
+        }
+        when (val share = createPdfShareIntent(uri)) {
+            is PdfShareIntentResult.Success -> try {
+                startActivity(Intent.createChooser(share.intent, getString(R.string.pdf_share_chooser_title)))
+                cardCopyWorkflow.markShareInvoked()
+            } catch (_: RuntimeException) {
+                cardCopyWorkflow.markShareFailed()
+            }
+            PdfShareIntentResult.InvalidUri,
+            PdfShareIntentResult.NoPdfAvailable,
+            -> cardCopyWorkflow.markShareFailed()
         }
     }
 
@@ -3150,6 +3296,10 @@ class MainActivity : FragmentActivity() {
 
     internal fun targetSizeWorkflowStateForTest(): TargetSizeWorkflowState =
         targetSizeWorkflow.state
+
+    internal fun cardCopyWorkflowForTest(): CardCopyWorkflowViewModel = cardCopyWorkflow
+
+    internal fun cardCopyWorkflowStateForTest(): CardCopyWorkflowState = cardCopyWorkflow.state
 
     internal fun deliverTargetSizeDestinationForTest(uri: Uri?) =
         targetSizeWorkflow.onSaveDestination(uri)

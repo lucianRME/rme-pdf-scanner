@@ -203,6 +203,9 @@ class HomeScreenTest {
         composeTestRule.onNodeWithContentDescription(
             "Fit upload limit. Create a PDF under a chosen file-size limit.",
         ).assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription(
+            "ID / card copy. Front and back on one PDF page.",
+        ).assertIsDisplayed().assertIsEnabled()
         composeTestRule.onNodeWithContentDescription("Extract text with OCR").assertIsDisplayed()
         composeTestRule.onNodeWithContentDescription("Scan document").assertIsDisplayed()
 

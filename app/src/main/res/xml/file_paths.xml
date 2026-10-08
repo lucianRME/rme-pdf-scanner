@@ -9,6 +9,9 @@
     <cache-path
         name="target_size_pdfs"
         path="target-size-pdfs/" />
+    <cache-path
+        name="card_copy_pdfs"
+        path="card-copy-pdfs/" />
     <files-path
         name="document_library"
         path="document-library/" />
