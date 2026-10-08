@@ -200,6 +200,9 @@ class HomeScreenTest {
         composeTestRule.onNodeWithContentDescription("Import files").assertIsDisplayed()
         composeTestRule.onNodeWithContentDescription("Merge documents").assertIsDisplayed()
         composeTestRule.onNodeWithContentDescription("Split or extract pages").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription(
+            "Fit upload limit. Create a PDF under a chosen file-size limit.",
+        ).assertIsDisplayed()
         composeTestRule.onNodeWithContentDescription("Extract text with OCR").assertIsDisplayed()
         composeTestRule.onNodeWithContentDescription("Scan document").assertIsDisplayed()
 
@@ -396,6 +399,43 @@ class HomeScreenTest {
     }
 
     @Test
+    fun fitUploadLimitToolUsesTheActiveDocumentWithoutDuplicatingTheWorkflow() {
+        var openCount = 0
+        composeTestRule.setContent {
+            PageHarborApp(
+                autoNavigateToScanResult = false,
+                scannerSpikeState = scanSummary(jpegPageCount = 1),
+                documentPages = listOf(documentPage(1L)),
+                onOpenFitUploadLimit = { openCount += 1 },
+            )
+        }
+
+        composeTestRule.onNodeWithText("Tools").performClick()
+        composeTestRule.onNodeWithContentDescription(
+            "Fit upload limit. Create a PDF under a chosen file-size limit.",
+        ).performClick()
+
+        assertEquals(1, openCount)
+    }
+
+    @Test
+    fun documentActionsExposeFitUploadLimitAsTheSameWorkflowEntryPoint() {
+        var openCount = 0
+        composeTestRule.setContent {
+            PageHarborApp(
+                scannerSpikeState = scanSummary(jpegPageCount = 1),
+                documentPages = listOf(documentPage(1L)),
+                onOpenFitUploadLimit = { openCount += 1 },
+            )
+        }
+
+        openDocumentMore()
+        composeTestRule.onNodeWithText("Fit upload limit").performScrollTo().performClick()
+
+        assertEquals(1, openCount)
+    }
+
+    @Test
     fun toolsSearchAndLaunchersRemainUsableAtTwoHundredPercentFont() {
         composeTestRule.setContent {
             CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 2f)) {
@@ -435,6 +475,9 @@ class HomeScreenTest {
         ).assertIsNotEnabled().performClick()
         composeTestRule.onNodeWithContentDescription(
             "Extract text. Unavailable. Requires a saved document. OCR.",
+        ).assertIsNotEnabled()
+        composeTestRule.onNodeWithContentDescription(
+            "Open an RME document first, then choose Fit upload limit.",
         ).assertIsNotEnabled()
         composeTestRule.onAllNodesWithContentDescription("Create folder").assertCountEquals(0)
         assertEquals(1, importClickCount)

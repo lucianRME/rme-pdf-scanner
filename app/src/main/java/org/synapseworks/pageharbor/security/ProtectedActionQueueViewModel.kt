@@ -76,6 +76,8 @@ internal sealed interface PendingProtectedAction {
 
     data class SearchablePdfDestination(val uri: Uri?) : PendingProtectedAction
 
+    data class TargetSizePdfDestination(val uri: Uri?) : PendingProtectedAction
+
     data class LaunchPortabilityPicker(
         val request: PortabilityPickerRequest,
     ) : PendingProtectedAction

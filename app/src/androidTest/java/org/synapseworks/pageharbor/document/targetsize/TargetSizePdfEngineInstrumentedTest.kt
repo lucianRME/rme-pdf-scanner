@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.os.Debug
 import android.util.Log
+import androidx.core.content.FileProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
@@ -129,6 +130,54 @@ class TargetSizePdfEngineInstrumentedTest {
             } finally {
                 engine.discard(prepared)
             }
+        }
+    }
+
+    @Test
+    fun alreadyFitsCopyAndVerifiedDestinationRemainByteExactAndShareable() = runBlocking {
+        val sourceImage = createFixture("already-fits", 600, 800, FixtureKind.TEXT_FORM)
+        val sourcePdf = createPdf("already-fits-source", sourceImage, addText = true, pageCount = 2)
+        val originalBytes = sourcePdf.readBytes()
+        val engine = engine()
+        val request = request(listOf(sourceImage, sourceImage), TargetSizeBytes.MB_2).copy(
+            originalPdfUris = listOf(Uri.fromFile(sourcePdf)),
+        )
+
+        val result = engine.prepareExistingPdfCopy(
+            TargetSizeExistingPdfCopyRequest(Uri.fromFile(sourcePdf), request),
+        )
+
+        assertTrue("result=$result", result is TargetSizePdfResult.TargetReached)
+        val prepared = (result as TargetSizePdfResult.TargetReached).prepared
+        try {
+            assertTrue(prepared.finalBytes <= TargetSizeBytes.MB_2)
+            assertEquals(0, prepared.performance.fullDocumentPassCount)
+            assertTrue(originalBytes.contentEquals(prepared.file.readBytes()))
+            assertTrue(originalBytes.contentEquals(sourcePdf.readBytes()))
+
+            val destination = File(
+                File(context.cacheDir, TARGET_SIZE_DIRECTORY_NAME).apply { mkdirs() },
+                "verified-destination-${System.nanoTime()}.pdf",
+            ).apply { createNewFile() }
+            val destinationUri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                destination,
+            )
+            val writeResult = TargetSizeDestinationWriter(context).write(prepared, destinationUri)
+
+            assertEquals(TargetSizeDestinationResult.Success(prepared.finalBytes), writeResult)
+            assertTrue(originalBytes.contentEquals(destination.readBytes()))
+            assertReopensAndRenders(destination, expectedPages = 2)
+            PDDocument.load(destination).use { document ->
+                val text = PDFTextStripper().getText(document)
+                assertTrue(text.indexOf("embedded text 1") < text.indexOf("embedded text 2"))
+            }
+            val shareUri = targetSizeShareUri(context, prepared)
+            assertNotNull(shareUri)
+            assertEquals("content", shareUri?.scheme)
+        } finally {
+            engine.discard(prepared)
         }
     }
 
@@ -539,20 +588,27 @@ class TargetSizePdfEngineInstrumentedTest {
         }
     }
 
-    private fun createPdf(name: String, jpeg: File, addText: Boolean): File {
+    private fun createPdf(
+        name: String,
+        jpeg: File,
+        addText: Boolean,
+        pageCount: Int = 1,
+    ): File {
         val output = File(testRoot, "$name.pdf")
         PDDocument().use { document ->
             val image = JPEGFactory.createFromStream(document, jpeg.inputStream())
-            val page = PDPage(PDRectangle(image.width.toFloat(), image.height.toFloat()))
-            document.addPage(page)
-            PDPageContentStream(document, page).use { content ->
-                content.drawImage(image, 0f, 0f, image.width.toFloat(), image.height.toFloat())
-                if (addText) {
-                    content.beginText()
-                    content.setFont(com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA, 12f)
-                    content.newLineAtOffset(20f, 20f)
-                    content.showText("embedded text")
-                    content.endText()
+            repeat(pageCount) { index ->
+                val page = PDPage(PDRectangle(image.width.toFloat(), image.height.toFloat()))
+                document.addPage(page)
+                PDPageContentStream(document, page).use { content ->
+                    content.drawImage(image, 0f, 0f, image.width.toFloat(), image.height.toFloat())
+                    if (addText) {
+                        content.beginText()
+                        content.setFont(com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA, 12f)
+                        content.newLineAtOffset(20f, 20f)
+                        content.showText("embedded text ${index + 1}")
+                        content.endText()
+                    }
                 }
             }
             document.save(output)

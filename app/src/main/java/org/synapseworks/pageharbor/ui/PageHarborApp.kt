@@ -31,6 +31,9 @@ import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfSaveError
 import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfSaveState
 import org.synapseworks.pageharbor.document.session.DocumentPage
 import org.synapseworks.pageharbor.document.session.LibraryDocumentReference
+import org.synapseworks.pageharbor.document.targetsize.TargetSizeCustomUnit
+import org.synapseworks.pageharbor.document.targetsize.TargetSizePreset
+import org.synapseworks.pageharbor.document.targetsize.TargetSizeWorkflowState
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.image.DocumentFilter
 import org.synapseworks.pageharbor.ocr.OcrUiState
@@ -74,6 +77,7 @@ import org.synapseworks.pageharbor.ui.ocr.OcrReviewScreen
 import org.synapseworks.pageharbor.ui.ocr.OcrBatchSetupDialog
 import org.synapseworks.pageharbor.ui.ocr.OcrBatchStatusDialog
 import org.synapseworks.pageharbor.ui.theme.PageHarborTheme
+import org.synapseworks.pageharbor.ui.targetsize.FitUploadLimitScreen
 
 @Composable
 fun PageHarborApp(
@@ -131,6 +135,20 @@ fun PageHarborApp(
     onSaveSearchablePdf: () -> Unit = {},
     onSaveSearchablePdfWithLanguage: ((OcrOperationSelection, Boolean) -> Unit)? = null,
     onSharePdf: () -> Unit = {},
+    targetSizeWorkflowState: TargetSizeWorkflowState = TargetSizeWorkflowState.Hidden,
+    onOpenFitUploadLimit: () -> Unit = {},
+    onFitLimitPresetSelected: (TargetSizePreset) -> Unit = {},
+    onFitLimitCustomSelected: () -> Unit = {},
+    onFitLimitCustomTextChanged: (String) -> Unit = {},
+    onFitLimitCustomUnitChanged: (TargetSizeCustomUnit) -> Unit = {},
+    onFitLimitPrepare: () -> Unit = {},
+    onFitLimitCancel: () -> Unit = {},
+    onFitLimitUseAlternative: () -> Unit = {},
+    onFitLimitChange: () -> Unit = {},
+    onFitLimitSave: () -> Unit = {},
+    onFitLimitShare: () -> Unit = {},
+    onFitLimitRetry: () -> Unit = {},
+    onFitLimitClose: () -> Unit = {},
     onExportPages: () -> Unit = {},
     onRecognizeText: () -> Unit = {},
     onRecognizeTextWithLanguage: ((OcrOperationSelection, Boolean) -> Unit)? = null,
@@ -274,10 +292,12 @@ fun PageHarborApp(
             ocrOperationPrompt,
             libraryTransientUiBusy,
             ocrReviewState.active,
+            targetSizeWorkflowState,
         ) {
             val isBusy = showPrivacyInfo || showAbout || showAppLockSettings ||
                 showOcrLanguageSettings || ocrOperationPrompt != null ||
-                libraryTransientUiBusy || ocrReviewState.active
+                libraryTransientUiBusy || ocrReviewState.active ||
+                targetSizeWorkflowState != TargetSizeWorkflowState.Hidden
             onReviewUiBusyChanged(isBusy)
             if (isBusy) exitController.reset()
         }
@@ -463,6 +483,21 @@ fun PageHarborApp(
             },
             onCancelRerun = onOcrReviewCancelRerun,
         )
+        targetSizeWorkflowState != TargetSizeWorkflowState.Hidden -> FitUploadLimitScreen(
+            state = targetSizeWorkflowState,
+            onBack = onFitLimitClose,
+            onPresetSelected = onFitLimitPresetSelected,
+            onCustomSelected = onFitLimitCustomSelected,
+            onCustomTextChanged = onFitLimitCustomTextChanged,
+            onCustomUnitChanged = onFitLimitCustomUnitChanged,
+            onPrepare = onFitLimitPrepare,
+            onCancel = onFitLimitCancel,
+            onUseAlternative = onFitLimitUseAlternative,
+            onChangeLimit = onFitLimitChange,
+            onSave = onFitLimitSave,
+            onShare = onFitLimitShare,
+            onRetry = onFitLimitRetry,
+        )
         currentScreen == PageHarborScreen.OcrResult && ocrUiState is OcrUiState.Success -> {
             OcrResultScreen(
                 result = ocrUiState.result,
@@ -539,6 +574,7 @@ fun PageHarborApp(
                 }
             },
             onSharePdf = onSharePdf,
+            onFitUploadLimit = onOpenFitUploadLimit,
             onExportPages = onExportPages,
             onRecognizeText = {
                 if (onRecognizeTextWithLanguage != null) {
@@ -592,6 +628,7 @@ fun PageHarborApp(
             onImportFiles = onImportFiles,
             onCancelImport = onCancelImport,
             onViewScanResult = { navigateTo(PageHarborScreen.ScanResult) },
+            onFitUploadLimit = onOpenFitUploadLimit,
             onPrivacyInfo = {
                 showPrivacyInfo = true
             },

@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FilterAlt
+import androidx.compose.material.icons.filled.FitScreen
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Save
@@ -135,6 +136,7 @@ fun ScanResultScreen(
     onSavePdf: () -> Unit,
     onSaveSearchablePdf: () -> Unit,
     onSharePdf: () -> Unit,
+    onFitUploadLimit: () -> Unit = {},
     onExportPages: () -> Unit,
     onRecognizeText: () -> Unit,
     onViewRecognizedText: () -> Unit,
@@ -368,6 +370,10 @@ fun ScanResultScreen(
             onSaveSearchablePdf = {
                 activeSheet = null
                 onSaveSearchablePdf()
+            },
+            onFitUploadLimit = {
+                activeSheet = null
+                onFitUploadLimit()
             },
             onExportPages = {
                 activeSheet = null
@@ -767,6 +773,7 @@ private fun DocumentMoreSheet(
     onSaveToLibrary: () -> Unit,
     onSavePdf: () -> Unit,
     onSaveSearchablePdf: () -> Unit,
+    onFitUploadLimit: () -> Unit,
     onExportPages: () -> Unit,
     onOpenPageTools: () -> Unit,
     onViewRecognizedText: () -> Unit,
@@ -815,6 +822,14 @@ private fun DocumentMoreSheet(
                 supportingText = stringResource(R.string.document_save_searchable_description),
                 enabled = hasPages && searchablePdfEnabled,
                 onClick = onSaveSearchablePdf,
+            )
+            HorizontalDivider()
+            SheetActionRow(
+                icon = Icons.Default.FitScreen,
+                title = stringResource(R.string.fit_limit_title),
+                supportingText = stringResource(R.string.fit_limit_workspace_description),
+                enabled = hasPages && pdfExportEnabled,
+                onClick = onFitUploadLimit,
             )
             HorizontalDivider()
             SheetActionRow(

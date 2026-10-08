@@ -79,6 +79,7 @@ import org.synapseworks.pageharbor.document.startPageExport
 import org.synapseworks.pageharbor.document.writeFilteredJpegToDestination
 import org.synapseworks.pageharbor.document.searchablepdf.LocalSearchablePdfExportCoordinator
 import org.synapseworks.pageharbor.document.searchablepdf.EffectiveOcrPageProvider
+import org.synapseworks.pageharbor.document.searchablepdf.EffectiveOcrPageProvision
 import org.synapseworks.pageharbor.document.searchablepdf.EffectiveOcrPageRequest
 import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfExportCoordinator
 import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfExportError
@@ -94,6 +95,14 @@ import org.synapseworks.pageharbor.document.searchablepdf.deleteStaleSearchableP
 import org.synapseworks.pageharbor.document.searchablepdf.isInProgress
 import org.synapseworks.pageharbor.document.searchablepdf.searchablePdfSaveStateForProgress
 import org.synapseworks.pageharbor.document.targetsize.deleteStaleTargetSizePdfs
+import org.synapseworks.pageharbor.document.targetsize.TargetSizeBytes
+import org.synapseworks.pageharbor.document.targetsize.TargetSizeSourceSummary
+import org.synapseworks.pageharbor.document.targetsize.TargetSizeWorkflowInput
+import org.synapseworks.pageharbor.document.targetsize.TargetSizeWorkflowViewModel
+import org.synapseworks.pageharbor.document.targetsize.TargetSizeWorkflowState
+import org.synapseworks.pageharbor.document.targetsize.targetSizeFilename
+import org.synapseworks.pageharbor.document.targetsize.targetSizePdfRequest
+import org.synapseworks.pageharbor.document.targetsize.targetSizeShareUri
 import org.synapseworks.pageharbor.document.session.DocumentPage
 import org.synapseworks.pageharbor.document.session.DocumentSession
 import org.synapseworks.pageharbor.document.session.readDocumentImageMetadata
@@ -117,6 +126,8 @@ import org.synapseworks.pageharbor.ocr.OcrOperationTracker
 import org.synapseworks.pageharbor.ocr.OcrOperationSelection
 import org.synapseworks.pageharbor.ocr.OcrOperationSelectionResolver
 import org.synapseworks.pageharbor.ocr.OcrPage
+import org.synapseworks.pageharbor.ocr.OcrPageResult
+import org.synapseworks.pageharbor.ocr.OcrResult
 import org.synapseworks.pageharbor.ocr.OcrScript
 import org.synapseworks.pageharbor.ocr.OcrScriptSelection
 import org.synapseworks.pageharbor.ocr.ScriptedOcrEngine
@@ -215,6 +226,7 @@ class MainActivity : FragmentActivity() {
     private val migration: MigrationWorkflowViewModel by viewModels()
     private val backupReminder: BackupReminderViewModel by viewModels()
     private val protectedActions: ProtectedActionQueueViewModel by viewModels()
+    private val targetSizeWorkflow: TargetSizeWorkflowViewModel by viewModels()
     private val playReviewLauncher by lazy { GooglePlayReviewLauncher() }
     private val appLockAuthenticationController by lazy {
         AndroidXAppLockAuthenticationController(
@@ -409,6 +421,15 @@ class MainActivity : FragmentActivity() {
         runWhenUnlocked(
             AppLockProtectedEntryPoint.ACTIVITY_RESULT_CALLBACK,
             PendingProtectedAction.SearchablePdfDestination(destinationUri),
+        )
+    }
+
+    private val createTargetSizePdfDocumentLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/pdf"),
+    ) { destinationUri ->
+        runWhenUnlocked(
+            AppLockProtectedEntryPoint.ACTIVITY_RESULT_CALLBACK,
+            PendingProtectedAction.TargetSizePdfDestination(destinationUri),
         )
     }
 
@@ -677,6 +698,24 @@ class MainActivity : FragmentActivity() {
                         saveSearchablePdf(resolveOcrOperation(selection, useAsDefault))
                     },
                     onSharePdf = ::sharePdf,
+                    targetSizeWorkflowState = targetSizeWorkflow.state,
+                    onOpenFitUploadLimit = ::openFitUploadLimit,
+                    onFitLimitPresetSelected = targetSizeWorkflow::selectPreset,
+                    onFitLimitCustomSelected = { targetSizeWorkflow.selectCustom() },
+                    onFitLimitCustomTextChanged = { value ->
+                        targetSizeWorkflow.updateCustomText(value)
+                    },
+                    onFitLimitCustomUnitChanged = { unit ->
+                        targetSizeWorkflow.updateCustomUnit(unit)
+                    },
+                    onFitLimitPrepare = targetSizeWorkflow::prepare,
+                    onFitLimitCancel = targetSizeWorkflow::cancelPreparation,
+                    onFitLimitUseAlternative = targetSizeWorkflow::acceptSmallestRecommended,
+                    onFitLimitChange = targetSizeWorkflow::changeLimit,
+                    onFitLimitSave = ::chooseTargetSizeDestination,
+                    onFitLimitShare = ::shareTargetSizePdf,
+                    onFitLimitRetry = targetSizeWorkflow::retry,
+                    onFitLimitClose = targetSizeWorkflow::close,
                     onExportPages = ::exportPages,
                     onRecognizeText = ::recognizeText,
                     onRecognizeTextWithLanguage = { selection, useAsDefault ->
@@ -1761,6 +1800,8 @@ class MainActivity : FragmentActivity() {
             is PendingProtectedAction.PageDestination -> handlePageDestinationResult(action.uri)
             is PendingProtectedAction.SearchablePdfDestination ->
                 handleSearchablePdfDestinationResult(action.uri)
+            is PendingProtectedAction.TargetSizePdfDestination ->
+                targetSizeWorkflow.onSaveDestination(action.uri)
             is PendingProtectedAction.LaunchPortabilityPicker ->
                 launchPortabilityPicker(action.request)
             is PendingProtectedAction.LaunchMigrationPicker -> launchMigrationPicker(action.request)
@@ -2345,6 +2386,138 @@ class MainActivity : FragmentActivity() {
         searchablePdfPreparedExport?.let(searchablePdfExportCoordinator::discardPreparedExport)
         searchablePdfPreparedExport = null
         searchablePdfSaveState = SearchablePdfSaveState.Idle
+    }
+
+    private fun openFitUploadLimit() {
+        if (targetSizeWorkflow.state != TargetSizeWorkflowState.Hidden) return
+        val lease = session.acquireDocumentSessionLease(documentSessionLeaseReleaseObserverForTest)
+        if (lease == null || lease.session.pages.isEmpty()) {
+            lease?.let(session::releaseDocumentSessionLease)
+            targetSizeWorkflow.failOpening()
+            return
+        }
+        targetSizeWorkflow.beginOpening()
+        lifecycleScope.launch {
+            try {
+                val documentSession = lease.session
+                val effectiveOcr = captureTargetSizeEffectiveOcr(documentSession)
+                val directSource = (
+                    normalPdfExportPlan(documentSession) as? NormalPdfExportPlan.DirectScannerPdf
+                    )?.source
+                val directUri = directSource?.toAndroidUri()
+                val directBytes = directUri?.let(::contentLength)
+                val pageSourceBytes = documentSession.pages
+                    .map { it.imageMetadata.sourceByteCount }
+                    .takeIf { sizes -> sizes.all { it != null } }
+                    ?.sumOf { requireNotNull(it) }
+                targetSizeWorkflow.open(
+                    TargetSizeWorkflowInput(
+                        summary = TargetSizeSourceSummary(
+                            title = documentSession.libraryDocument?.title
+                                ?: getString(R.string.document_result_title),
+                            pageCount = documentSession.pages.size,
+                            sourceBytes = directBytes ?: pageSourceBytes,
+                        ),
+                        request = targetSizePdfRequest(
+                            session = documentSession,
+                            targetBytes = TargetSizeBytes.MB_1,
+                            effectiveOcr = effectiveOcr,
+                        ),
+                        safeOriginalPdfUri = directUri.takeIf { directBytes != null },
+                        safeOriginalPdfBytes = directBytes,
+                    ),
+                )
+            } catch (_: CancellationException) {
+                targetSizeWorkflow.failOpening()
+            } catch (_: Exception) {
+                targetSizeWorkflow.failOpening()
+            } finally {
+                session.releaseDocumentSessionLease(lease)
+            }
+        }
+    }
+
+    private suspend fun captureTargetSizeEffectiveOcr(
+        documentSession: DocumentSession,
+    ): OcrResult? {
+        val persisted = capturePersistedSearchablePdfOcr(documentSession)
+            ?: return (ocrUiState as? OcrUiState.Success)?.result
+        val pages = mutableListOf<OcrPageResult>()
+        persisted.requests.forEachIndexed { pageIndex, request ->
+            when (val provision = persisted.provider.provide(request)) {
+                is EffectiveOcrPageProvision.Available -> pages += OcrPageResult(
+                    pageIndex = pageIndex,
+                    text = provision.page.effectiveText,
+                    layout = provision.page.layout,
+                )
+                is EffectiveOcrPageProvision.CorrectedTextOnly -> pages += OcrPageResult(
+                    pageIndex = pageIndex,
+                    text = provision.effectiveText,
+                    layout = null,
+                )
+                EffectiveOcrPageProvision.Stale,
+                is EffectiveOcrPageProvision.Unavailable,
+                -> Unit
+            }
+        }
+        return pages.takeIf(List<OcrPageResult>::isNotEmpty)?.let(::OcrResult)
+    }
+
+    private fun contentLength(uri: Uri): Long? = try {
+        contentResolver.openAssetFileDescriptor(uri, "r")?.use { descriptor ->
+            descriptor.length.takeIf { it >= 0L }
+        }
+    } catch (_: IOException) {
+        null
+    } catch (_: SecurityException) {
+        null
+    } catch (_: IllegalArgumentException) {
+        null
+    }
+
+    private fun chooseTargetSizeDestination() {
+        val prepared = targetSizeWorkflow.state as? TargetSizeWorkflowState.Prepared ?: return
+        targetSizeWorkflow.markSavePickerOpen()
+        try {
+            createTargetSizePdfDocumentLauncher.launch(
+                targetSizeFilename(prepared.input.summary.title),
+            )
+        } catch (_: ActivityNotFoundException) {
+            targetSizeWorkflow.onSaveDestination(null)
+        } catch (_: RuntimeException) {
+            targetSizeWorkflow.onSaveDestination(null)
+        }
+    }
+
+    private fun shareTargetSizePdf() {
+        val prepared = targetSizeWorkflow.preparedForShare() ?: run {
+            targetSizeWorkflow.markShareFailed()
+            return
+        }
+        val uri = targetSizeShareUri(this, prepared) ?: run {
+            targetSizeWorkflow.markShareFailed()
+            return
+        }
+        when (val share = createPdfShareIntent(uri)) {
+            is PdfShareIntentResult.Success -> try {
+                startActivity(
+                    Intent.createChooser(
+                        share.intent,
+                        getString(R.string.pdf_share_chooser_title),
+                    ),
+                )
+                targetSizeWorkflow.markShareInvoked()
+            } catch (_: ActivityNotFoundException) {
+                targetSizeWorkflow.markShareFailed()
+            } catch (_: SecurityException) {
+                targetSizeWorkflow.markShareFailed()
+            } catch (_: RuntimeException) {
+                targetSizeWorkflow.markShareFailed()
+            }
+            PdfShareIntentResult.NoPdfAvailable,
+            PdfShareIntentResult.InvalidUri,
+            -> targetSizeWorkflow.markShareFailed()
+        }
     }
 
     private fun sharePdf() {
@@ -2970,6 +3143,16 @@ class MainActivity : FragmentActivity() {
     internal fun pdfShareStateForTest(): PdfShareState = session.pdfShareState
 
     internal fun pageExportStateForTest(): PageExportState = session.pageExportState
+
+    internal fun openTargetSizeWorkflowForTest(input: TargetSizeWorkflowInput) {
+        targetSizeWorkflow.open(input)
+    }
+
+    internal fun targetSizeWorkflowStateForTest(): TargetSizeWorkflowState =
+        targetSizeWorkflow.state
+
+    internal fun deliverTargetSizeDestinationForTest(uri: Uri?) =
+        targetSizeWorkflow.onSaveDestination(uri)
 
     internal fun documentRevisionForTest(): Long = session.documentRevision
 

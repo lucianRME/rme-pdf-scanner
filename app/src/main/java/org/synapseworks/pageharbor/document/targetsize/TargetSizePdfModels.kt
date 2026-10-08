@@ -208,6 +208,11 @@ data class TargetSizePdfRequest(
     }
 }
 
+data class TargetSizeExistingPdfCopyRequest(
+    val sourcePdfUri: Uri,
+    val documentRequest: TargetSizePdfRequest,
+)
+
 fun interface TargetSizeCancellationSignal {
     fun isCancellationRequested(): Boolean
 }
@@ -278,4 +283,5 @@ enum class TargetSizePdfFailure {
     ENCODE_FAILED,
     OUTPUT_VALIDATION_FAILED,
     CANCELED,
+    PROCESS_INTERRUPTED,
 }

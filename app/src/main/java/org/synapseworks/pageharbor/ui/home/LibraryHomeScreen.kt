@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.FitScreen
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Home
@@ -177,6 +178,7 @@ fun LibraryHomeScreen(
     onImportFiles: () -> Unit,
     onCancelImport: () -> Unit,
     onViewScanResult: () -> Unit,
+    onFitUploadLimit: () -> Unit = {},
     onPrivacyInfo: () -> Unit,
     onDismissPrivacyInfo: () -> Unit,
     onAbout: () -> Unit,
@@ -381,6 +383,7 @@ fun LibraryHomeScreen(
                 onImportFiles = onImportFiles,
                 onCancelImport = onCancelImport,
                 onViewScanResult = onViewScanResult,
+                onFitUploadLimit = onFitUploadLimit,
                 onOpenDocuments = { message ->
                     onDestinationSelected(LibraryDestination.Documents)
                     coroutineScope.launch {
@@ -1084,6 +1087,7 @@ private fun ToolsDestination(
     onImportFiles: () -> Unit,
     onCancelImport: () -> Unit,
     onViewScanResult: () -> Unit,
+    onFitUploadLimit: () -> Unit,
     onOpenDocuments: (String) -> Unit,
 ) {
     val focusManager = LocalFocusManager.current
@@ -1094,6 +1098,7 @@ private fun ToolsDestination(
     val mergeGuidance = stringResource(R.string.tools_merge_guidance)
     val pagesGuidance = stringResource(R.string.tools_pages_guidance)
     val ocrGuidance = stringResource(R.string.tools_ocr_guidance)
+    val fitLimitGuidance = stringResource(R.string.fit_limit_tool_unavailable)
     val mergeEnabled = interactionEnabled && savedDocumentCount >= 2
     val documentToolEnabled = interactionEnabled && savedDocumentCount >= 1
     val tools = listOf(
@@ -1148,6 +1153,26 @@ private fun ToolsDestination(
             searchTerms = listOf("split", "extract", "pages"),
             enabled = documentToolEnabled,
             onClick = { onOpenDocuments(pagesGuidance) },
+        ),
+        ToolLauncherItemModel(
+            key = "fit-upload-limit",
+            icon = Icons.Default.FitScreen,
+            label = stringResource(R.string.fit_limit_title),
+            accessibilityLabel = if (!interactionEnabled) {
+                stringResource(
+                    R.string.tools_busy_accessibility,
+                    stringResource(R.string.fit_limit_title),
+                )
+            } else if (hasActiveSession || documentToolEnabled) {
+                stringResource(R.string.fit_limit_tool_accessibility)
+            } else {
+                stringResource(R.string.fit_limit_tool_unavailable)
+            },
+            searchTerms = listOf("fit", "upload", "limit", "smaller", "compress", "pdf"),
+            enabled = interactionEnabled && (hasActiveSession || documentToolEnabled),
+            onClick = {
+                if (hasActiveSession) onFitUploadLimit() else onOpenDocuments(fitLimitGuidance)
+            },
         ),
         ToolLauncherItemModel(
             key = "ocr",

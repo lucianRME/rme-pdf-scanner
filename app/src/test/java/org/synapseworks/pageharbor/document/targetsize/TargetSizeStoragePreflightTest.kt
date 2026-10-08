@@ -26,4 +26,19 @@ class TargetSizeStoragePreflightTest {
         assertFalse(TargetSizeStoragePreflight.isSufficient(estimate, 3_799_999L)!!)
         assertNull(TargetSizeStoragePreflight.isSufficient(estimate, null))
     }
+
+    @Test
+    fun alreadyFitsCopyAccountsForOneExactPrivateCopyWithoutMultiplyingTheTarget() {
+        val estimate = TargetSizeStoragePreflight.estimateExistingPdfCopy(
+            sourceBytes = 600_000L,
+            targetBytes = 1_000_000_000L,
+            safetyReserveBytes = 1_000_000L,
+        )
+
+        assertEquals(600_000L, estimate.sourceBytes)
+        assertEquals(0, estimate.unknownSourceCount)
+        assertEquals(600_000L, estimate.estimatedOutputBytes)
+        assertEquals(600_000L, estimate.temporaryWorkspaceBytes)
+        assertEquals(1_600_000L, estimate.requiredAvailableBytes)
+    }
 }

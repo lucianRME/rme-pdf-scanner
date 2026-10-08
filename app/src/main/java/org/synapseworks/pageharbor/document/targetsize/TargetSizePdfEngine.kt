@@ -8,6 +8,7 @@ import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import androidx.core.graphics.createBitmap
 import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
 import kotlin.coroutines.cancellation.CancellationException
@@ -34,6 +35,11 @@ import org.synapseworks.pageharbor.document.writeSizedJpegToDestination
 interface TargetSizePdfEngine {
     suspend fun prepare(
         request: TargetSizePdfRequest,
+        progressListener: TargetSizeProgressListener = TargetSizeProgressListener {},
+    ): TargetSizePdfResult
+
+    suspend fun prepareExistingPdfCopy(
+        request: TargetSizeExistingPdfCopyRequest,
         progressListener: TargetSizeProgressListener = TargetSizeProgressListener {},
     ): TargetSizePdfResult
 
@@ -262,6 +268,157 @@ internal class LocalTargetSizePdfEngine(
         } catch (error: CancellationException) {
             cleanupWorkingDirectory(workingDirectory)
             if (isCanceled(request)) {
+                TargetSizePdfResult.Failure(TargetSizePdfFailure.CANCELED)
+            } else {
+                throw error
+            }
+        } catch (error: TargetSizeEngineFailure) {
+            failed(workingDirectory, error.reason)
+        } catch (_: IOException) {
+            failed(workingDirectory, TargetSizePdfFailure.ENCODE_FAILED)
+        } catch (_: SecurityException) {
+            failed(workingDirectory, TargetSizePdfFailure.SOURCE_READ_FAILED)
+        } catch (_: RuntimeException) {
+            failed(workingDirectory, TargetSizePdfFailure.ENCODE_FAILED)
+        }
+    }
+
+    override suspend fun prepareExistingPdfCopy(
+        request: TargetSizeExistingPdfCopyRequest,
+        progressListener: TargetSizeProgressListener,
+    ): TargetSizePdfResult = withContext(Dispatchers.IO) {
+        val documentRequest = request.documentRequest
+        val workingDirectory = createWorkingDirectory()
+            ?: return@withContext TargetSizePdfResult.Failure(
+                TargetSizePdfFailure.INSUFFICIENT_TEMPORARY_STORAGE,
+            )
+        try {
+            if (isCanceled(documentRequest)) return@withContext canceled(workingDirectory)
+            report(progressListener, TargetSizeProgress.PLANNING)
+            val planningStarted = SystemClock.elapsedRealtime()
+            val profiles = inspectPages(documentRequest)
+                ?: return@withContext failed(workingDirectory, TargetSizePdfFailure.INVALID_SOURCE)
+            val facts = when (val inspection = pdfInspector.inspect(request.sourcePdfUri)) {
+                is TargetSizePdfInspectionResult.Success -> inspection.facts
+                TargetSizePdfInspectionResult.Encrypted ->
+                    return@withContext failed(workingDirectory, TargetSizePdfFailure.ENCRYPTED_PDF)
+                TargetSizePdfInspectionResult.Malformed ->
+                    return@withContext failed(workingDirectory, TargetSizePdfFailure.MALFORMED_SOURCE)
+                TargetSizePdfInspectionResult.Unreadable ->
+                    return@withContext failed(workingDirectory, TargetSizePdfFailure.SOURCE_READ_FAILED)
+            }
+            val classification = TargetSizeInputClassifier.classify(
+                TargetSizeInputFacts(
+                    pageCount = profiles.size,
+                    originalPdfSources = listOf(facts),
+                    containsNonPdfPages = false,
+                    reconstructionComplete = profiles.size == facts.pageCount,
+                ),
+            )
+            if (classification.inputClass !in setOf(
+                    TargetSizeInputClass.IMAGE_BASED_PDF_SUPPORTED,
+                    TargetSizeInputClass.MIXED_PDF_SUPPORTED_WITH_RECONSTRUCTION,
+                )
+            ) {
+                val reason = when (classification.inputClass) {
+                    TargetSizeInputClass.ENCRYPTED_PDF -> TargetSizePdfFailure.ENCRYPTED_PDF
+                    TargetSizeInputClass.INVALID_SOURCE -> TargetSizePdfFailure.INVALID_SOURCE
+                    else -> TargetSizePdfFailure.UNSUPPORTED_INPUT
+                }
+                return@withContext failed(workingDirectory, reason)
+            }
+            val plan = planner.plan(
+                targetBytes = documentRequest.targetBytes,
+                classification = classification,
+                pages = profiles,
+                qualityFloor = documentRequest.qualityFloor,
+            )
+            val planningMillis = elapsedSince(planningStarted)
+            val storageEstimate = TargetSizeStoragePreflight.estimateExistingPdfCopy(
+                sourceBytes = sourceLength(request.sourcePdfUri),
+                targetBytes = documentRequest.targetBytes,
+            )
+            if (TargetSizeStoragePreflight.isSufficient(
+                    storageEstimate,
+                    availableTemporaryBytes(),
+                ) == false
+            ) {
+                return@withContext failed(
+                    workingDirectory,
+                    TargetSizePdfFailure.INSUFFICIENT_TEMPORARY_STORAGE,
+                )
+            }
+            report(progressListener, TargetSizeProgress.ENCODING)
+            val encodingStarted = SystemClock.elapsedRealtime()
+            val output = File(workingDirectory, "candidate-original.pdf")
+            val source = try {
+                openPageInputStream(request.sourcePdfUri)
+            } catch (_: IOException) {
+                null
+            } catch (_: SecurityException) {
+                null
+            } catch (_: IllegalArgumentException) {
+                null
+            } ?: return@withContext failed(
+                workingDirectory,
+                TargetSizePdfFailure.SOURCE_READ_FAILED,
+            )
+            try {
+                source.use { input ->
+                    FileOutputStream(output).use { destination ->
+                        val buffer = ByteArray(EXISTING_PDF_COPY_BUFFER_BYTES)
+                        while (true) {
+                            currentCoroutineContext().ensureActive()
+                            if (isCanceled(documentRequest)) {
+                                throw TargetSizeEngineFailure(TargetSizePdfFailure.CANCELED)
+                            }
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            destination.write(buffer, 0, count)
+                            if (destination.channel.position() > documentRequest.targetBytes) {
+                                throw TargetSizeEngineFailure(
+                                    TargetSizePdfFailure.OUTPUT_VALIDATION_FAILED,
+                                )
+                            }
+                        }
+                        destination.flush()
+                        destination.fd.sync()
+                    }
+                }
+            } catch (error: TargetSizeEngineFailure) {
+                throw error
+            } catch (_: IOException) {
+                return@withContext failed(workingDirectory, TargetSizePdfFailure.ENCODE_FAILED)
+            }
+            if (!isTargetSizeReached(output.length(), documentRequest.targetBytes)) {
+                return@withContext failed(
+                    workingDirectory,
+                    TargetSizePdfFailure.OUTPUT_VALIDATION_FAILED,
+                )
+            }
+            report(progressListener, TargetSizeProgress.VALIDATING)
+            if (!validateCandidate(output, profiles.size, documentRequest)) {
+                return@withContext failed(
+                    workingDirectory,
+                    TargetSizePdfFailure.OUTPUT_VALIDATION_FAILED,
+                )
+            }
+            reached(
+                workingDirectory = workingDirectory,
+                candidate = Candidate(output, textLayerPageCount = 0),
+                plan = plan.copy(
+                    warnings = plan.warnings - TargetSizeWarning.TARGET_REQUIRES_QUALITY_FLOOR,
+                ),
+                planningMillis = planningMillis,
+                calibrationMillis = 0L,
+                encodingMillis = elapsedSince(encodingStarted),
+                calibrationTrials = 0,
+                fullPasses = 0,
+                peakTemporaryBytes = output.length(),
+            )
+        } catch (error: CancellationException) {
+            cleanupWorkingDirectory(workingDirectory)
+            if (isCanceled(documentRequest)) {
                 TargetSizePdfResult.Failure(TargetSizePdfFailure.CANCELED)
             } else {
                 throw error
@@ -690,6 +847,7 @@ internal class LocalTargetSizePdfEngine(
     private class TargetSizeEngineFailure(val reason: TargetSizePdfFailure) : RuntimeException()
 
     private companion object {
+        const val EXISTING_PDF_COPY_BUFFER_BYTES = 32 * 1_024
         const val TARGET_SIZE_PREFIX = "target-size-"
         const val VALIDATION_EDGE_PX = 64
         val SUPPORTED_IMAGE_TYPES = setOf("image/jpeg", "image/png", "image/webp")

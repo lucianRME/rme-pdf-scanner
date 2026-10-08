@@ -1,11 +1,21 @@
 package org.synapseworks.pageharbor
 
+import android.net.Uri
 import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfSaveState
+import org.synapseworks.pageharbor.document.session.DocumentImageMetadata
+import org.synapseworks.pageharbor.document.session.DocumentSourceCategory
+import org.synapseworks.pageharbor.document.targetsize.TargetSizeBytes
+import org.synapseworks.pageharbor.document.targetsize.TargetSizePdfPage
+import org.synapseworks.pageharbor.document.targetsize.TargetSizePdfRequest
+import org.synapseworks.pageharbor.document.targetsize.TargetSizeSourceSummary
+import org.synapseworks.pageharbor.document.targetsize.TargetSizeWorkflowInput
+import org.synapseworks.pageharbor.document.targetsize.TargetSizeWorkflowState
 import org.synapseworks.pageharbor.ocr.OcrPageResult
 import org.synapseworks.pageharbor.ocr.OcrResult
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
@@ -153,6 +163,35 @@ class MainActivityLifecycleTest {
                 activity.restoreCompletedSessionForTest(replacement)
                 assertEquals(replacement, activity.sessionSummaryForTest())
                 assertEquals(PageHarborScreen.ScanResult, activity.sessionScreenForTest())
+            }
+        }
+    }
+
+    @Test
+    fun targetSizeLimitSelectionSurvivesActivityRecreation() {
+        val input = TargetSizeWorkflowInput(
+            summary = TargetSizeSourceSummary("Recreation test", 1, 500_000L),
+            request = TargetSizePdfRequest(
+                pages = listOf(
+                    TargetSizePdfPage(
+                        pageId = 1L,
+                        sourceUri = Uri.EMPTY,
+                        sourceCategory = DocumentSourceCategory.SCAN,
+                        contentType = "image/jpeg",
+                        imageMetadata = DocumentImageMetadata(500_000L, 1_000, 1_400),
+                    ),
+                ),
+                targetBytes = TargetSizeBytes.MB_1,
+            ),
+        )
+
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.openTargetSizeWorkflowForTest(input) }
+            scenario.recreate()
+            scenario.onActivity { activity ->
+                val state = activity.targetSizeWorkflowStateForTest()
+                assertTrue(state is TargetSizeWorkflowState.ChooseLimit)
+                assertEquals("Recreation test", (state as TargetSizeWorkflowState.ChooseLimit).input.summary.title)
             }
         }
     }

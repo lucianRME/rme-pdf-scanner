@@ -59,6 +59,29 @@ object TargetSizeStoragePreflight {
         )
     }
 
+    /**
+     * A safe already-fits copy holds one private output, not the M4 encoder's page JPEGs,
+     * scratch store, and replacement candidate. Source storage remains separately reported.
+     */
+    fun estimateExistingPdfCopy(
+        sourceBytes: Long?,
+        targetBytes: Long,
+        safetyReserveBytes: Long = DEFAULT_SAFETY_RESERVE_BYTES,
+    ): TargetSizeStorageEstimate {
+        require(sourceBytes == null || sourceBytes >= 0L)
+        require(targetBytes > 0L)
+        require(safetyReserveBytes >= 0L)
+        val copyUpperBound = sourceBytes?.coerceAtMost(targetBytes) ?: targetBytes
+        return TargetSizeStorageEstimate(
+            sourceBytes = sourceBytes ?: 0L,
+            unknownSourceCount = if (sourceBytes == null) 1 else 0,
+            estimatedOutputBytes = copyUpperBound,
+            temporaryWorkspaceBytes = copyUpperBound,
+            safetyReserveBytes = safetyReserveBytes,
+            requiredAvailableBytes = saturatedAdd(copyUpperBound, safetyReserveBytes),
+        )
+    }
+
     fun isSufficient(estimate: TargetSizeStorageEstimate, availableBytes: Long?): Boolean? {
         require(availableBytes == null || availableBytes >= 0L)
         return availableBytes?.let { it >= estimate.requiredAvailableBytes }
