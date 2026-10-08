@@ -1159,13 +1159,20 @@ class MainActivity : FragmentActivity() {
         MigrationIssueReason.UNSUPPORTED_SOURCE -> "Unsupported file type"
         MigrationIssueReason.UNREADABLE_SOURCE -> "The selected file could not be read"
         MigrationIssueReason.SOURCE_UNAVAILABLE -> "The source is no longer available"
+        MigrationIssueReason.SOURCE_CHANGED -> "The source changed and must be reviewed again"
         MigrationIssueReason.SOURCE_TOO_LARGE -> "The source exceeds the migration safety limit"
         MigrationIssueReason.INSUFFICIENT_STORAGE -> "Not enough usable storage"
+        MigrationIssueReason.VALIDATION_FAILED -> "The source failed validation"
+        MigrationIssueReason.STAGING_FAILED -> "The document could not be staged safely"
+        MigrationIssueReason.PUBLICATION_FAILED -> "The document could not be published safely"
         MigrationIssueReason.WRITE_FAILED -> "The document could not be published safely"
         MigrationIssueReason.INVALID_DOCUMENT -> "The document failed validation"
         MigrationIssueReason.INTERRUPTED -> "The operation was interrupted"
         MigrationIssueReason.POSSIBLE_DUPLICATE_REVIEW_REQUIRED ->
             "Possible duplicate; choose Import anyway to include it"
+        MigrationIssueReason.EXCLUDED_BY_USER -> "Excluded from migration"
+        MigrationIssueReason.AMBIGUOUS_REVIEW_UNRESOLVED ->
+            "Ambiguous grouping requires review"
         MigrationIssueReason.CANCELLED -> "Cancelled at a safe boundary"
         MigrationIssueReason.NOT_ATTEMPTED -> "Not attempted"
     }
@@ -1256,8 +1263,12 @@ class MainActivity : FragmentActivity() {
             if (!migration.cancelCurrentOperation() &&
                 migration.state.value.operation is MigrationOperationStatus.PreviewReady
             ) {
-                migration.dismissResult()
-                if (inboundMigrationFlow) finishOrRestoreInboundMigration()
+                if (inboundMigrationFlow) {
+                    migration.dismissResult()
+                    finishOrRestoreInboundMigration()
+                } else {
+                    migration.selectSource(selectedMigrationSource.toEngineMigrationSource())
+                }
             }
         },
         onViewMigratedDocuments = {

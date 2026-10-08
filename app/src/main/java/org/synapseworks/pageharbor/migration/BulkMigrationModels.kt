@@ -342,8 +342,12 @@ object NeverCancelMigration : MigrationCancellationSignal {
 
 enum class MigrationPublicationFailure {
     SOURCE_UNAVAILABLE,
+    SOURCE_CHANGED,
     SOURCE_TOO_LARGE,
     INSUFFICIENT_STORAGE,
+    VALIDATION_FAILED,
+    STAGING_FAILED,
+    PUBLICATION_FAILED,
     WRITE_FAILED,
     INVALID_DOCUMENT,
     INTERRUPTED,
@@ -392,6 +396,8 @@ enum class MigrationDocumentStatus {
     PUBLISHED,
     DUPLICATE_SKIPPED,
     POSSIBLE_DUPLICATE_REVIEW_REQUIRED,
+    EXCLUDED,
+    REVIEW_UNRESOLVED,
     FAILED,
     CANCELLED,
 }
@@ -411,9 +417,13 @@ data class MigrationBatchReport(
     val rejectedSources: List<RejectedMigrationSource>,
     val wasCancelled: Boolean,
     val requestedDocumentCount: Int,
+    val operationId: String? = null,
+    val durableCompletion: MigrationDurableCompletionReport? = null,
 ) {
     init {
         require(requestedDocumentCount >= documents.size)
+        require(operationId == null || operationId.isNotBlank())
+        require(durableCompletion == null || durableCompletion.operationId == operationId)
     }
 
     val publishedCount: Int get() = documents.count { it.status == MigrationDocumentStatus.PUBLISHED }
@@ -426,7 +436,10 @@ data class MigrationBatchReport(
         .map { it.documentId }
         .toSet()
     val reviewRequiredDocumentIds: Set<String> get() = documents.asSequence()
-        .filter { it.status == MigrationDocumentStatus.POSSIBLE_DUPLICATE_REVIEW_REQUIRED }
+        .filter {
+            it.status == MigrationDocumentStatus.POSSIBLE_DUPLICATE_REVIEW_REQUIRED ||
+                it.status == MigrationDocumentStatus.REVIEW_UNRESOLVED
+        }
         .map { it.documentId }
         .toSet()
     val unprocessedDocumentCount: Int get() =

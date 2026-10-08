@@ -177,12 +177,29 @@ class AndroidBulkMigrationCoordinator(
         duplicateDecisions: MigrationDuplicateDecisions = MigrationDuplicateDecisions(),
         cancellationSignal: MigrationCancellationSignal = NeverCancelMigration,
         progressListener: MigrationBatchProgressListener = MigrationBatchProgressListener { },
+    ): MigrationExecutionResult = executeVerified(
+        prepared = prepared,
+        decisions = duplicateDecisions.toExecutionDecisions(),
+        cancellationSignal = cancellationSignal,
+        progressListener = progressListener,
+    )
+
+    /** Domain seam for a review UI without coupling execution to transient UI state. */
+    suspend fun executeVerified(
+        prepared: PreparedMigrationBatch,
+        decisions: MigrationExecutionDecisions,
+        cancellationSignal: MigrationCancellationSignal = NeverCancelMigration,
+        progressListener: MigrationBatchProgressListener = MigrationBatchProgressListener { },
     ): MigrationExecutionResult {
         incompletePreview(prepared.preview)?.let { return it }
         preflight(prepared.preview)?.let { return it }
-        val engine = BulkMigrationEngine(publisher(prepared, duplicateDecisions))
         return MigrationExecutionResult.Completed(
-            engine.execute(prepared.preview, cancellationSignal, progressListener),
+            verifiedExecutor(prepared).execute(
+                plan = prepared.preview,
+                decisions = decisions,
+                cancellationSignal = cancellationSignal,
+                progressListener = progressListener,
+            ),
         )
     }
 
@@ -195,7 +212,17 @@ class AndroidBulkMigrationCoordinator(
     ): MigrationExecutionResult {
         incompletePreview(prepared.preview)?.let { return it }
         preflight(prepared.preview)?.let { return it }
-        val engine = BulkMigrationEngine(publisher(prepared, duplicateDecisions))
+        previousReport.operationId?.let { operationId ->
+            return MigrationExecutionResult.Completed(
+                verifiedExecutor(prepared).resume(
+                    operationId = operationId,
+                    decisions = duplicateDecisions.toExecutionDecisions(),
+                    cancellationSignal = cancellationSignal,
+                    progressListener = progressListener,
+                ),
+            )
+        }
+        val engine = BulkMigrationEngine(legacyPublisher(prepared, duplicateDecisions))
         return MigrationExecutionResult.Completed(
             engine.retryFailures(
                 prepared.preview,
@@ -216,7 +243,17 @@ class AndroidBulkMigrationCoordinator(
     ): MigrationExecutionResult {
         incompletePreview(prepared.preview)?.let { return it }
         preflight(prepared.preview)?.let { return it }
-        val engine = BulkMigrationEngine(publisher(prepared, duplicateDecisions))
+        previousReport.operationId?.let { operationId ->
+            return MigrationExecutionResult.Completed(
+                verifiedExecutor(prepared).resume(
+                    operationId = operationId,
+                    decisions = duplicateDecisions.toExecutionDecisions(),
+                    cancellationSignal = cancellationSignal,
+                    progressListener = progressListener,
+                ),
+            )
+        }
+        val engine = BulkMigrationEngine(legacyPublisher(prepared, duplicateDecisions))
         return MigrationExecutionResult.Completed(
             engine.retryIncomplete(
                 prepared.preview,
@@ -228,19 +265,19 @@ class AndroidBulkMigrationCoordinator(
     }
 
     /** Cleans invisible PENDING rows and private assets left by an interrupted migration process. */
-    suspend fun recoverInterruptedOperations(): Int = RoomMigrationDocumentPublisher(
-        context = applicationContext,
-        sourceAccess = sourceAdapter,
-        duplicateDecisions = MigrationDuplicateDecisions(),
-        journalMetadata = MigrationJournalMetadata(
-            sourceKind = MigrationBatchSourceKind.FILE_URIS.name,
-            sourceRootUri = null,
-            sourceGrantFlags = 0,
-        ),
-        storageCapacity = storageCapacity,
-    ).recoverInterruptedOperations()
+    suspend fun recoverInterruptedOperations(): Int {
+        val verifiedRecovered = verifiedExecutor().recoverInterruptedOperations()
+        val legacyRecovered = RoomMigrationDocumentPublisher(
+            context = applicationContext,
+            sourceAccess = sourceAdapter,
+            duplicateDecisions = MigrationDuplicateDecisions(),
+            journalMetadata = defaultJournalMetadata(),
+            storageCapacity = storageCapacity,
+        ).recoverInterruptedOperations()
+        return verifiedRecovered + legacyRecovered
+    }
 
-    private fun publisher(
+    private fun legacyPublisher(
         prepared: PreparedMigrationBatch,
         duplicateDecisions: MigrationDuplicateDecisions,
     ): MigrationDocumentPublisher = RoomMigrationDocumentPublisher(
@@ -253,6 +290,28 @@ class AndroidBulkMigrationCoordinator(
             sourceGrantFlags = prepared.sourceGrantFlags,
         ),
         storageCapacity = storageCapacity,
+    )
+
+    private fun verifiedExecutor(
+        prepared: PreparedMigrationBatch? = null,
+    ): RoomVerifiedMigrationExecutor = RoomVerifiedMigrationExecutor(
+        context = applicationContext,
+        sourceAccess = sourceAdapter,
+        sourceRevalidator = AndroidMigrationSourceRevalidator(sourceAdapter),
+        journalMetadata = prepared?.let {
+            MigrationJournalMetadata(
+                sourceKind = it.sourceKind.name,
+                sourceRootUri = it.sourceRootUri,
+                sourceGrantFlags = it.sourceGrantFlags,
+            )
+        } ?: defaultJournalMetadata(),
+        storageCapacity = storageCapacity,
+    )
+
+    private fun defaultJournalMetadata() = MigrationJournalMetadata(
+        sourceKind = MigrationBatchSourceKind.FILE_URIS.name,
+        sourceRootUri = null,
+        sourceGrantFlags = 0,
     )
 
     private fun preflight(preview: MigrationPreview): MigrationExecutionResult.InsufficientStorage? {
@@ -336,23 +395,57 @@ private fun MigrationPreview.withDiscoveryWarnings(
     return copy(planWarnings = planWarnings + discoveryWarnings)
 }
 
-internal fun migrationBatchStorageEstimate(preview: MigrationPreview): StorageEstimate =
-    StoragePreflight.estimate(
-        sourceSizes = preview.documents.flatMap { plan ->
-            plan.sources.map { inspected -> inspected.source.sizeBytes }
-        },
-        // A PDF may coexist as provider source, private staging copy, rendered pages, and library copy.
-        workingCopyCount = 3,
+internal fun migrationBatchStorageEstimate(preview: MigrationPreview): StorageEstimate {
+    val durableAndDerivedSizes = buildList {
+        preview.documents.forEach { plan ->
+            plan.sources.forEach { inspected ->
+                add(inspected.source.sizeBytes)
+                // PDFs retain the original and produce private page assets. Source size is a
+                // practical allowance for those derived assets; an unknown provider size stays
+                // unknown once rather than pretending to be several independent unknown files.
+                if (
+                    plan.grouping == MigrationDocumentGrouping.SINGLE_PDF &&
+                    inspected.source.sizeBytes != null
+                ) {
+                    add(inspected.source.sizeBytes)
+                }
+            }
+        }
+    }
+    val peakKnownDocumentBytes = preview.documents.mapNotNull { plan ->
+        val sizes = plan.sources.map { it.source.sizeBytes }
+        if (sizes.any { it == null }) {
+            null
+        } else {
+            sizes.filterNotNull().fold(0L, ::saturatingAdd)
+        }
+    }.maxOrNull()
+    return StoragePreflight.estimate(
+        // Documents are staged serially, so only the largest known document needs an additional
+        // transient-copy allowance. This avoids multiplying a multi-gigabyte batch by the peak
+        // per-document working-copy count.
+        sourceSizes = durableAndDerivedSizes + listOfNotNull(peakKnownDocumentBytes),
+        workingCopyCount = 1,
         fixedOverheadBytes = saturatingMultiply(
             preview.documents.size.toLong(),
             PER_DOCUMENT_STORAGE_OVERHEAD_BYTES,
         ),
     )
+}
+
+private fun saturatingAdd(left: Long, right: Long): Long =
+    if (Long.MAX_VALUE - left < right) Long.MAX_VALUE else left + right
 
 private fun saturatingMultiply(left: Long, right: Long): Long = when {
     left == 0L || right == 0L -> 0L
     left > Long.MAX_VALUE / right -> Long.MAX_VALUE
     else -> left * right
 }
+
+private fun MigrationDuplicateDecisions.toExecutionDecisions() = MigrationExecutionDecisions(
+    duplicateDecisions = importDespiteDuplicateDocumentIds.associateWith {
+        MigrationDuplicateExecutionDecision.IMPORT_ANYWAY
+    },
+)
 
 private const val PER_DOCUMENT_STORAGE_OVERHEAD_BYTES = 512L * 1024L

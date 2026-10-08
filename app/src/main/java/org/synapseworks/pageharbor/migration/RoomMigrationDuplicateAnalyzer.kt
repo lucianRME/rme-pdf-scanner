@@ -12,6 +12,9 @@ import org.synapseworks.pageharbor.library.LibraryOperationGate
 import org.synapseworks.pageharbor.library.LibraryPageEntity
 import org.synapseworks.pageharbor.library.duplicate.DuplicateCandidate
 import org.synapseworks.pageharbor.library.duplicate.DuplicateDetector
+import org.synapseworks.pageharbor.library.duplicate.DuplicateKind
+import org.synapseworks.pageharbor.library.duplicate.DuplicateMatch
+import org.synapseworks.pageharbor.library.duplicate.IncomingDocumentIdentity
 import org.synapseworks.pageharbor.portability.StoragePreflight
 import org.synapseworks.pageharbor.portability.StoragePreflightResult
 
@@ -182,7 +185,7 @@ internal class RoomMigrationDuplicateAnalyzer(
                 )
                 is MigrationStagingResult.Ready -> staged.document.use { document ->
                     val fingerprint = document.fingerprintForMigration()
-                    val duplicate = DuplicateDetector.classify(
+                    val duplicate = classifyMigrationDuplicate(
                         document.incomingIdentityForMigration(fingerprint),
                         existing,
                     )
@@ -222,6 +225,25 @@ internal class RoomMigrationDuplicateAnalyzer(
         const val PREVIEW_WORKSPACE_DIRECTORY = "bulk-migration-preview"
         const val PREVIEW_STORAGE_OVERHEAD_BYTES = 512L * 1024L
     }
+}
+
+/**
+ * Migration has no incoming OCR state. Equal current-page fingerprints are nevertheless a strong
+ * content identity; requiring an OCR digest would incorrectly downgrade identical files to a weak
+ * match. Source-asset hashes alone remain advisory because an existing document may be edited.
+ */
+internal fun classifyMigrationDuplicate(
+    incoming: IncomingDocumentIdentity,
+    existing: Iterable<DuplicateCandidate>,
+): DuplicateMatch {
+    val fingerprint = incoming.fingerprint
+    if (fingerprint != null) {
+        existing.firstOrNull { candidate ->
+            candidate.contentHashVersion == fingerprint.version &&
+                candidate.contentSha256 == fingerprint.sha256
+        }?.let { return DuplicateMatch(DuplicateKind.EXACT, it.documentId) }
+    }
+    return DuplicateDetector.classify(incoming, existing)
 }
 
 private fun List<Long?>.sumIfAllKnownValues(): Long? {

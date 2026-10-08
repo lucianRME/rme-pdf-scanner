@@ -19,6 +19,18 @@ class MigrationCoordinatorModelsTest {
     }
 
     @Test
+    fun storageEstimateAddsOnlyOnePeakTransientDocumentForLargeBatches() {
+        val twoGiB = 2L * 1024L * 1024L * 1024L
+        val estimate = migrationBatchStorageEstimate(preview(listOf(twoGiB, twoGiB)))
+
+        assertTrue(estimate.isComplete)
+        // Two original PDFs, two rendered-asset allowances, and one serial staging peak are five
+        // source-sized units before overhead/margin. Reserving three copies of the entire batch
+        // would exceed six units after its safety margin.
+        assertTrue(estimate.requiredBytesLowerBound < twoGiB * 6L)
+    }
+
+    @Test
     fun duplicateApprovalIsExplicitAndScopedToStablePlanId() {
         val decisions = MigrationDuplicateDecisions(setOf("approved"))
 

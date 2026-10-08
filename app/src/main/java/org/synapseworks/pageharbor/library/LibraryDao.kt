@@ -2360,6 +2360,12 @@ abstract class LibraryDao {
     @Update
     abstract suspend fun updateOperation(entity: LibraryDataOperationEntity)
 
+    @Update
+    abstract suspend fun updateOperationItem(entity: LibraryDataOperationItemEntity)
+
+    @Update
+    abstract suspend fun updateOperationSources(entities: List<LibraryDataOperationSourceEntity>)
+
     @Query("SELECT * FROM library_data_operations WHERE operation_id = :operationId LIMIT 1")
     abstract suspend fun operation(operationId: String): LibraryDataOperationEntity?
 
@@ -2390,6 +2396,9 @@ abstract class LibraryDao {
     @Query("SELECT * FROM library_data_operation_items WHERE operation_id = :operationId ORDER BY ordinal")
     abstract suspend fun operationItems(operationId: String): List<LibraryDataOperationItemEntity>
 
+    @Query("SELECT * FROM library_data_operation_items WHERE item_id = :itemId LIMIT 1")
+    abstract suspend fun operationItem(itemId: String): LibraryDataOperationItemEntity?
+
     @Query(
         """
         SELECT * FROM library_data_operation_items
@@ -2418,14 +2427,54 @@ abstract class LibraryDao {
     @Query("SELECT * FROM library_data_operation_sources WHERE item_id = :itemId ORDER BY source_position")
     abstract suspend fun operationSources(itemId: String): List<LibraryDataOperationSourceEntity>
 
+    @Query("SELECT * FROM library_pending_restore_folders WHERE operation_id = :operationId ORDER BY ordinal")
+    abstract suspend fun pendingOperationFolders(
+        operationId: String,
+    ): List<LibraryPendingRestoreFolderEntity>
+
+    @Query(
+        """
+        UPDATE library_data_operation_sources
+        SET source_uri = NULL,
+            relative_source_path = NULL,
+            display_name = NULL,
+            source_modified_at = NULL
+        WHERE item_id IN (
+            SELECT item_id FROM library_data_operation_items WHERE operation_id = :operationId
+        )
+        """,
+    )
+    abstract suspend fun redactOperationSourceReferences(operationId: String): Int
+
     @Query("SELECT * FROM library_documents WHERE pending_operation_id = :operationId ORDER BY row_id")
     abstract suspend fun pendingDocuments(operationId: String): List<LibraryDocumentEntity>
 
     @Query("DELETE FROM library_documents WHERE pending_operation_id = :operationId AND library_state = 'PENDING'")
     protected abstract suspend fun deletePendingDocuments(operationId: String)
 
+    @Query(
+        """
+        DELETE FROM library_documents
+        WHERE document_id = :documentId
+          AND pending_operation_id = :operationId
+          AND library_state = 'PENDING'
+        """,
+    )
+    abstract suspend fun deletePendingMigrationDocument(
+        operationId: String,
+        documentId: String,
+    ): Int
+
     @Query("DELETE FROM library_pending_restore_folders WHERE operation_id = :operationId")
     protected abstract suspend fun deletePendingRestoreFolders(operationId: String)
+
+    @Query(
+        """
+        DELETE FROM library_pending_restore_folders
+        WHERE operation_id = :operationId AND folder_id = :folderId
+        """,
+    )
+    abstract suspend fun deletePendingMigrationFolder(operationId: String, folderId: String): Int
 
     @Query("DELETE FROM library_data_operations WHERE operation_id = :operationId")
     protected abstract suspend fun deleteOperationRow(operationId: String)
@@ -2449,7 +2498,7 @@ abstract class LibraryDao {
     @Query(
         """
         UPDATE library_data_operation_items
-        SET item_state = 'ACTIVE'
+        SET item_state = 'ACTIVE', failure_code = NULL
         WHERE operation_id = :operationId AND item_state = 'PREPARED'
         """,
     )
@@ -2503,6 +2552,35 @@ abstract class LibraryDao {
         require(items.all { it.operationId == operation.operationId })
         insertOperation(operation)
         if (items.isNotEmpty()) insertOperationItems(items)
+    }
+
+    @Transaction
+    open suspend fun insertMigrationOperation(
+        operation: LibraryDataOperationEntity,
+        items: List<LibraryDataOperationItemEntity>,
+        sources: List<LibraryDataOperationSourceEntity>,
+        folders: List<LibraryPendingRestoreFolderEntity>,
+    ) {
+        require(items.all { it.operationId == operation.operationId })
+        require(sources.all { source -> items.any { it.itemId == source.itemId } })
+        require(folders.all { it.operationId == operation.operationId })
+        insertOperation(operation)
+        if (items.isNotEmpty()) insertOperationItems(items)
+        if (sources.isNotEmpty()) insertOperationSources(sources)
+        if (folders.isNotEmpty()) insertPendingRestoreFolders(folders)
+    }
+
+    @Transaction
+    open suspend fun updateMigrationItem(
+        item: LibraryDataOperationItemEntity,
+        sources: List<LibraryDataOperationSourceEntity>,
+        operation: LibraryDataOperationEntity,
+    ) {
+        require(item.operationId == operation.operationId)
+        require(sources.all { it.itemId == item.itemId })
+        updateOperationItemInternal(item)
+        if (sources.isNotEmpty()) updateOperationSources(sources)
+        updateOperation(operation)
     }
 
     @Transaction
@@ -2767,6 +2845,31 @@ abstract class LibraryDao {
         deletePendingRestoreFolders(operationId)
         if (activatedDocumentCount != 0 || expectedFolderCount != 0) bumpLibraryRevision(modifiedAt)
         updateOperation(completedOperation)
+    }
+
+    /**
+     * Migration keeps its folder plan rows as durable report evidence after activation. They remain
+     * journal-only and are never queried by the active library UI.
+     */
+    @Transaction
+    open suspend fun activateMigrationOperation(
+        operationId: String,
+        expectedFolderCount: Int,
+        activatedOperation: LibraryDataOperationEntity,
+        modifiedAt: Long,
+    ) {
+        val storedOperation = requireNotNull(operation(operationId))
+        require(activatedOperation.operationId == operationId)
+        require(activatedOperation.phase == "ACTIVATED")
+        require(storedOperation.phase !in setOf("COMPLETED", "CANCELLED", "FAILED", "ACTIVATED"))
+        require(pendingRestoreDocumentCount(operationId) == activatedOperation.importedDocumentCount)
+        require(pendingRestoreFolderCount(operationId) == expectedFolderCount)
+        activatePendingRestoreFolders(operationId)
+        val activatedDocumentCount = activatePendingRestoreDocuments(operationId)
+        require(activatedDocumentCount == activatedOperation.importedDocumentCount)
+        activatePreparedRestoreItems(operationId)
+        if (activatedDocumentCount != 0 || expectedFolderCount != 0) bumpLibraryRevision(modifiedAt)
+        updateOperation(activatedOperation)
     }
 
     @Transaction

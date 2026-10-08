@@ -166,7 +166,7 @@ android {
     }
 
     sourceSets {
-        getByName("phase2Test").manifest.srcFile("src/debug/AndroidManifest.xml")
+        getByName("phase2Test").manifest.srcFile("src/phase2Test/AndroidManifest.xml")
     }
 
 }

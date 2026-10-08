@@ -826,6 +826,9 @@ private fun MigrationBatchReport.toCompletion(
                 MigrationDocumentStatus.POSSIBLE_DUPLICATE_REVIEW_REQUIRED ->
                     MigrationIssueReason.POSSIBLE_DUPLICATE_REVIEW_REQUIRED
                 MigrationDocumentStatus.CANCELLED -> MigrationIssueReason.CANCELLED
+                MigrationDocumentStatus.EXCLUDED -> MigrationIssueReason.EXCLUDED_BY_USER
+                MigrationDocumentStatus.REVIEW_UNRESOLVED ->
+                    MigrationIssueReason.AMBIGUOUS_REVIEW_UNRESOLVED
                 MigrationDocumentStatus.FAILED -> document.failure.toIssueReason()
                 MigrationDocumentStatus.PUBLISHED,
                 MigrationDocumentStatus.DUPLICATE_SKIPPED,
@@ -883,8 +886,12 @@ private fun MigrationBatchReport.toCompletion(
 
 private fun MigrationPublicationFailure?.toIssueReason(): MigrationIssueReason = when (this) {
     MigrationPublicationFailure.SOURCE_UNAVAILABLE -> MigrationIssueReason.SOURCE_UNAVAILABLE
+    MigrationPublicationFailure.SOURCE_CHANGED -> MigrationIssueReason.SOURCE_CHANGED
     MigrationPublicationFailure.SOURCE_TOO_LARGE -> MigrationIssueReason.SOURCE_TOO_LARGE
     MigrationPublicationFailure.INSUFFICIENT_STORAGE -> MigrationIssueReason.INSUFFICIENT_STORAGE
+    MigrationPublicationFailure.VALIDATION_FAILED -> MigrationIssueReason.VALIDATION_FAILED
+    MigrationPublicationFailure.STAGING_FAILED -> MigrationIssueReason.STAGING_FAILED
+    MigrationPublicationFailure.PUBLICATION_FAILED -> MigrationIssueReason.PUBLICATION_FAILED
     MigrationPublicationFailure.WRITE_FAILED -> MigrationIssueReason.WRITE_FAILED
     MigrationPublicationFailure.INVALID_DOCUMENT -> MigrationIssueReason.INVALID_DOCUMENT
     MigrationPublicationFailure.INTERRUPTED -> MigrationIssueReason.INTERRUPTED

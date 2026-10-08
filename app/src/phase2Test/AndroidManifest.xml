@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name="androidx.activity.ComponentActivity"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true" />
+        <provider
+            android:name="org.synapseworks.pageharbor.migration.RevocableMigrationTestProvider"
+            android:authorities="${applicationId}.migrationtestprovider"
+            android:exported="false" />
+    </application>
+</manifest>
