@@ -362,7 +362,8 @@ class BackBehaviorTest {
             exactDuplicateCount = 0,
             possibleDuplicateCount = 0,
             unsupportedFileCount = 0,
-            estimatedStorage = "1 KiB",
+            sourceSize = "1 KiB",
+            estimatedLibraryStorage = "2 KiB",
         ),
     )
 }

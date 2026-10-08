@@ -36,7 +36,8 @@ data class MigrationPreviewUiModel(
     val exactDuplicateCount: Int,
     val possibleDuplicateCount: Int,
     val unsupportedFileCount: Int,
-    val estimatedStorage: String,
+    val sourceSize: String,
+    val estimatedLibraryStorage: String,
     val ambiguousGroups: List<MigrationGroupUiModel> = emptyList(),
 ) {
     init {

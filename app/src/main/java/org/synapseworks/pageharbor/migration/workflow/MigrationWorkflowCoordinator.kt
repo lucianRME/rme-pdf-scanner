@@ -835,9 +835,13 @@ private fun PreparedMigrationBatch.toSummary(
         unreadableTreeDirectoryCount = discovery?.unreadableDirectoryCount ?: 0,
         treeWasTruncated = discovery?.wasTruncated == true,
         storage = MigrationStorageSummary(
-            requiredBytesLowerBound = storageEstimate.requiredBytesLowerBound,
+            knownSourceBytes = storageEstimate.knownSourceBytes,
             unknownSourceCount = storageEstimate.unknownSourceCount,
-            safetyMarginBytes = storageEstimate.safetyMarginBytes,
+            estimatedPersistentBytes = storageEstimate.estimatedPersistentBytes,
+            persistentEstimateIsIncomplete = storageEstimate.persistentEstimateIsIncomplete,
+            requiredBytesLowerBound = storageEstimate.requiredFreeSpace.requiredBytesLowerBound,
+            safetyMarginBytes = storageEstimate.requiredFreeSpace.safetyMarginBytes,
+            largestSerialTransientBytes = storageEstimate.largestSerialTransientBytes,
         ),
         possibleDuplicates = possibleDuplicates,
     )

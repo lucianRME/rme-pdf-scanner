@@ -759,8 +759,6 @@ class RoomVerifiedMigrationExecutorInstrumentedTest {
                 storageEstimate = MigrationStorageEstimate(
                     knownSourceBytes = sources.sumOf(File::length),
                     unknownSizeSourceCount = 0,
-                    estimatedRequiredBytes = sources.sumOf(File::length),
-                    estimateIsIncomplete = false,
                 ),
                 inspectedSourceCount = documentCount,
                 requestedSourceCount = documentCount,
@@ -832,8 +830,6 @@ class RoomVerifiedMigrationExecutorInstrumentedTest {
                 storageEstimate = MigrationStorageEstimate(
                     knownSourceBytes = pdf.length() + image.length(),
                     unknownSizeSourceCount = 0,
-                    estimatedRequiredBytes = pdf.length() + image.length(),
-                    estimateIsIncomplete = false,
                 ),
                 inspectedSourceCount = 2,
                 requestedSourceCount = 2,

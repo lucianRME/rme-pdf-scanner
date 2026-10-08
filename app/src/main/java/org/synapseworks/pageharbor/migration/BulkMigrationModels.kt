@@ -141,16 +141,14 @@ data class MigrationStorageEstimate(
     /** Bytes that are known to exist at the source, without inventing values for unknown sizes. */
     val knownSourceBytes: Long,
     val unknownSizeSourceCount: Int,
-    /** Planning estimate for working copies. Null when any source size is unknown. */
-    val estimatedRequiredBytes: Long?,
-    val estimateIsIncomplete: Boolean,
 ) {
     init {
         require(knownSourceBytes >= 0L)
         require(unknownSizeSourceCount >= 0)
-        require(estimatedRequiredBytes == null || estimatedRequiredBytes >= knownSourceBytes)
-        require(estimateIsIncomplete == (unknownSizeSourceCount > 0))
     }
+
+    val estimateIsIncomplete: Boolean
+        get() = unknownSizeSourceCount > 0
 }
 
 data class MigrationDuplicatePreview(
@@ -159,12 +157,20 @@ data class MigrationDuplicatePreview(
     val analyzedPageCount: Int?,
     val existingDocumentId: String? = null,
     val analysisFailure: MigrationPublicationFailure? = null,
+    /** Exact page bytes observed while the read-only preview staged this document. */
+    val measuredPageBytes: Long? = null,
+    /** Exact retained original-asset bytes observed during preview; zero for image imports. */
+    val measuredOriginalAssetBytes: Long? = null,
 ) {
     init {
         require(documentId.isNotBlank())
         require((duplicateKind == null) == (analysisFailure != null))
         require((analyzedPageCount == null) == (analysisFailure != null))
         require(analyzedPageCount == null || analyzedPageCount >= 0)
+        require(measuredPageBytes == null || measuredPageBytes >= 0L)
+        require(measuredOriginalAssetBytes == null || measuredOriginalAssetBytes >= 0L)
+        require((measuredPageBytes == null) == (measuredOriginalAssetBytes == null))
+        require(analysisFailure == null || measuredPageBytes == null)
         require(
             existingDocumentId == null ||
                 duplicateKind in setOf(DuplicateKind.EXACT, DuplicateKind.POSSIBLE),

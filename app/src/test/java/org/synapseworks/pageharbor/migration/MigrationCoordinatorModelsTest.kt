@@ -5,6 +5,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.synapseworks.pageharbor.library.duplicate.DuplicateKind
+import org.synapseworks.pageharbor.portability.StoragePreflight
+import org.synapseworks.pageharbor.portability.StoragePreflightResult
 
 class MigrationCoordinatorModelsTest {
     @Test
@@ -14,8 +16,9 @@ class MigrationCoordinatorModelsTest {
         val estimate = migrationBatchStorageEstimate(preview)
 
         assertEquals(1, estimate.unknownSourceCount)
-        assertTrue(estimate.requiredBytesLowerBound >= 300L)
-        assertFalse(estimate.isComplete)
+        assertTrue(estimate.requiredFreeSpace.requiredBytesLowerBound >= 300L)
+        assertFalse(estimate.requiredFreeSpace.isComplete)
+        assertTrue(estimate.persistentEstimateIsIncomplete)
     }
 
     @Test
@@ -23,11 +26,52 @@ class MigrationCoordinatorModelsTest {
         val twoGiB = 2L * 1024L * 1024L * 1024L
         val estimate = migrationBatchStorageEstimate(preview(listOf(twoGiB, twoGiB)))
 
-        assertTrue(estimate.isComplete)
-        // Two original PDFs, two rendered-asset allowances, and one serial staging peak are five
-        // source-sized units before overhead/margin. Reserving three copies of the entire batch
-        // would exceed six units after its safety margin.
-        assertTrue(estimate.requiredBytesLowerBound < twoGiB * 6L)
+        assertTrue(estimate.requiredFreeSpace.isComplete)
+        assertEquals(twoGiB * 2L, estimate.largestSerialTransientBytes)
+        assertEquals(twoGiB * 4L, estimate.estimatedPersistentBytes - 2L * 512L * 1024L)
+    }
+
+    @Test
+    fun representativePdfSeparatesSourcePersistentTransientAndSafetyBytes() {
+        val sourceBytes = 7_507_804L // 7.16 MiB
+        val measuredPageBytes = 3_145_728L
+        val base = preview(listOf(sourceBytes))
+        val measured = base.copy(
+            duplicateDocuments = listOf(
+                MigrationDuplicatePreview(
+                    documentId = "document-0",
+                    duplicateKind = DuplicateKind.DIFFERENT,
+                    analyzedPageCount = 8,
+                    measuredPageBytes = measuredPageBytes,
+                    measuredOriginalAssetBytes = sourceBytes,
+                ),
+            ),
+            duplicateAnalysisComplete = true,
+        )
+
+        val estimate = migrationBatchStorageEstimate(measured)
+        val expectedPersistent = sourceBytes + measuredPageBytes + 512L * 1024L
+        val expectedTransient = sourceBytes + measuredPageBytes
+        val expectedRequired = expectedPersistent + expectedTransient +
+            StoragePreflight.DEFAULT_MINIMUM_SAFETY_MARGIN_BYTES
+
+        assertEquals(sourceBytes, estimate.knownSourceBytes)
+        assertEquals(sourceBytes, estimate.originalAssetBytes)
+        assertEquals(measuredPageBytes, estimate.pageBytes)
+        assertEquals(expectedPersistent, estimate.estimatedPersistentBytes)
+        assertEquals(expectedTransient, estimate.largestSerialTransientBytes)
+        assertEquals(
+            StoragePreflight.DEFAULT_MINIMUM_SAFETY_MARGIN_BYTES,
+            estimate.requiredFreeSpace.safetyMarginBytes,
+        )
+        assertEquals(expectedRequired, estimate.requiredFreeSpace.requiredBytesLowerBound)
+        assertTrue(estimate.estimatedPersistentBytes < 150L * 1024L * 1024L)
+        assertTrue(
+            StoragePreflight.evaluate(
+                estimate.requiredFreeSpace,
+                expectedRequired - 1L,
+            ) is StoragePreflightResult.Insufficient,
+        )
     }
 
     @Test
@@ -94,8 +138,6 @@ class MigrationCoordinatorModelsTest {
             storageEstimate = MigrationStorageEstimate(
                 knownSourceBytes = sizes.filterNotNull().sum(),
                 unknownSizeSourceCount = sizes.count { it == null },
-                estimatedRequiredBytes = if (sizes.any { it == null }) null else sizes.filterNotNull().sum(),
-                estimateIsIncomplete = sizes.any { it == null },
             ),
             inspectedSourceCount = sizes.size,
             requestedSourceCount = sizes.size,

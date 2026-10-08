@@ -665,8 +665,6 @@ private fun preparedBatch(includeRejectedSources: Boolean = false): PreparedMigr
         storageEstimate = MigrationStorageEstimate(
             knownSourceBytes = 6_000L,
             unknownSizeSourceCount = 0,
-            estimatedRequiredBytes = 18_000L,
-            estimateIsIncomplete = false,
         ),
         inspectedSourceCount = documents.size + rejected.size,
         requestedSourceCount = documents.size + rejected.size,

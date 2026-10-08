@@ -165,8 +165,6 @@ class BulkMigrationEngineTest {
             storageEstimate = MigrationStorageEstimate(
                 knownSourceBytes = count * 100L,
                 unknownSizeSourceCount = 0,
-                estimatedRequiredBytes = count * 1000L,
-                estimateIsIncomplete = false,
             ),
             inspectedSourceCount = count,
             requestedSourceCount = count,

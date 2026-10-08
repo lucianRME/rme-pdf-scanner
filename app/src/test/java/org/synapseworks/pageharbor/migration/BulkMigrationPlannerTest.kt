@@ -47,7 +47,6 @@ class BulkMigrationPlannerTest {
             preview.documents.single { it.suggestedTitle == "Report" }
                 .sources.single().source.modifiedAtMillis,
         )
-        assertNull(preview.storageEstimate.estimatedRequiredBytes)
         assertTrue(preview.storageEstimate.estimateIsIncomplete)
         assertEquals(1, preview.storageEstimate.unknownSizeSourceCount)
     }

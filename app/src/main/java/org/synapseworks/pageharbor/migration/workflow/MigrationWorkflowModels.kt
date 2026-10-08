@@ -30,18 +30,25 @@ value class MigrationPickerRequestId(val value: Long)
 value class MigrationDuplicateSelectionId(val value: Long)
 
 data class MigrationStorageSummary(
-    val requiredBytesLowerBound: Long,
+    val knownSourceBytes: Long,
     val unknownSourceCount: Int,
+    val estimatedPersistentBytes: Long,
+    val persistentEstimateIsIncomplete: Boolean,
+    val requiredBytesLowerBound: Long,
     val safetyMarginBytes: Long,
+    val largestSerialTransientBytes: Long,
 ) {
     init {
-        require(requiredBytesLowerBound >= 0L)
+        require(knownSourceBytes >= 0L)
         require(unknownSourceCount >= 0)
+        require(estimatedPersistentBytes >= 0L)
+        require(requiredBytesLowerBound >= 0L)
         require(safetyMarginBytes >= 0L)
+        require(largestSerialTransientBytes >= 0L)
     }
 
     val isComplete: Boolean
-        get() = unknownSourceCount == 0
+        get() = !persistentEstimateIsIncomplete
 }
 
 data class MigrationPossibleDuplicate(

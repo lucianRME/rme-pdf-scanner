@@ -274,7 +274,7 @@ class VerifiedMigrationModelsTest {
     ) = MigrationPreview(
         documents = documents,
         rejectedSources = emptyList(),
-        storageEstimate = MigrationStorageEstimate(0L, 0, 0L, false),
+        storageEstimate = MigrationStorageEstimate(0L, 0),
         inspectedSourceCount = documents.sumOf { it.sources.size },
         requestedSourceCount = documents.sumOf { it.sources.size },
         wasCancelled = false,

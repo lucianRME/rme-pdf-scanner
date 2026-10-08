@@ -60,7 +60,8 @@ fun MigrationPreviewScreen(
                 "Exact duplicates" to preview.exactDuplicateCount.toString(),
                 "Possible duplicates" to preview.possibleDuplicateCount.toString(),
                 "Unsupported files" to preview.unsupportedFileCount.toString(),
-                "Estimated storage" to preview.estimatedStorage,
+                "Source size" to preview.sourceSize,
+                "Estimated library storage" to preview.estimatedLibraryStorage,
             ),
         )
 

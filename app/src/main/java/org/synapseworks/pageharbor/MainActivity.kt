@@ -1107,14 +1107,13 @@ class MainActivity : FragmentActivity() {
 
     private fun org.synapseworks.pageharbor.migration.workflow.MigrationPreviewSummary
         .toUiMigrationPreview(): MigrationPreviewUiModel {
-        val estimatedBytes = if (storage.requiredBytesLowerBound > Long.MAX_VALUE - storage.safetyMarginBytes) {
-            Long.MAX_VALUE
-        } else {
-            storage.requiredBytesLowerBound + storage.safetyMarginBytes
+        val sourceSize = buildString {
+            append(formatByteCount(storage.knownSourceBytes))
+            if (storage.unknownSourceCount > 0) append(" + unknown provider sizes")
         }
-        val estimate = buildString {
-            append(formatByteCount(estimatedBytes))
-            if (!storage.isComplete) append(" + unknown provider sizes")
+        val libraryEstimate = buildString {
+            append(formatByteCount(storage.estimatedPersistentBytes))
+            if (!storage.isComplete) append(" + unknown document sizes")
         }
         return MigrationPreviewUiModel(
             source = source.app.toUiMigrationSource(),
@@ -1124,7 +1123,8 @@ class MainActivity : FragmentActivity() {
             exactDuplicateCount = exactDuplicateCount,
             possibleDuplicateCount = possibleDuplicateCount,
             unsupportedFileCount = unsupportedSourceCount + unreadableSourceCount,
-            estimatedStorage = estimate,
+            sourceSize = sourceSize,
+            estimatedLibraryStorage = libraryEstimate,
             ambiguousGroups = possibleDuplicates.map { duplicate ->
                 MigrationGroupUiModel(
                     title = duplicate.suggestedTitle,

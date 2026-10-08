@@ -194,6 +194,8 @@ internal class RoomMigrationDuplicateAnalyzer(
                         duplicateKind = duplicate.kind,
                         analyzedPageCount = document.pages.size,
                         existingDocumentId = duplicate.documentId,
+                        measuredPageBytes = document.pages.sumOf { it.byteCount },
+                        measuredOriginalAssetBytes = document.originalPdf?.byteCount ?: 0L,
                     )
                 }
             }

@@ -44,6 +44,11 @@ class RoomMigrationDuplicateAnalyzerTest {
             assertTrue(analyzed.duplicateAnalysisComplete)
             assertEquals(25L, analyzed.pageCount)
             assertEquals(25, analyzed.duplicateDocuments.single().analyzedPageCount)
+            assertEquals(
+                (0 until 25).sumOf { 100L + it },
+                analyzed.duplicateDocuments.single().measuredPageBytes,
+            )
+            assertEquals(0L, analyzed.duplicateDocuments.single().measuredOriginalAssetBytes)
             assertEquals(DuplicateKind.EXACT, analyzed.duplicateDocuments.single().duplicateKind)
             assertEquals(1, analyzed.exactDuplicateCount)
             assertEquals(0, analyzed.possibleDuplicateCount)
@@ -153,8 +158,6 @@ class RoomMigrationDuplicateAnalyzerTest {
         storageEstimate = MigrationStorageEstimate(
             knownSourceBytes = 100L,
             unknownSizeSourceCount = 0,
-            estimatedRequiredBytes = 1_000L,
-            estimateIsIncomplete = false,
         ),
         inspectedSourceCount = 1,
         requestedSourceCount = 1,

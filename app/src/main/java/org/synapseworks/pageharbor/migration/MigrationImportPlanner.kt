@@ -10,7 +10,6 @@ import org.synapseworks.pageharbor.document.importing.sniffSupportedContentType
 import org.synapseworks.pageharbor.document.session.DEFAULT_MAX_IMAGE_SOURCE_BYTES
 import org.synapseworks.pageharbor.document.session.DEFAULT_MAX_IMPORTED_DOCUMENT_PAGES
 
-private const val ESTIMATED_DOCUMENT_OVERHEAD_BYTES = 512L * 1024L
 private const val DEFAULT_MAX_PLANNING_SOURCES = 10_000
 private const val MAX_SUGGESTED_TITLE_LENGTH = 255
 
@@ -111,7 +110,7 @@ class BulkMigrationPlanner(
         return MigrationPreview(
             documents = documents,
             rejectedSources = rejected,
-            storageEstimate = estimateStorage(inspected, documents.size),
+            storageEstimate = estimateSourceSize(inspected),
             inspectedSourceCount = inspectedCount,
             requestedSourceCount = requestedSources.size,
             wasCancelled = cancellationSignal.isCancellationRequested(),
@@ -466,14 +465,10 @@ class BulkMigrationPlanner(
         return DateAnalysis(candidates, warnings)
     }
 
-    private fun estimateStorage(
+    private fun estimateSourceSize(
         inspected: List<InspectedMigrationSource>,
-        documentCount: Int,
     ): MigrationStorageEstimate {
         var knownSourceBytes = 0L
-        var estimatedBytes = documentCount.toLong().saturatingMultiply(
-            ESTIMATED_DOCUMENT_OVERHEAD_BYTES,
-        )
         var unknown = 0
         inspected.forEach { inspectedSource ->
             val sourceBytes = inspectedSource.source.sizeBytes
@@ -481,17 +476,11 @@ class BulkMigrationPlanner(
                 unknown += 1
             } else {
                 knownSourceBytes = knownSourceBytes.saturatingAdd(sourceBytes)
-                val multiplier = if (inspectedSource.contentType == MigrationContentType.PDF) 3L else 2L
-                estimatedBytes = estimatedBytes.saturatingAdd(
-                    sourceBytes.saturatingMultiply(multiplier),
-                )
             }
         }
         return MigrationStorageEstimate(
             knownSourceBytes = knownSourceBytes,
             unknownSizeSourceCount = unknown,
-            estimatedRequiredBytes = estimatedBytes.takeIf { unknown == 0 },
-            estimateIsIncomplete = unknown != 0,
         )
     }
 

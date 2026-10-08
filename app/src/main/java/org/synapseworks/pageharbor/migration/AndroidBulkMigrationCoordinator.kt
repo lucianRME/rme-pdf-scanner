@@ -319,7 +319,7 @@ class AndroidBulkMigrationCoordinator(
     )
 
     private fun preflight(preview: MigrationPreview): MigrationExecutionResult.InsufficientStorage? {
-        val estimate = migrationBatchStorageEstimate(preview)
+        val estimate = migrationBatchStorageEstimate(preview).requiredFreeSpace
         return when (val result = StoragePreflight.evaluate(estimate, storageCapacity.availableBytes())) {
             is StoragePreflightResult.Insufficient ->
                 MigrationExecutionResult.InsufficientStorage(result.estimate, result.availableBytes)
@@ -399,41 +399,101 @@ private fun MigrationPreview.withDiscoveryWarnings(
     return copy(planWarnings = planWarnings + discoveryWarnings)
 }
 
-internal fun migrationBatchStorageEstimate(preview: MigrationPreview): StorageEstimate {
-    val durableAndDerivedSizes = buildList {
-        preview.documents.forEach { plan ->
-            plan.sources.forEach { inspected ->
-                add(inspected.source.sizeBytes)
-                // PDFs retain the original and produce private page assets. Source size is a
-                // practical allowance for those derived assets; an unknown provider size stays
-                // unknown once rather than pretending to be several independent unknown files.
-                if (
-                    plan.grouping == MigrationDocumentGrouping.SINGLE_PDF &&
-                    inspected.source.sizeBytes != null
-                ) {
-                    add(inspected.source.sizeBytes)
+internal data class MigrationBatchStorageEstimate(
+    val knownSourceBytes: Long,
+    val unknownSourceCount: Int,
+    val originalAssetBytes: Long,
+    val pageBytes: Long,
+    val perDocumentOverheadBytes: Long,
+    val largestSerialTransientBytes: Long,
+    val persistentEstimateIsIncomplete: Boolean,
+    val requiredFreeSpace: StorageEstimate,
+) {
+    init {
+        require(knownSourceBytes >= 0L)
+        require(unknownSourceCount >= 0)
+        require(originalAssetBytes >= 0L)
+        require(pageBytes >= 0L)
+        require(perDocumentOverheadBytes >= 0L)
+        require(largestSerialTransientBytes >= 0L)
+    }
+
+    val estimatedPersistentBytes: Long
+        get() = saturatingAdd(
+            saturatingAdd(originalAssetBytes, pageBytes),
+            perDocumentOverheadBytes,
+        )
+}
+
+/** Separates retained library bytes from the conservative free-space execution gate. */
+internal fun migrationBatchStorageEstimate(preview: MigrationPreview): MigrationBatchStorageEstimate {
+    val measurements = preview.duplicateDocuments.associateBy(MigrationDuplicatePreview::documentId)
+    var knownSourceBytes = 0L
+    var unknownSourceCount = 0
+    var originalAssetBytes = 0L
+    var pageBytes = 0L
+    var persistentEstimateIsIncomplete = false
+    val persistentContentByDocument = mutableListOf<Long?>()
+
+    preview.documents.forEach { plan ->
+        plan.sources.forEach { inspected ->
+            inspected.source.sizeBytes?.let { size ->
+                knownSourceBytes = saturatingAdd(knownSourceBytes, size)
+            } ?: run { unknownSourceCount += 1 }
+        }
+
+        val measured = measurements[plan.id]
+        val measuredPages = measured?.measuredPageBytes
+        val measuredOriginal = measured?.measuredOriginalAssetBytes
+        if (measuredPages != null && measuredOriginal != null) {
+            pageBytes = saturatingAdd(pageBytes, measuredPages)
+            originalAssetBytes = saturatingAdd(originalAssetBytes, measuredOriginal)
+            persistentContentByDocument += saturatingAdd(measuredPages, measuredOriginal)
+        } else {
+            val sourceSizes = plan.sources.map { it.source.sizeBytes }
+            if (sourceSizes.any { it == null }) {
+                persistentEstimateIsIncomplete = true
+                persistentContentByDocument += null
+            } else {
+                val sourceBytes = sourceSizes.filterNotNull().fold(0L, ::saturatingAdd)
+                if (plan.grouping == MigrationDocumentGrouping.SINGLE_PDF) {
+                    // Until preview rendering supplies exact bytes, retain the historical
+                    // source-sized allowance for the rendered page assets.
+                    originalAssetBytes = saturatingAdd(originalAssetBytes, sourceBytes)
+                    pageBytes = saturatingAdd(pageBytes, sourceBytes)
+                    persistentContentByDocument += saturatingMultiply(sourceBytes, 2L)
+                } else {
+                    pageBytes = saturatingAdd(pageBytes, sourceBytes)
+                    persistentContentByDocument += sourceBytes
                 }
             }
         }
     }
-    val peakKnownDocumentBytes = preview.documents.mapNotNull { plan ->
-        val sizes = plan.sources.map { it.source.sizeBytes }
-        if (sizes.any { it == null }) {
-            null
-        } else {
-            sizes.filterNotNull().fold(0L, ::saturatingAdd)
-        }
-    }.maxOrNull()
-    return StoragePreflight.estimate(
-        // Documents are staged serially, so only the largest known document needs an additional
-        // transient-copy allowance. This avoids multiplying a multi-gigabyte batch by the peak
-        // per-document working-copy count.
-        sourceSizes = durableAndDerivedSizes + listOfNotNull(peakKnownDocumentBytes),
+
+    val perDocumentOverheadBytes = saturatingMultiply(
+        preview.documents.size.toLong(),
+        PER_DOCUMENT_STORAGE_OVERHEAD_BYTES,
+    )
+    val largestSerialTransientBytes = persistentContentByDocument.filterNotNull().maxOrNull() ?: 0L
+    val transientPeak = largestSerialTransientBytes.takeIf {
+        persistentContentByDocument.none { size -> size == null }
+    }
+    val requiredFreeSpace = StoragePreflight.estimate(
+        // Every retained document remains after publication. Only one document is staged at a
+        // time, so add the largest complete staging workspace as the serial transient peak.
+        sourceSizes = persistentContentByDocument + listOf(transientPeak),
         workingCopyCount = 1,
-        fixedOverheadBytes = saturatingMultiply(
-            preview.documents.size.toLong(),
-            PER_DOCUMENT_STORAGE_OVERHEAD_BYTES,
-        ),
+        fixedOverheadBytes = perDocumentOverheadBytes,
+    )
+    return MigrationBatchStorageEstimate(
+        knownSourceBytes = knownSourceBytes,
+        unknownSourceCount = unknownSourceCount,
+        originalAssetBytes = originalAssetBytes,
+        pageBytes = pageBytes,
+        perDocumentOverheadBytes = perDocumentOverheadBytes,
+        largestSerialTransientBytes = largestSerialTransientBytes,
+        persistentEstimateIsIncomplete = persistentEstimateIsIncomplete,
+        requiredFreeSpace = requiredFreeSpace,
     )
 }
 
