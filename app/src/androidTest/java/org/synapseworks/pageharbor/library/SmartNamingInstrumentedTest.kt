@@ -5,6 +5,10 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.File
+import java.time.LocalDate
+import java.time.YearMonth
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -39,10 +43,11 @@ class SmartNamingInstrumentedTest {
 
     @Test
     fun correctedOcrSupersedesRawAndRevertRestoresLatestRawSuggestion() = runBlocking {
+        val expectedMonthYear = localizedMonthYear(2026, 9)
         storeDocument("corrected", "Document 1")
         commitRaw("corrected", "V0daf0ne\nInvoice\nSeptember 2026")
         assertEquals(
-            "V0daf0ne Invoice — Sep 2026",
+            "V0daf0ne Invoice — $expectedMonthYear",
             repository.suggestDocumentName("corrected").successValue()?.name,
         )
 
@@ -59,24 +64,25 @@ class SmartNamingInstrumentedTest {
             ),
         )
         assertEquals(
-            "Vodafone Invoice — Sep 2026",
+            "Vodafone Invoice — $expectedMonthYear",
             repository.suggestDocumentName("corrected").successValue()?.name,
         )
 
         val revertSnapshot = requireNotNull(dao.ocrPageSnapshot("corrected", "corrected-page"))
         assertEquals(LibraryOcrCommitResult.APPLIED, dao.revertOcrCorrection(revertSnapshot, 3))
         assertEquals(
-            "V0daf0ne Invoice — Sep 2026",
+            "V0daf0ne Invoice — $expectedMonthYear",
             repository.suggestDocumentName("corrected").successValue()?.name,
         )
     }
 
     @Test
     fun reOcrNeverChangesConfirmedTitleOrKeepsNagging() = runBlocking {
+        val expectedDate = localizedDate(2026, 9, 25)
         storeDocument("rerun", "Scan 2026-09-27")
         commitRaw("rerun", "Tesco\nReceipt\n25 September 2026")
         val suggested = requireNotNull(repository.suggestDocumentName("rerun").successValue())
-        assertEquals("Tesco Receipt — 25 Sep 2026", suggested.name)
+        assertEquals("Tesco Receipt — $expectedDate", suggested.name)
         assertEquals(LibraryResult.Success(Unit), repository.renameDocument("rerun", suggested.name))
 
         commitRaw("rerun", "Vodafone\nInvoice\nOctober 2026", recognizedAt = 4)
@@ -96,17 +102,18 @@ class SmartNamingInstrumentedTest {
 
     @Test
     fun multilingualEffectiveOcrProducesLocalUnicodeSafeSuggestions() = runBlocking {
+        val expectedDate = localizedDate(2026, 9, 25)
         val cases = mapOf(
-            "english" to ("Acme\nInvoice\n25 September 2026" to "Acme Invoice — 25 Sep 2026"),
-            "romanian" to ("Electrica\nFactură\n25 septembrie 2026" to "Electrica Factură — 25 Sep 2026"),
-            "german" to ("Allianz\nVersicherung\n25 September 2026" to "Allianz Versicherung — 25 Sep 2026"),
-            "french" to ("Orange\nFacture\n25 septembre 2026" to "Orange Facture — 25 Sep 2026"),
-            "italian" to ("Enel\nFattura\n25 settembre 2026" to "Enel Fattura — 25 Sep 2026"),
-            "spanish" to ("Iberdrola\nFactura\n25 septiembre 2026" to "Iberdrola Factura — 25 Sep 2026"),
-            "chinese" to ("樱花株式会社\n2026-09-25" to "樱花株式会社 — 25 Sep 2026"),
-            "japanese" to ("株式会社サクラ\n2026-09-25" to "株式会社サクラ — 25 Sep 2026"),
-            "korean" to ("한빛회사\n2026-09-25" to "한빛회사 — 25 Sep 2026"),
-            "devanagari" to ("भारत संस्था\n2026-09-25" to "भारत संस्था — 25 Sep 2026"),
+            "english" to ("Acme\nInvoice\n25 September 2026" to "Acme Invoice — $expectedDate"),
+            "romanian" to ("Electrica\nFactură\n25 septembrie 2026" to "Electrica Factură — $expectedDate"),
+            "german" to ("Allianz\nVersicherung\n25 September 2026" to "Allianz Versicherung — $expectedDate"),
+            "french" to ("Orange\nFacture\n25 septembre 2026" to "Orange Facture — $expectedDate"),
+            "italian" to ("Enel\nFattura\n25 settembre 2026" to "Enel Fattura — $expectedDate"),
+            "spanish" to ("Iberdrola\nFactura\n25 septiembre 2026" to "Iberdrola Factura — $expectedDate"),
+            "chinese" to ("樱花株式会社\n2026-09-25" to "樱花株式会社 — $expectedDate"),
+            "japanese" to ("株式会社サクラ\n2026-09-25" to "株式会社サクラ — $expectedDate"),
+            "korean" to ("한빛회사\n2026-09-25" to "한빛회사 — $expectedDate"),
+            "devanagari" to ("भारत संस्था\n2026-09-25" to "भारत संस्था — $expectedDate"),
         )
 
         cases.forEach { (id, values) ->
@@ -118,16 +125,27 @@ class SmartNamingInstrumentedTest {
 
     @Test
     fun batchRecognizedOcrMakesSuggestionAvailableWithoutAutomaticRename() = runBlocking {
+        val expectedDate = localizedDate(2026, 9, 25)
         storeDocument("batch", "Document 4")
 
         commitRaw("batch", "Tesco\nReceipt\n25 September 2026")
 
         assertEquals("Document 4", requireNotNull(dao.document("batch")).title)
         assertEquals(
-            "Tesco Receipt — 25 Sep 2026",
+            "Tesco Receipt — $expectedDate",
             repository.suggestDocumentName("batch").successValue()?.name,
         )
     }
+
+    private fun localizedMonthYear(year: Int, month: Int): String =
+        YearMonth.of(year, month).format(
+            DateTimeFormatter.ofPattern("MMM uuuu", Locale.getDefault()),
+        )
+
+    private fun localizedDate(year: Int, month: Int, day: Int): String =
+        LocalDate.of(year, month, day).format(
+            DateTimeFormatter.ofPattern("d MMM uuuu", Locale.getDefault()),
+        )
 
     private suspend fun storeDocument(documentId: String, title: String) {
         dao.replaceDocument(
