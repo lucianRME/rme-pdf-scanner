@@ -1,6 +1,9 @@
 package org.synapseworks.pageharbor.ui.home
 
 import android.graphics.Bitmap
+import android.os.Handler
+import android.os.Looper
+import android.view.Choreographer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -82,8 +85,27 @@ internal class PreviewBitmapOwnerSlot {
     }
 }
 
+private val previewRecycleHandler = Handler(Looper.getMainLooper())
+
+/**
+ * Compose may retain the previous image in a recorded graphics layer until the next frame even
+ * after the owner leaves composition. Recycle after that frame has been drawn so a pending layer
+ * can never observe an already-recycled bitmap.
+ */
 internal fun recyclePreviewBitmap(bitmap: Bitmap) {
-    if (!bitmap.isRecycled) bitmap.recycle()
+    if (bitmap.isRecycled) return
+    val recycleAfterNextFrame = {
+        Choreographer.getInstance().postFrameCallback {
+            previewRecycleHandler.post {
+                if (!bitmap.isRecycled) bitmap.recycle()
+            }
+        }
+    }
+    if (Looper.myLooper() == Looper.getMainLooper()) {
+        recycleAfterNextFrame()
+    } else {
+        previewRecycleHandler.post(recycleAfterNextFrame)
+    }
 }
 
 /**

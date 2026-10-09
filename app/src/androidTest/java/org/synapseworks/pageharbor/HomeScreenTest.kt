@@ -422,6 +422,26 @@ class HomeScreenTest {
     }
 
     @Test
+    fun shareSafeToolUsesTheSharedWorkflowEntryPoint() {
+        var openCount = 0
+        composeTestRule.setContent {
+            PageHarborApp(
+                autoNavigateToScanResult = false,
+                scannerSpikeState = scanSummary(jpegPageCount = 1),
+                documentPages = listOf(documentPage(1L)),
+                onOpenShareSafeCopy = { openCount += 1 },
+            )
+        }
+
+        composeTestRule.onNodeWithText("Tools").performClick()
+        composeTestRule.onNodeWithContentDescription(
+            "Share-safe copy. Create a local copy with optional redaction, purpose watermark and file-size limit.",
+        ).performClick()
+
+        assertEquals(1, openCount)
+    }
+
+    @Test
     fun documentActionsExposeFitUploadLimitAsTheSameWorkflowEntryPoint() {
         var openCount = 0
         composeTestRule.setContent {
@@ -434,6 +454,23 @@ class HomeScreenTest {
 
         openDocumentMore()
         composeTestRule.onNodeWithText("Fit upload limit").performScrollTo().performClick()
+
+        assertEquals(1, openCount)
+    }
+
+    @Test
+    fun documentActionsExposeShareSafeAsTheSameWorkflowEntryPoint() {
+        var openCount = 0
+        composeTestRule.setContent {
+            PageHarborApp(
+                scannerSpikeState = scanSummary(jpegPageCount = 1),
+                documentPages = listOf(documentPage(1L)),
+                onOpenShareSafeCopy = { openCount += 1 },
+            )
+        }
+
+        openDocumentMore()
+        composeTestRule.onNodeWithText("Share-safe copy").performScrollTo().performClick()
 
         assertEquals(1, openCount)
     }

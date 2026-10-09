@@ -84,6 +84,8 @@ internal sealed interface PendingProtectedAction {
 
     data class CardCopyPdfDestination(val uri: Uri?) : PendingProtectedAction
 
+    data class ShareSafePdfDestination(val uri: Uri?) : PendingProtectedAction
+
     data class LaunchPortabilityPicker(
         val request: PortabilityPickerRequest,
     ) : PendingProtectedAction

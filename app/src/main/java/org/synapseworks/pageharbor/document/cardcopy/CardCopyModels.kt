@@ -187,6 +187,7 @@ sealed interface CardCopyWorkflowState {
         val prepared: CardCopyPreparedPdf,
         val saveStatus: CardCopySaveStatus = CardCopySaveStatus.Idle,
         val shareFailed: Boolean = false,
+        val continueToShareSafe: Boolean = false,
     ) : CardCopyWorkflowState
 
     data class Failed(

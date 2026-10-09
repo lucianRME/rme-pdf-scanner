@@ -64,7 +64,11 @@ internal data class SecureRedactedOcrProvenance(
     }
 }
 
-internal data class SecureRedactedPdfRequest(val pages: List<SecureRedactedPdfPage>) {
+internal data class SecureRedactedPdfRequest(
+    val pages: List<SecureRedactedPdfPage>,
+    /** M8 may use the same secure reconstruction boundary without requiring a redaction. */
+    val requireAtLeastOneRedaction: Boolean = true,
+) {
     init {
         require(pages.map(SecureRedactedPdfPage::pageId).distinct().size == pages.size)
     }
@@ -79,6 +83,7 @@ internal class SecureRedactedPreparedPdf internal constructor(
     val redactionCount: Int,
     val sourceHashesVerified: Boolean,
     val securelyVerified: Boolean,
+    internal val verificationPolicy: RedactedPdfVerificationPolicy,
     val verificationEvidence: RedactedPdfVerificationEvidence,
     val performance: SecureRedactionPerformance,
 )
@@ -152,7 +157,9 @@ internal class SecureRedactedPdfEngine(
                         SecureRedactedPdfFailure.EMPTY_REQUEST,
                     )
                 }
-                if (request.pages.sumOf { it.regions.size } == 0) {
+                if (request.requireAtLeastOneRedaction &&
+                    request.pages.sumOf { it.regions.size } == 0
+                ) {
                     return@withContext SecureRedactedPdfResult.Failure(
                         SecureRedactedPdfFailure.INVALID_REDACTION,
                     )
@@ -366,9 +373,7 @@ internal class SecureRedactedPdfEngine(
                     sanitizedPageFiles.forEach(File::deleteSafely)
                     coroutineContext.ensureActive()
                     val verificationStarted = SystemClock.elapsedRealtime()
-                    val verification = verifier.verify(
-                        outputFile,
-                        RedactedPdfVerificationPolicy(
+                    val verificationPolicy = RedactedPdfVerificationPolicy(
                             pages = verificationPages.map { page ->
                                 val regions = page.regions.confirmedSourceRegionsFor(
                                     page.pageId,
@@ -403,8 +408,8 @@ internal class SecureRedactedPdfEngine(
                                     },
                                 )
                             },
-                        ),
-                    )
+                        )
+                    val verification = verifier.verify(outputFile, verificationPolicy)
                     val evidence = (verification as? RedactedPdfVerificationResult.Verified)?.evidence
                     verificationMillis = SystemClock.elapsedRealtime() - verificationStarted
                     if (evidence == null) {
@@ -433,6 +438,7 @@ internal class SecureRedactedPdfEngine(
                             redactionCount = request.pages.sumOf { it.regions.size },
                             sourceHashesVerified = true,
                             securelyVerified = true,
+                            verificationPolicy = verificationPolicy,
                             verificationEvidence = evidence,
                             performance = SecureRedactionPerformance(
                                 sourceRenderAndRedactionMillis = renderAndRedactionMillis,

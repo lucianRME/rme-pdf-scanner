@@ -40,6 +40,10 @@ import org.synapseworks.pageharbor.document.cardcopy.CardCopyPageSize
 import org.synapseworks.pageharbor.document.cardcopy.CardCopySide
 import org.synapseworks.pageharbor.document.cardcopy.CardCopySpacing
 import org.synapseworks.pageharbor.document.cardcopy.CardCopyWorkflowState
+import org.synapseworks.pageharbor.document.sharesafe.ShareSafeCopyWorkflowState
+import org.synapseworks.pageharbor.document.sharesafe.ShareSafeRecipe
+import org.synapseworks.pageharbor.document.sharesafe.ShareSafeWatermarkOpacity
+import org.synapseworks.pageharbor.document.sharesafe.ShareSafeWatermarkPlacement
 import org.synapseworks.pageharbor.document.redaction.RedactionBounds
 import org.synapseworks.pageharbor.document.redaction.RedactionRegionId
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
@@ -87,6 +91,7 @@ import org.synapseworks.pageharbor.ui.ocr.OcrBatchStatusDialog
 import org.synapseworks.pageharbor.ui.theme.PageHarborTheme
 import org.synapseworks.pageharbor.ui.targetsize.FitUploadLimitScreen
 import org.synapseworks.pageharbor.ui.cardcopy.CardCopyScreen
+import org.synapseworks.pageharbor.ui.sharesafe.ShareSafeCopyScreen
 
 @Composable
 fun PageHarborApp(
@@ -185,6 +190,29 @@ fun PageHarborApp(
     onCardCopyUndoRedaction: () -> Unit = {},
     onCardCopyRedoRedaction: () -> Unit = {},
     onCardCopyApplyRedactions: () -> Unit = {},
+    shareSafeWorkflowState: ShareSafeCopyWorkflowState = ShareSafeCopyWorkflowState.Hidden,
+    onOpenShareSafeCopy: () -> Unit = {},
+    onShareSafeRecipe: (ShareSafeRecipe) -> Unit = {},
+    onShareSafePage: (Int) -> Unit = {},
+    onShareSafeAddRedaction: () -> Unit = {},
+    onShareSafeSelectRedaction: (RedactionRegionId) -> Unit = {},
+    onShareSafeUpdateRedaction: (RedactionBounds) -> Unit = {},
+    onShareSafeDeleteRedaction: () -> Unit = {},
+    onShareSafeWatermarkEnabled: (Boolean) -> Unit = {},
+    onShareSafePurpose: (String) -> Unit = {},
+    onShareSafeDateEnabled: (Boolean) -> Unit = {},
+    onShareSafeDate: (String) -> Unit = {},
+    onShareSafePlacement: (ShareSafeWatermarkPlacement) -> Unit = {},
+    onShareSafeOpacity: (ShareSafeWatermarkOpacity) -> Unit = {},
+    onShareSafeTargetEnabled: (Boolean) -> Unit = {},
+    onShareSafeTargetBytes: (Long) -> Unit = {},
+    onShareSafeNext: () -> Unit = {},
+    onShareSafePrepare: () -> Unit = {},
+    onShareSafeSave: () -> Unit = {},
+    onShareSafeShare: () -> Unit = {},
+    onShareSafeRetry: () -> Unit = {},
+    onShareSafeBack: () -> Unit = {},
+    onCardCopyContinueShareSafe: () -> Unit = {},
     onExportPages: () -> Unit = {},
     onRecognizeText: () -> Unit = {},
     onRecognizeTextWithLanguage: ((OcrOperationSelection, Boolean) -> Unit)? = null,
@@ -330,12 +358,14 @@ fun PageHarborApp(
             ocrReviewState.active,
             targetSizeWorkflowState,
             cardCopyWorkflowState,
+            shareSafeWorkflowState,
         ) {
             val isBusy = showPrivacyInfo || showAbout || showAppLockSettings ||
                 showOcrLanguageSettings || ocrOperationPrompt != null ||
                 libraryTransientUiBusy || ocrReviewState.active ||
                 targetSizeWorkflowState != TargetSizeWorkflowState.Hidden ||
                 cardCopyWorkflowState != CardCopyWorkflowState.Hidden
+                || shareSafeWorkflowState != ShareSafeCopyWorkflowState.Hidden
             onReviewUiBusyChanged(isBusy)
             if (isBusy) exitController.reset()
         }
@@ -521,6 +551,31 @@ fun PageHarborApp(
             },
             onCancelRerun = onOcrReviewCancelRerun,
         )
+        shareSafeWorkflowState != ShareSafeCopyWorkflowState.Hidden &&
+            shareSafeWorkflowState != ShareSafeCopyWorkflowState.CardCopyHandoff ->
+            ShareSafeCopyScreen(
+                state = shareSafeWorkflowState,
+                onBack = onShareSafeBack,
+                onRecipe = onShareSafeRecipe,
+                onPage = onShareSafePage,
+                onAddRedaction = onShareSafeAddRedaction,
+                onSelectRedaction = onShareSafeSelectRedaction,
+                onUpdateRedaction = onShareSafeUpdateRedaction,
+                onDeleteRedaction = onShareSafeDeleteRedaction,
+                onWatermarkEnabled = onShareSafeWatermarkEnabled,
+                onPurpose = onShareSafePurpose,
+                onDateEnabled = onShareSafeDateEnabled,
+                onDate = onShareSafeDate,
+                onPlacement = onShareSafePlacement,
+                onOpacity = onShareSafeOpacity,
+                onTargetEnabled = onShareSafeTargetEnabled,
+                onTargetBytes = onShareSafeTargetBytes,
+                onNext = onShareSafeNext,
+                onPrepare = onShareSafePrepare,
+                onSave = onShareSafeSave,
+                onShare = onShareSafeShare,
+                onRetry = onShareSafeRetry,
+            )
         targetSizeWorkflowState != TargetSizeWorkflowState.Hidden -> FitUploadLimitScreen(
             state = targetSizeWorkflowState,
             onBack = onFitLimitClose,
@@ -563,6 +618,7 @@ fun PageHarborApp(
             onUndoRedaction = onCardCopyUndoRedaction,
             onRedoRedaction = onCardCopyRedoRedaction,
             onApplyRedactions = onCardCopyApplyRedactions,
+            onContinueShareSafe = onCardCopyContinueShareSafe,
         )
         currentScreen == PageHarborScreen.OcrResult && ocrUiState is OcrUiState.Success -> {
             OcrResultScreen(
@@ -641,6 +697,7 @@ fun PageHarborApp(
             },
             onSharePdf = onSharePdf,
             onFitUploadLimit = onOpenFitUploadLimit,
+            onShareSafeCopy = onOpenShareSafeCopy,
             onExportPages = onExportPages,
             onRecognizeText = {
                 if (onRecognizeTextWithLanguage != null) {
@@ -696,6 +753,7 @@ fun PageHarborApp(
             onViewScanResult = { navigateTo(PageHarborScreen.ScanResult) },
             onFitUploadLimit = onOpenFitUploadLimit,
             onCardCopy = onOpenCardCopy,
+            onShareSafeCopy = onOpenShareSafeCopy,
             onPrivacyInfo = {
                 showPrivacyInfo = true
             },

@@ -129,6 +129,7 @@ fun CardCopyScreen(
     onPrepare: () -> Unit,
     onSave: () -> Unit,
     onShare: () -> Unit,
+    onContinueShareSafe: () -> Unit = {},
     onRetry: () -> Unit,
     onOpenRedaction: (CardCopySide) -> Unit = {},
     onAddRedaction: (RedactionBounds) -> Unit = {},
@@ -187,7 +188,7 @@ fun CardCopyScreen(
                 )
                 is CardCopyWorkflowState.Preparing -> PreparingContent()
                 is CardCopyWorkflowState.Prepared -> PreparedContent(
-                    state, onSave, onShare, onBack,
+                    state, onSave, onShare, onContinueShareSafe, onBack,
                 )
                 is CardCopyWorkflowState.Failed -> FailedContent(state.reason, onRetry)
             }
@@ -890,6 +891,7 @@ private fun PreparedContent(
     state: CardCopyWorkflowState.Prepared,
     onSave: () -> Unit,
     onShare: () -> Unit,
+    onContinueShareSafe: () -> Unit,
     onChangeLayout: () -> Unit,
 ) {
     val saving = state.saveStatus == CardCopySaveStatus.Saving
@@ -909,13 +911,21 @@ private fun PreparedContent(
             is CardCopySaveStatus.Failed -> Notice(stringResource(failureText(save.reason)))
         }
         if (state.shareFailed) Notice(stringResource(R.string.card_copy_share_failed))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
+        if (state.continueToShareSafe) {
             Button(
-                modifier = Modifier.weight(1f).heightIn(min = 48.dp), enabled = !saving, onClick = onSave,
-            ) { Icon(Icons.Default.Save, null); Text(stringResource(R.string.card_copy_save)) }
-            OutlinedButton(
-                modifier = Modifier.weight(1f).heightIn(min = 48.dp), enabled = !saving, onClick = onShare,
-            ) { Icon(Icons.Default.Share, null); Text(stringResource(R.string.card_copy_share)) }
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                enabled = !saving,
+                onClick = onContinueShareSafe,
+            ) { Text(stringResource(R.string.share_safe_continue)) }
+        } else {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
+                Button(
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp), enabled = !saving, onClick = onSave,
+                ) { Icon(Icons.Default.Save, null); Text(stringResource(R.string.card_copy_save)) }
+                OutlinedButton(
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp), enabled = !saving, onClick = onShare,
+                ) { Icon(Icons.Default.Share, null); Text(stringResource(R.string.card_copy_share)) }
+            }
         }
         TextButton(
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),

@@ -223,6 +223,32 @@ class CardCopyWorkflowViewModelInstrumentedTest {
         viewModel.close()
     }
 
+    @Test
+    fun shareSafeModeTransfersOnlyVerifiedPdfAndDestroysCardSources() = runBlocking {
+        val viewModel = CardCopyWorkflowViewModel(application, SavedStateHandle())
+        viewModel.openForShareSafe()
+        val front = import(viewModel, CardCopySide.FRONT, fixture("handoff-front", Color.RED))
+        val back = import(viewModel, CardCopySide.BACK, fixture("handoff-back", Color.BLUE))
+        viewModel.continueToReview()
+        viewModel.continueToLayout()
+        viewModel.showPreview()
+        viewModel.prepare()
+        waitUntil { viewModel.state is CardCopyWorkflowState.Prepared }
+
+        val preparedState = viewModel.state as CardCopyWorkflowState.Prepared
+        assertTrue(preparedState.continueToShareSafe)
+        assertTrue(preparedState.prepared.securelyVerified)
+        val transferred = requireNotNull(viewModel.takePreparedForShareSafe())
+
+        assertEquals(CardCopyWorkflowState.Hidden, viewModel.state)
+        assertFalse(front.ownedDirectory.exists())
+        assertFalse(back.ownedDirectory.exists())
+        assertTrue(transferred.file.isFile)
+        assertTrue(transferred.securelyVerified)
+        transferred.workingDirectory.deleteRecursively()
+        Unit
+    }
+
     private suspend fun import(
         viewModel: CardCopyWorkflowViewModel,
         side: CardCopySide,

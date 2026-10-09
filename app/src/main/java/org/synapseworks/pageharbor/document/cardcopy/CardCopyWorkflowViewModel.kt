@@ -31,6 +31,7 @@ class CardCopyWorkflowViewModel(
     private var preparationJob: Job? = null
     private var saveJob: Job? = null
     private var generation = 0L
+    private var shareSafeHandoff = false
 
     var state: CardCopyWorkflowState by mutableStateOf(
         if (savedStateHandle.get<Boolean>(ACTIVE_KEY) == true) {
@@ -45,6 +46,14 @@ class CardCopyWorkflowViewModel(
 
     fun open() {
         if (state != CardCopyWorkflowState.Hidden) return
+        shareSafeHandoff = false
+        savedStateHandle[ACTIVE_KEY] = true
+        state = CardCopyWorkflowState.AcquireSides()
+    }
+
+    fun openForShareSafe() {
+        if (state != CardCopyWorkflowState.Hidden) return
+        shareSafeHandoff = true
         savedStateHandle[ACTIVE_KEY] = true
         state = CardCopyWorkflowState.AcquireSides()
     }
@@ -322,7 +331,11 @@ class CardCopyWorkflowViewModel(
                 }
                 state = when (result) {
                     is CardCopyPrepareResult.Success -> CardCopyWorkflowState.Prepared(
-                        current.front, current.back, current.settings, result.prepared,
+                        current.front,
+                        current.back,
+                        current.settings,
+                        result.prepared,
+                        continueToShareSafe = shareSafeHandoff,
                     )
                     is CardCopyPrepareResult.Failure -> CardCopyWorkflowState.Failed(
                         current.front, current.back, current.settings, result.reason,
@@ -384,6 +397,20 @@ class CardCopyWorkflowViewModel(
         return current.prepared.takeIf { current.isSecurelyCurrent() }
     }
 
+    /** Transfers only the verified composed PDF. Source images are destroyed at this boundary. */
+    fun takePreparedForShareSafe(): CardCopyPreparedPdf? {
+        val current = state as? CardCopyWorkflowState.Prepared ?: return null
+        if (!current.continueToShareSafe || !current.isSecurelyCurrent()) return null
+        generation++
+        saveJob?.cancel()
+        current.front.let(::discardCardCopySource)
+        current.back.let(::discardCardCopySource)
+        shareSafeHandoff = false
+        savedStateHandle[ACTIVE_KEY] = false
+        state = CardCopyWorkflowState.Hidden
+        return current.prepared
+    }
+
     fun markShareFailed() = updatePrepared { it.copy(shareFailed = true) }
     fun markShareInvoked() = updatePrepared { it.copy(shareFailed = false) }
 
@@ -440,6 +467,7 @@ class CardCopyWorkflowViewModel(
         ownedPrepared()?.let(composer::discard)
         ownedSources().distinctBy { it.ownedDirectory.path }.forEach(::discardCardCopySource)
         savedStateHandle[ACTIVE_KEY] = false
+        shareSafeHandoff = false
         state = CardCopyWorkflowState.Hidden
     }
 

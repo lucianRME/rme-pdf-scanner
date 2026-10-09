@@ -88,6 +88,16 @@ import org.synapseworks.pageharbor.document.cardcopy.cardCopyShareUri
 import org.synapseworks.pageharbor.document.cardcopy.deleteStaleCardCopyFiles
 import org.synapseworks.pageharbor.document.redaction.deleteStaleSecureRedactedPdfs
 import org.synapseworks.pageharbor.document.redaction.deleteStaleRedactedPdfVerifierFiles
+import org.synapseworks.pageharbor.document.redaction.SecureRedactedPdfPage
+import org.synapseworks.pageharbor.document.redaction.SecureRedactedOcrProvenance
+import org.synapseworks.pageharbor.document.redaction.secureRedactionSha256
+import org.synapseworks.pageharbor.document.sharesafe.ShareSafeCopyWorkflowState
+import org.synapseworks.pageharbor.document.sharesafe.ShareSafeCopyWorkflowViewModel
+import org.synapseworks.pageharbor.document.sharesafe.ShareSafeDocumentInput
+import org.synapseworks.pageharbor.document.sharesafe.ShareSafeDocumentPage
+import org.synapseworks.pageharbor.document.sharesafe.ShareSafeRecipe
+import org.synapseworks.pageharbor.document.sharesafe.deleteStaleShareSafeFiles
+import org.synapseworks.pageharbor.document.sharesafe.shareSafeFilename
 import org.synapseworks.pageharbor.document.searchablepdf.LocalSearchablePdfExportCoordinator
 import org.synapseworks.pageharbor.document.searchablepdf.EffectiveOcrPageProvider
 import org.synapseworks.pageharbor.document.searchablepdf.EffectiveOcrPageProvision
@@ -243,6 +253,7 @@ class MainActivity : FragmentActivity() {
     private val protectedActions: ProtectedActionQueueViewModel by viewModels()
     private val targetSizeWorkflow: TargetSizeWorkflowViewModel by viewModels()
     private val cardCopyWorkflow: CardCopyWorkflowViewModel by viewModels()
+    private val shareSafeWorkflow: ShareSafeCopyWorkflowViewModel by viewModels()
     private val playReviewLauncher by lazy { GooglePlayReviewLauncher() }
     private val appLockAuthenticationController by lazy {
         AndroidXAppLockAuthenticationController(
@@ -479,6 +490,15 @@ class MainActivity : FragmentActivity() {
         )
     }
 
+    private val createShareSafePdfLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/pdf"),
+    ) { uri ->
+        runWhenUnlocked(
+            AppLockProtectedEntryPoint.ACTIVITY_RESULT_CALLBACK,
+            PendingProtectedAction.ShareSafePdfDestination(uri),
+        )
+    }
+
     private fun handleSearchablePdfDestinationResult(destinationUri: Uri?) {
         val preparedExport = searchablePdfPreparedExport
         if (destinationUri == null) {
@@ -557,10 +577,12 @@ class MainActivity : FragmentActivity() {
                     m7CleanupCutoffMillis,
                     minimumAgeMillis = 0L,
                 )
+                deleteStaleShareSafeFiles(cacheDir, m7CleanupCutoffMillis, minimumAgeMillis = 0L)
             } else {
                 deleteStaleCardCopyFiles(cacheDir)
                 deleteStaleSecureRedactedPdfs(cacheDir)
                 deleteStaleRedactedPdfVerifierFiles(cacheDir)
+                deleteStaleShareSafeFiles(cacheDir)
             }
             if (session.documentPages.isEmpty()) {
                 deleteStaleDocumentImports(cacheDir)
@@ -799,7 +821,7 @@ class MainActivity : FragmentActivity() {
                     onCardCopySave = ::chooseCardCopyDestination,
                     onCardCopyShare = ::shareCardCopy,
                     onCardCopyRetry = cardCopyWorkflow::retryPreparation,
-                    onCardCopyBack = cardCopyWorkflow::back,
+                    onCardCopyBack = ::backFromCardCopy,
                     onCardCopyOpenRedaction = { side ->
                         cardCopyWorkflow.openRedactionEditor(side)
                     },
@@ -810,6 +832,36 @@ class MainActivity : FragmentActivity() {
                     onCardCopyUndoRedaction = cardCopyWorkflow::undoRedactionEdit,
                     onCardCopyRedoRedaction = cardCopyWorkflow::redoRedactionEdit,
                     onCardCopyApplyRedactions = cardCopyWorkflow::applyRedactions,
+                    shareSafeWorkflowState = shareSafeWorkflow.state,
+                    onOpenShareSafeCopy = ::openShareSafeCopy,
+                    onShareSafeRecipe = { recipe ->
+                        shareSafeWorkflow.selectRecipe(recipe)
+                        if (recipe == ShareSafeRecipe.SHARE_ID_COPY) {
+                            cardCopyWorkflow.openForShareSafe()
+                        }
+                    },
+                    onShareSafePage = shareSafeWorkflow::selectPage,
+                    onShareSafeAddRedaction = shareSafeWorkflow::addRedaction,
+                    onShareSafeSelectRedaction = shareSafeWorkflow::selectRedaction,
+                    onShareSafeUpdateRedaction = shareSafeWorkflow::updateSelectedRedaction,
+                    onShareSafeDeleteRedaction = shareSafeWorkflow::deleteSelectedRedaction,
+                    onShareSafeWatermarkEnabled = shareSafeWorkflow::setWatermarkEnabled,
+                    onShareSafePurpose = shareSafeWorkflow::updatePurpose,
+                    onShareSafeDateEnabled = { enabled ->
+                        shareSafeWorkflow.setDateEnabled(enabled)
+                    },
+                    onShareSafeDate = shareSafeWorkflow::updateDate,
+                    onShareSafePlacement = shareSafeWorkflow::updatePlacement,
+                    onShareSafeOpacity = shareSafeWorkflow::updateOpacity,
+                    onShareSafeTargetEnabled = shareSafeWorkflow::setTargetSizeEnabled,
+                    onShareSafeTargetBytes = shareSafeWorkflow::updateTargetBytes,
+                    onShareSafeNext = shareSafeWorkflow::nextStep,
+                    onShareSafePrepare = shareSafeWorkflow::prepare,
+                    onShareSafeSave = ::chooseShareSafeDestination,
+                    onShareSafeShare = ::shareShareSafeCopy,
+                    onShareSafeRetry = shareSafeWorkflow::retry,
+                    onShareSafeBack = shareSafeWorkflow::back,
+                    onCardCopyContinueShareSafe = ::continueCardCopyToShareSafe,
                     onExportPages = ::exportPages,
                     onRecognizeText = ::recognizeText,
                     onRecognizeTextWithLanguage = { selection, useAsDefault ->
@@ -1902,6 +1954,8 @@ class MainActivity : FragmentActivity() {
                 cardCopyWorkflow.onAcquisitionResult(action.uri)
             is PendingProtectedAction.CardCopyPdfDestination ->
                 cardCopyWorkflow.onSaveDestination(action.uri)
+            is PendingProtectedAction.ShareSafePdfDestination ->
+                shareSafeWorkflow.onSaveDestination(action.uri)
             is PendingProtectedAction.LaunchPortabilityPicker ->
                 launchPortabilityPicker(action.request)
             is PendingProtectedAction.LaunchMigrationPicker -> launchMigrationPicker(action.request)
@@ -2537,6 +2591,134 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    private fun openShareSafeCopy() {
+        if (shareSafeWorkflow.state != ShareSafeCopyWorkflowState.Hidden) return
+        val lease = session.acquireDocumentSessionLease(documentSessionLeaseReleaseObserverForTest)
+        if (lease == null || lease.session.pages.isEmpty()) {
+            lease?.let(session::releaseDocumentSessionLease)
+            shareSafeWorkflow.open(null)
+            return
+        }
+        lifecycleScope.launch {
+            try {
+                val documentSession = lease.session
+                val ocrCapture = captureShareSafeEffectiveOcr(documentSession)
+                val effectiveOcr = ocrCapture.result
+                    ?.pages?.associateBy(OcrPageResult::pageIndex).orEmpty()
+                val pages = withContext(Dispatchers.IO) {
+                    documentSession.pages.mapIndexed { index, page ->
+                        val uri = page.source.toAndroidUri()
+                        val sourceHash = secureRedactionSha256 {
+                            try {
+                                contentResolver.openInputStream(uri)
+                            } catch (_: Exception) {
+                                null
+                            }
+                        } ?: throw IOException()
+                        ShareSafeDocumentPage(
+                            source = SecureRedactedPdfPage(
+                                pageId = page.persistentId ?: "session-page-${page.id.value}",
+                                openSource = {
+                                    try {
+                                        contentResolver.openInputStream(uri)
+                                    } catch (_: Exception) {
+                                        null
+                                    }
+                                },
+                                imageMetadata = page.imageMetadata,
+                                expectedSourceSha256 = sourceHash,
+                                regions = emptyList(),
+                                filter = page.filter,
+                                rotation = page.rotation,
+                                effectiveOcr = effectiveOcr[index],
+                                ocrProvenance = effectiveOcr[index]?.layout
+                                    ?.takeIf { ocrCapture.sourceBound }
+                                    ?.let { layout ->
+                                        SecureRedactedOcrProvenance(
+                                            recognizedSourceSha256 = sourceHash,
+                                            effectiveWidthPx = layout.imageWidthPx,
+                                            effectiveHeightPx = layout.imageHeightPx,
+                                            rotation = page.rotation,
+                                        )
+                                    },
+                            ),
+                            previewUri = uri,
+                        )
+                    }
+                }
+                shareSafeWorkflow.open(
+                    ShareSafeDocumentInput(
+                        title = documentSession.libraryDocument?.title
+                            ?: getString(R.string.document_result_title),
+                        pages = pages,
+                        sourceGeneration = 0L,
+                    ),
+                )
+            } catch (_: CancellationException) {
+                shareSafeWorkflow.open(null)
+            } catch (_: Exception) {
+                shareSafeWorkflow.open(null)
+            } finally {
+                session.releaseDocumentSessionLease(lease)
+            }
+        }
+    }
+
+    private fun continueCardCopyToShareSafe() {
+        val prepared = cardCopyWorkflow.takePreparedForShareSafe() ?: return
+        if (!shareSafeWorkflow.acceptCardCopy(prepared)) {
+            prepared.workingDirectory.deleteRecursively()
+            shareSafeWorkflow.close()
+        }
+    }
+
+    private fun backFromCardCopy() {
+        cardCopyWorkflow.back()
+        if (cardCopyWorkflow.state == CardCopyWorkflowState.Hidden &&
+            shareSafeWorkflow.state == ShareSafeCopyWorkflowState.CardCopyHandoff
+        ) {
+            shareSafeWorkflow.back()
+        }
+    }
+
+    private fun chooseShareSafeDestination() {
+        val current = shareSafeWorkflow.state as? ShareSafeCopyWorkflowState.Prepared ?: return
+        if (!shareSafeWorkflow.markSavePickerOpen()) return
+        try {
+            createShareSafePdfLauncher.launch(shareSafeFilename(current.title))
+        } catch (_: ActivityNotFoundException) {
+            shareSafeWorkflow.onSaveDestination(null)
+        } catch (_: RuntimeException) {
+            shareSafeWorkflow.onSaveDestination(null)
+        }
+    }
+
+    private fun shareShareSafeCopy() {
+        lifecycleScope.launch {
+            val uri = shareSafeWorkflow.verifiedShareUri()
+            if (uri == null) {
+                shareSafeWorkflow.markShareResult(false)
+                return@launch
+            }
+            when (val share = createPdfShareIntent(uri)) {
+                is PdfShareIntentResult.Success -> try {
+                    startActivity(
+                        Intent.createChooser(
+                            share.intent,
+                            getString(R.string.pdf_share_chooser_title),
+                        ),
+                    )
+                    shareSafeWorkflow.markShareResult(true)
+                } catch (_: Exception) {
+                    shareSafeWorkflow.markShareResult(false)
+                }
+                PdfShareIntentResult.InvalidUri,
+                PdfShareIntentResult.NoPdfAvailable,
+                -> shareSafeWorkflow.markShareResult(false)
+            }
+        }
+    }
+
     private fun launchCardCopyScanner(side: CardCopySide) {
         if (!cardCopyWorkflow.beginAcquisition(side, CardCopyAcquisition.SCAN)) return
         val options = GmsDocumentScannerOptions.Builder()
@@ -2618,6 +2800,11 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    private data class ShareSafeOcrCapture(
+        val result: OcrResult?,
+        val sourceBound: Boolean,
+    )
+
     private suspend fun captureTargetSizeEffectiveOcr(
         documentSession: DocumentSession,
     ): OcrResult? {
@@ -2642,6 +2829,38 @@ class MainActivity : FragmentActivity() {
             }
         }
         return pages.takeIf(List<OcrPageResult>::isNotEmpty)?.let(::OcrResult)
+    }
+
+    private suspend fun captureShareSafeEffectiveOcr(
+        documentSession: DocumentSession,
+    ): ShareSafeOcrCapture {
+        val persisted = capturePersistedSearchablePdfOcr(documentSession)
+            ?: return ShareSafeOcrCapture(
+                result = (ocrUiState as? OcrUiState.Success)?.result,
+                sourceBound = false,
+            )
+        val pages = mutableListOf<OcrPageResult>()
+        persisted.requests.forEachIndexed { pageIndex, request ->
+            when (val provision = persisted.provider.provide(request)) {
+                is EffectiveOcrPageProvision.Available -> pages += OcrPageResult(
+                    pageIndex = pageIndex,
+                    text = provision.page.effectiveText,
+                    layout = provision.page.layout,
+                )
+                is EffectiveOcrPageProvision.CorrectedTextOnly -> pages += OcrPageResult(
+                    pageIndex = pageIndex,
+                    text = provision.effectiveText,
+                    layout = null,
+                )
+                EffectiveOcrPageProvision.Stale,
+                is EffectiveOcrPageProvision.Unavailable,
+                -> Unit
+            }
+        }
+        return ShareSafeOcrCapture(
+            result = pages.takeIf(List<OcrPageResult>::isNotEmpty)?.let(::OcrResult),
+            sourceBound = true,
+        )
     }
 
     private fun contentLength(uri: Uri): Long? = try {

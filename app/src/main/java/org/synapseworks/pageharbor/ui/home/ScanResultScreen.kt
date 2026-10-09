@@ -137,6 +137,7 @@ fun ScanResultScreen(
     onSaveSearchablePdf: () -> Unit,
     onSharePdf: () -> Unit,
     onFitUploadLimit: () -> Unit = {},
+    onShareSafeCopy: () -> Unit = {},
     onExportPages: () -> Unit,
     onRecognizeText: () -> Unit,
     onViewRecognizedText: () -> Unit,
@@ -374,6 +375,10 @@ fun ScanResultScreen(
             onFitUploadLimit = {
                 activeSheet = null
                 onFitUploadLimit()
+            },
+            onShareSafeCopy = {
+                activeSheet = null
+                onShareSafeCopy()
             },
             onExportPages = {
                 activeSheet = null
@@ -774,6 +779,7 @@ private fun DocumentMoreSheet(
     onSavePdf: () -> Unit,
     onSaveSearchablePdf: () -> Unit,
     onFitUploadLimit: () -> Unit,
+    onShareSafeCopy: () -> Unit,
     onExportPages: () -> Unit,
     onOpenPageTools: () -> Unit,
     onViewRecognizedText: () -> Unit,
@@ -822,6 +828,14 @@ private fun DocumentMoreSheet(
                 supportingText = stringResource(R.string.document_save_searchable_description),
                 enabled = hasPages && searchablePdfEnabled,
                 onClick = onSaveSearchablePdf,
+            )
+            HorizontalDivider()
+            SheetActionRow(
+                icon = Icons.Default.Description,
+                title = stringResource(R.string.share_safe_title),
+                supportingText = stringResource(R.string.share_safe_description),
+                enabled = hasPages && pdfExportEnabled,
+                onClick = onShareSafeCopy,
             )
             HorizontalDivider()
             SheetActionRow(

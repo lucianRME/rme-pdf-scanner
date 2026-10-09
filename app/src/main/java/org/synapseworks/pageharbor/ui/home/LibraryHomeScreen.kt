@@ -181,6 +181,7 @@ fun LibraryHomeScreen(
     onViewScanResult: () -> Unit,
     onFitUploadLimit: () -> Unit = {},
     onCardCopy: () -> Unit = {},
+    onShareSafeCopy: () -> Unit = {},
     onPrivacyInfo: () -> Unit,
     onDismissPrivacyInfo: () -> Unit,
     onAbout: () -> Unit,
@@ -387,6 +388,7 @@ fun LibraryHomeScreen(
                 onViewScanResult = onViewScanResult,
                 onFitUploadLimit = onFitUploadLimit,
                 onCardCopy = onCardCopy,
+                onShareSafeCopy = onShareSafeCopy,
                 onOpenDocuments = { message ->
                     onDestinationSelected(LibraryDestination.Documents)
                     coroutineScope.launch {
@@ -1092,6 +1094,7 @@ private fun ToolsDestination(
     onViewScanResult: () -> Unit,
     onFitUploadLimit: () -> Unit,
     onCardCopy: () -> Unit,
+    onShareSafeCopy: () -> Unit,
     onOpenDocuments: (String) -> Unit,
 ) {
     val focusManager = LocalFocusManager.current
@@ -1157,6 +1160,15 @@ private fun ToolsDestination(
             searchTerms = listOf("split", "extract", "pages"),
             enabled = documentToolEnabled,
             onClick = { onOpenDocuments(pagesGuidance) },
+        ),
+        ToolLauncherItemModel(
+            key = "share-safe-copy",
+            icon = Icons.Default.Description,
+            label = stringResource(R.string.share_safe_title),
+            accessibilityLabel = stringResource(R.string.share_safe_tool_accessibility),
+            searchTerms = listOf("share", "safe", "redact", "watermark", "purpose", "portal", "email"),
+            enabled = interactionEnabled,
+            onClick = onShareSafeCopy,
         ),
         ToolLauncherItemModel(
             key = "fit-upload-limit",
