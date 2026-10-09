@@ -26,6 +26,7 @@ import org.synapseworks.pageharbor.document.session.DocumentPageId
 import org.synapseworks.pageharbor.document.session.DocumentResource
 import org.synapseworks.pageharbor.document.session.DocumentResourceOwnership
 import org.synapseworks.pageharbor.document.session.DocumentSourceCategory
+import org.synapseworks.pageharbor.document.importing.DocumentImportUiState
 import org.synapseworks.pageharbor.library.LibraryDocumentSummary
 import org.synapseworks.pageharbor.library.LibraryOcrStatus
 import org.synapseworks.pageharbor.library.LibraryUiState
@@ -82,26 +83,48 @@ class BackBehaviorTest {
     }
 
     @Test
-    fun toolsSearchConsumesBackBeforeTopLevelExitHandling() {
+    fun toolsHaveNoSearchBackLayerBeforeTopLevelExitHandling() {
         var exitCount = 0
         composeTestRule.setContent {
             PageHarborApp(onExitApp = { exitCount += 1 })
         }
 
         composeTestRule.onNodeWithText("Tools").performClick()
-        composeTestRule.onNodeWithContentDescription("Search tools").performTextInput("OCR")
+        composeTestRule.onAllNodesWithText("Search tools").assertCountEquals(0)
         pressBack()
 
-        val ocrTool = hasContentDescription(
-            "Extract text with OCR",
-        )
-        composeTestRule.onNode(hasScrollAction()).performScrollToNode(ocrTool)
-        composeTestRule.onNode(ocrTool).assertIsDisplayed()
-        composeTestRule.onAllNodesWithText("Press back again to exit").assertCountEquals(0)
-        pressBack()
-
-        composeTestRule.onNodeWithContentDescription("Import files").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Press back again to exit").assertIsDisplayed()
         composeTestRule.runOnIdle { assertEquals(0, exitCount) }
+    }
+
+    @Test
+    fun completedToolsImportReturnsToToolsWithOneBack() {
+        var importState by mutableStateOf<DocumentImportUiState>(DocumentImportUiState.Idle)
+        composeTestRule.setContent {
+            PageHarborApp(
+                autoNavigateToScanResult = false,
+                scannerSpikeState = ScannerSpikeState.ResultSummary(1, false, null),
+                documentPages = listOf(page(1L)),
+                importUiState = importState,
+                onImportFiles = { importState = DocumentImportUiState.Selecting },
+            )
+        }
+
+        composeTestRule.onNodeWithText("Tools").performClick()
+        composeTestRule.onNodeWithContentDescription("Import files").performClick()
+        composeTestRule.runOnIdle {
+            importState = DocumentImportUiState.Completed(
+                importedPages = 1,
+                skippedItems = 0,
+                appended = false,
+            )
+        }
+        composeTestRule.onNodeWithText("Document").assertIsDisplayed()
+
+        pressBack()
+
+        composeTestRule.onAllNodesWithText("Tools").assertCountEquals(2)
+        composeTestRule.onNodeWithContentDescription("Import files").assertIsDisplayed()
     }
 
     @Test

@@ -145,7 +145,7 @@ class HomeScreenTest {
         composeTestRule.onNodeWithText("More").performClick()
         composeTestRule.onNodeWithText("Move to a new phone").assertIsNotEnabled()
         composeTestRule.onNodeWithText(
-            "No documents to move yet. Restore remains available in Backup & restore.",
+            "Available when documents are saved.",
         ).assertIsDisplayed()
         composeTestRule.onNodeWithText("Backup & restore").assertIsEnabled()
     }
@@ -201,7 +201,7 @@ class HomeScreenTest {
         composeTestRule.onAllNodesWithText("1 page", substring = true).assertCountEquals(2)
 
         composeTestRule.onNodeWithText("Tools").assertIsDisplayed().performClick()
-        composeTestRule.onNodeWithContentDescription("Search tools").assertIsDisplayed()
+        composeTestRule.onAllNodesWithContentDescription("Search tools").assertCountEquals(0)
         listOf("Import & capture", "PDF tools", "Text & privacy").forEach { heading ->
             composeTestRule.onNodeWithText(heading).assertIsDisplayed()
         }
@@ -221,7 +221,7 @@ class HomeScreenTest {
         composeTestRule.onNodeWithText("Rate RME").performScrollTo().assertIsDisplayed()
         composeTestRule.onNodeWithText("Suggest a feature").performScrollTo().assertIsDisplayed()
         composeTestRule.onNodeWithText("Share RME").performScrollTo().assertIsDisplayed()
-        composeTestRule.onNodeWithContentDescription("Scan").assertIsDisplayed()
+        composeTestRule.onAllNodesWithContentDescription("Scan").assertCountEquals(0)
     }
 
     @Test
@@ -310,7 +310,7 @@ class HomeScreenTest {
 
         composeTestRule.onNodeWithContentDescription("Scan").performClick()
         composeTestRule.onNodeWithContentDescription(
-            "Document. Scan one or more document pages",
+            "Document. Scan pages and adjust corners before importing",
         ).performClick()
         assertEquals(1, scanClickCount)
 
@@ -323,6 +323,67 @@ class HomeScreenTest {
             "Import files. Choose an existing PDF or images",
         ).performClick()
         assertEquals(1, importClickCount)
+    }
+
+    @Test
+    fun cancellingImportFromNewScanRestoresTheNewScanSheet() {
+        var importState by mutableStateOf<DocumentImportUiState>(DocumentImportUiState.Idle)
+        composeTestRule.setContent {
+            PageHarborApp(
+                libraryUiState = savedLibraryState(1),
+                importUiState = importState,
+                onImportFiles = { importState = DocumentImportUiState.Selecting },
+            )
+        }
+
+        composeTestRule.onNodeWithContentDescription("Scan").performClick()
+        composeTestRule.onNodeWithContentDescription(
+            "Import files. Choose an existing PDF or images",
+        ).performClick()
+        composeTestRule.runOnIdle { importState = DocumentImportUiState.Cancelled }
+
+        composeTestRule.onNodeWithText("New scan").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription(
+            "Document. Scan pages and adjust corners before importing",
+        ).assertIsDisplayed()
+    }
+
+    @Test
+    fun cancellingDirectToolsImportReturnsToToolsWithoutOpeningNewScan() {
+        var importState by mutableStateOf<DocumentImportUiState>(DocumentImportUiState.Idle)
+        composeTestRule.setContent {
+            PageHarborApp(
+                importUiState = importState,
+                onImportFiles = { importState = DocumentImportUiState.Selecting },
+            )
+        }
+
+        composeTestRule.onNodeWithText("Tools").performClick()
+        composeTestRule.onNodeWithContentDescription("Import files").performClick()
+        composeTestRule.runOnIdle { importState = DocumentImportUiState.Cancelled }
+
+        composeTestRule.onAllNodesWithText("Tools").assertCountEquals(2)
+        composeTestRule.onNodeWithContentDescription("Import files").assertIsDisplayed()
+        composeTestRule.onAllNodesWithText("New scan").assertCountEquals(0)
+    }
+
+    @Test
+    fun cancellingImportFromEmptyToolPickerRestoresThatPicker() {
+        var importState by mutableStateOf<DocumentImportUiState>(DocumentImportUiState.Idle)
+        composeTestRule.setContent {
+            PageHarborApp(
+                importUiState = importState,
+                onImportFiles = { importState = DocumentImportUiState.Selecting },
+            )
+        }
+
+        composeTestRule.onNodeWithText("Tools").performClick()
+        composeTestRule.onNodeWithContentDescription("Extract text with OCR").performClick()
+        composeTestRule.onAllNodesWithText("Import files")[1].performClick()
+        composeTestRule.runOnIdle { importState = DocumentImportUiState.Cancelled }
+
+        composeTestRule.onNodeWithText("No saved documents yet").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Cancel").assertIsDisplayed()
     }
 
     @Test
@@ -341,6 +402,17 @@ class HomeScreenTest {
     }
 
     @Test
+    fun homeEmptyStateUsesScanCtaAndOpensNewScanChooser() {
+        composeTestRule.setContent { PageHarborApp() }
+
+        composeTestRule.onNode(hasText("Scan") and androidx.compose.ui.test.hasClickAction())
+            .assertIsDisplayed()
+            .performClick()
+
+        composeTestRule.onNodeWithText("New scan").assertIsDisplayed()
+    }
+
+    @Test
     fun cancellingToolPickerReturnsToToolsWithoutInvokingDocument() {
         var openedDocumentId: String? = null
         composeTestRule.setContent {
@@ -355,7 +427,7 @@ class HomeScreenTest {
         composeTestRule.onNodeWithText("Choose a document").assertIsDisplayed()
         composeTestRule.onNodeWithText("Cancel").performClick()
 
-        composeTestRule.onNodeWithContentDescription("Search tools").assertIsDisplayed()
+        composeTestRule.onAllNodesWithText("Tools").assertCountEquals(2)
         composeTestRule.runOnIdle { assertEquals(null, openedDocumentId) }
     }
 
@@ -426,38 +498,13 @@ class HomeScreenTest {
     }
 
     @Test
-    fun toolsSearchFiltersImmediatelyUsingOcrAndCombineAliases() {
+    fun toolsSurfaceOmitsSearchAndKeepsAllGroupedLaunchers() {
         composeTestRule.setContent {
             PageHarborApp(libraryUiState = savedLibraryState(2))
         }
 
         composeTestRule.onNodeWithText("Tools").performClick()
-        composeTestRule.onNodeWithContentDescription("Search tools").performTextInput("OCR")
-        composeTestRule.onNodeWithContentDescription("Extract text with OCR").assertIsDisplayed()
-        composeTestRule.onAllNodesWithContentDescription("Import files").assertCountEquals(0)
-        composeTestRule.onAllNodesWithContentDescription("Merge documents").assertCountEquals(0)
-        composeTestRule.onAllNodesWithContentDescription("Split or extract pages").assertCountEquals(0)
-
-        composeTestRule.onNodeWithContentDescription("Clear tool search").performClick()
-        composeTestRule.onNodeWithContentDescription("Search tools").performTextInput("combine")
-        composeTestRule.onNodeWithContentDescription("Merge documents").assertIsDisplayed()
-        composeTestRule.onAllNodesWithContentDescription("Import files").assertCountEquals(0)
-        composeTestRule.onAllNodesWithContentDescription("Split or extract pages").assertCountEquals(0)
-        composeTestRule.onAllNodesWithContentDescription("Extract text with OCR").assertCountEquals(0)
-    }
-
-    @Test
-    fun unmatchedToolsSearchShowsEmptyStateAndClearRestoresAllLaunchers() {
-        composeTestRule.setContent {
-            PageHarborApp(libraryUiState = savedLibraryState(2))
-        }
-
-        composeTestRule.onNodeWithText("Tools").performClick()
-        composeTestRule.onNodeWithContentDescription("Search tools").performTextInput("cloud sync")
-        composeTestRule.onNodeWithText("No tools found").assertIsDisplayed()
-
-        composeTestRule.onNodeWithContentDescription("Clear tool search").performClick()
-        composeTestRule.onAllNodesWithText("No tools found").assertCountEquals(0)
+        composeTestRule.onAllNodesWithContentDescription("Search tools").assertCountEquals(0)
         listOf(
             "Import files",
             "Merge documents",
@@ -677,7 +724,7 @@ class HomeScreenTest {
     }
 
     @Test
-    fun toolsSearchAndLaunchersRemainUsableAtTwoHundredPercentFont() {
+    fun toolsUseAdaptiveColumnsAndRemainUsableAtTwoHundredPercentFont() {
         composeTestRule.setContent {
             CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 2f)) {
                 Box(modifier = androidx.compose.ui.Modifier.size(width = 320.dp, height = 600.dp)) {
@@ -687,12 +734,9 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("Tools").performClick()
-        composeTestRule.onNodeWithContentDescription("Search tools")
-            .assertIsDisplayed()
-            .performTextInput("extract text")
-        composeTestRule.onNodeWithContentDescription("Extract text with OCR")
-            .assertIsDisplayed()
-            .performClick()
+        val extractText = hasContentDescription("Extract text with OCR")
+        composeTestRule.onNode(hasScrollAction()).performScrollToNode(extractText)
+        composeTestRule.onNode(extractText).assertIsDisplayed().performClick()
         composeTestRule.onNodeWithText("Choose a document").assertIsDisplayed()
         composeTestRule.onNodeWithContentDescription("Scan").assertIsDisplayed()
     }
@@ -716,7 +760,8 @@ class HomeScreenTest {
         composeTestRule.onNodeWithText("No saved documents yet").assertIsDisplayed()
         composeTestRule.onAllNodesWithText("Import files").assertCountEquals(2)
         composeTestRule.onNodeWithText("Scan").assertIsEnabled()
-        composeTestRule.onNodeWithContentDescription("Continue: Extract text").assertIsNotEnabled()
+        composeTestRule.onAllNodesWithContentDescription("Continue: Extract text")
+            .assertCountEquals(0)
     }
 
     @Test
@@ -763,16 +808,16 @@ class HomeScreenTest {
     }
 
     @Test
-    fun toolsSearchPreservesActionableOcrAlias() {
+    fun toolsExposeActionableOcrWithoutSearchChrome() {
         composeTestRule.setContent {
             PageHarborApp()
         }
 
         composeTestRule.onNodeWithText("Tools").performClick()
-        composeTestRule.onNodeWithContentDescription("Search tools").performTextInput("OCR")
+        composeTestRule.onAllNodesWithContentDescription("Search tools").assertCountEquals(0)
         composeTestRule.onNodeWithContentDescription("Extract text with OCR")
             .assertIsDisplayed().assertIsEnabled()
-        composeTestRule.onAllNodesWithContentDescription("Import files").assertCountEquals(0)
+        composeTestRule.onNodeWithContentDescription("Import files").assertIsDisplayed()
     }
 
     @Test

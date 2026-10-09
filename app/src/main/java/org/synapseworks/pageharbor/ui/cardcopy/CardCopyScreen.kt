@@ -7,7 +7,6 @@ import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -30,7 +29,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.RotateLeft
 import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Save
@@ -39,7 +37,10 @@ import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -64,7 +65,6 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
@@ -103,6 +103,7 @@ import org.synapseworks.pageharbor.document.redaction.RedactionRegionId
 import org.synapseworks.pageharbor.document.redaction.RedactionTargetKind
 import org.synapseworks.pageharbor.document.redaction.confirmedSourceRegionsFor
 import org.synapseworks.pageharbor.document.transform
+import org.synapseworks.pageharbor.document.session.DocumentPageRotation
 import org.synapseworks.pageharbor.document.targetsize.formatDecimalBytes
 import org.synapseworks.pageharbor.ui.home.ManagedDocumentPreviewState
 import org.synapseworks.pageharbor.ui.home.ZoomableDocumentPreview
@@ -253,7 +254,7 @@ private fun ReviewContent(
         )
         SideCard(CardCopySide.FRONT, front, onScan, onImport, onRotate, onRemove, onRedact)
         SideCard(CardCopySide.BACK, back, onScan, onImport, onRotate, onRemove, onRedact)
-        OutlinedButton(
+        FilledTonalButton(
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
             onClick = onSwap,
         ) {
@@ -684,6 +685,7 @@ private fun SideCard(
     onRedact: ((CardCopySide) -> Unit)?,
 ) {
     val source = state.readySource()
+    var replaceExpanded by remember(source?.sourceId) { mutableStateOf(false) }
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
@@ -693,12 +695,46 @@ private fun SideCard(
             Modifier.padding(PageHarborSpacing.medium),
             verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
         ) {
-            Text(
-                stringResource(if (side == CardCopySide.FRONT) R.string.card_copy_front else R.string.card_copy_back),
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.semantics { heading() },
-            )
-            source?.let { CardSidePreview(it, Modifier.fillMaxWidth().heightIn(min = 150.dp, max = 240.dp)) }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
+            ) {
+                Text(
+                    stringResource(if (side == CardCopySide.FRONT) R.string.card_copy_front else R.string.card_copy_back),
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.weight(1f).semantics { heading() },
+                )
+                if (source != null) {
+                    Surface(
+                        shape = MaterialTheme.shapes.extraLarge,
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    ) {
+                        Text(
+                            modifier = Modifier.padding(
+                                horizontal = PageHarborSpacing.small,
+                                vertical = PageHarborSpacing.extraSmall,
+                            ),
+                            text = stringResource(
+                                if (source.acquisition == CardCopyAcquisition.SCAN) {
+                                    R.string.card_copy_scan_source
+                                } else {
+                                    R.string.card_copy_import_source
+                                },
+                            ),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                }
+            }
+            source?.let {
+                CardSidePreview(
+                    side = side,
+                    source = it,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 170.dp, max = 260.dp),
+                )
+            }
             when (state) {
                 is CardCopySideState.Acquiring -> Text(
                     stringResource(R.string.card_copy_acquiring, acquisitionName(state.acquisition)),
@@ -707,64 +743,89 @@ private fun SideCard(
                     stringResource(R.string.card_copy_decoding, acquisitionName(state.acquisition)),
                 )
                 is CardCopySideState.Failed -> Notice(stringResource(failureText(state.reason)))
-                is CardCopySideState.Ready -> Text(
-                    stringResource(
-                        if (state.source.acquisition == CardCopyAcquisition.SCAN) {
-                            R.string.card_copy_scan_source
-                        } else R.string.card_copy_import_source,
-                    ),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                is CardCopySideState.Ready -> Unit
                 CardCopySideState.Empty -> Unit
             }
-            if (source != null) Text(
-                stringResource(R.string.card_copy_replace),
-                style = MaterialTheme.typography.labelLarge,
-            )
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
-            ) {
-                OutlinedButton(
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                    onClick = { onScan(side) },
-                ) { Text(stringResource(R.string.card_copy_scan)) }
-                OutlinedButton(
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                    onClick = { onImport(side) },
-                ) { Text(stringResource(R.string.card_copy_import)) }
-            }
-            if (source != null && onRotate != null && onRemove != null) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    IconButton(
-                        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
-                        onClick = { onRotate(side, false) },
-                    ) { Icon(Icons.AutoMirrored.Filled.RotateLeft, stringResource(R.string.card_copy_rotate_left)) }
-                    IconButton(
-                        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
-                        onClick = { onRotate(side, true) },
-                    ) { Icon(Icons.AutoMirrored.Filled.RotateRight, stringResource(R.string.card_copy_rotate_right)) }
-                    IconButton(
-                        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
-                        onClick = { onRemove(side) },
-                    ) { Icon(Icons.Default.Delete, stringResource(R.string.card_copy_remove)) }
-                }
-            }
-            if (source != null && onRedact != null) {
-                OutlinedButton(
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                    onClick = { onRedact(side) },
+            if (source == null) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
                 ) {
-                    Text(
-                        if (source.redactions.isEmpty()) {
-                            stringResource(R.string.card_copy_redact)
-                        } else {
-                            stringResource(
-                                R.string.card_copy_redaction_count,
-                                source.redactions.size,
+                    Button(
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                        onClick = { onScan(side) },
+                    ) { Text(stringResource(R.string.card_copy_scan)) }
+                    FilledTonalButton(
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                        onClick = { onImport(side) },
+                    ) { Text(stringResource(R.string.card_copy_import)) }
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall),
+                ) {
+                    Box {
+                        FilledTonalButton(onClick = { replaceExpanded = true }) {
+                            Text(stringResource(R.string.card_copy_replace))
+                        }
+                        DropdownMenu(
+                            expanded = replaceExpanded,
+                            onDismissRequest = { replaceExpanded = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.card_copy_scan)) },
+                                onClick = {
+                                    replaceExpanded = false
+                                    onScan(side)
+                                },
                             )
-                        },
-                    )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.card_copy_import)) },
+                                onClick = {
+                                    replaceExpanded = false
+                                    onImport(side)
+                                },
+                            )
+                        }
+                    }
+                    if (onRotate != null) {
+                        IconButton(
+                            modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                            onClick = { onRotate(side, true) },
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.RotateRight,
+                                contentDescription = stringResource(R.string.card_copy_rotate_right),
+                            )
+                        }
+                    }
+                    if (onRemove != null) {
+                        IconButton(
+                            modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                            onClick = { onRemove(side) },
+                        ) {
+                            Icon(Icons.Default.Delete, stringResource(R.string.card_copy_remove))
+                        }
+                    }
+                }
+                if (onRedact != null) {
+                    TextButton(
+                        modifier = Modifier.heightIn(min = 48.dp),
+                        onClick = { onRedact(side) },
+                    ) {
+                        Text(
+                            if (source.redactions.isEmpty()) {
+                                stringResource(R.string.card_copy_redact)
+                            } else {
+                                stringResource(
+                                    R.string.card_copy_redaction_count,
+                                    source.redactions.size,
+                                )
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -952,20 +1013,35 @@ private fun FailedContent(reason: CardCopyFailure, onRetry: () -> Unit) {
 }
 
 @Composable
-private fun CardSidePreview(source: CardCopySource, modifier: Modifier = Modifier) {
+private fun CardSidePreview(
+    side: CardCopySide,
+    source: CardCopySource,
+    modifier: Modifier = Modifier,
+) {
     val state by rememberCardBitmap(source)
-    Surface(modifier, color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium) {
-        Box(contentAlignment = Alignment.Center) {
-            when (val preview = state) {
-                ManagedDocumentPreviewState.Loading -> CircularProgressIndicator()
-                ManagedDocumentPreviewState.Unavailable -> Text(stringResource(R.string.scan_preview_unavailable))
-                is ManagedDocumentPreviewState.Ready -> Image(
-                    preview.owner.bitmap.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit,
-                )
-            }
+    val description = stringResource(
+        if (side == CardCopySide.FRONT) {
+            R.string.card_copy_front_preview_description
+        } else {
+            R.string.card_copy_back_preview_description
+        },
+    )
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        when (val preview = state) {
+            ManagedDocumentPreviewState.Loading -> CircularProgressIndicator()
+            ManagedDocumentPreviewState.Unavailable -> Text(stringResource(R.string.scan_preview_unavailable))
+            is ManagedDocumentPreviewState.Ready -> ZoomableDocumentPreview(
+                modifier = Modifier.fillMaxSize(),
+                bitmap = preview.owner.bitmap.asImageBitmap(),
+                resetKey = cardPreviewResetKey(source),
+                description = description,
+            )
         }
     }
 }
+
+internal fun cardPreviewResetKey(source: CardCopySource): Pair<String, DocumentPageRotation> =
+    source.sourceId to source.rotation
 
 @Composable
 private fun LivePagePreview(

@@ -22,8 +22,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -105,10 +103,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.Role
@@ -216,13 +212,11 @@ fun LibraryHomeScreen(
     var deletingDocument by remember { mutableStateOf<LibraryDocumentSummary?>(null) }
     var mergeSelection by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     var confirmFolderDelete by remember { mutableStateOf(false) }
-    var toolsQuery by rememberSaveable { mutableStateOf("") }
     var showAcquisitionChooser by rememberSaveable { mutableStateOf(false) }
     var toolPickerContext by rememberSaveable {
         mutableStateOf<ToolInvocationContext?>(null)
     }
     val destination = selectedDestination
-    val focusManager = LocalFocusManager.current
     val selectedFolder = libraryUiState.folders.firstOrNull {
         it.id == libraryUiState.selectedFolderId
     }
@@ -265,17 +259,18 @@ fun LibraryHomeScreen(
             onDestinationSelected(LibraryDestination.Documents)
         }
     }
+    LaunchedEffect(importUiState) {
+        if (importUiState is DocumentImportUiState.Processing) {
+            showAcquisitionChooser = false
+            toolPickerContext = null
+        }
+    }
     DisposableEffect(Unit) {
         onDispose { onTransientUiBusyChange(false) }
     }
 
     BackHandler(enabled = !showAcquisitionChooser && toolPickerContext == null) {
         when {
-            destination == LibraryDestination.Tools && toolsQuery.isNotBlank() -> {
-                onTopLevelBackSequenceReset()
-                toolsQuery = ""
-                focusManager.clearFocus(force = true)
-            }
             (destination == LibraryDestination.Home || destination == LibraryDestination.Documents) &&
                 libraryUiState.query.isNotBlank() -> {
                 onTopLevelBackSequenceReset()
@@ -319,26 +314,28 @@ fun LibraryHomeScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
-                modifier = Modifier.semantics {
-                    if (!canStartScan) disabled()
-                },
-                containerColor = if (canStartScan) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.surfaceVariant
-                },
-                contentColor = if (canStartScan) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                onClick = { if (canStartScan) showAcquisitionChooser = true },
-            ) {
-                Icon(
-                    imageVector = Icons.Default.CameraAlt,
-                    contentDescription = stringResource(R.string.scan_action),
-                )
+            if (destination != LibraryDestination.More) {
+                FloatingActionButton(
+                    modifier = Modifier.semantics {
+                        if (!canStartScan) disabled()
+                    },
+                    containerColor = if (canStartScan) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant
+                    },
+                    contentColor = if (canStartScan) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    onClick = { if (canStartScan) showAcquisitionChooser = true },
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CameraAlt,
+                        contentDescription = stringResource(R.string.scan_action),
+                    )
+                }
             }
         },
     ) { padding ->
@@ -409,8 +406,6 @@ fun LibraryHomeScreen(
             LibraryDestination.Tools -> ToolsDestination(
                 modifier = Modifier.padding(padding),
                 interactionEnabled = !working && !acquiring,
-                query = toolsQuery,
-                onQueryChange = { toolsQuery = it },
                 scannerSpikeState = scannerSpikeState,
                 hasActiveSession = hasActiveSession,
                 importUiState = importUiState,
@@ -456,7 +451,6 @@ fun LibraryHomeScreen(
                 onCardCopy()
             },
             onImportFiles = {
-                showAcquisitionChooser = false
                 onImportFiles()
             },
         )
@@ -473,7 +467,6 @@ fun LibraryHomeScreen(
                 showAcquisitionChooser = true
             },
             onImport = {
-                toolPickerContext = null
                 onImportFiles()
             },
             onConfirm = { documentIds ->
@@ -819,7 +812,7 @@ private fun HomeEmptyState(
                 Icon(Icons.Default.CameraAlt, contentDescription = null)
                 Text(
                     modifier = Modifier.padding(start = PageHarborSpacing.small),
-                    text = stringResource(R.string.scan_chooser_document_title),
+                    text = stringResource(R.string.scan_action),
                 )
             }
             FilledTonalButton(enabled = enabled, onClick = onImportFiles) {
@@ -1321,11 +1314,6 @@ private fun ToolDocumentPickerSheet(
                 ),
                 style = MaterialTheme.typography.headlineSmall,
             )
-            Text(
-                text = stringResource(request.operation.titleResource),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
             if (documents.isNotEmpty()) {
                 OutlinedTextField(
                     modifier = Modifier.fillMaxWidth(),
@@ -1463,26 +1451,35 @@ private fun ToolDocumentPickerSheet(
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small, Alignment.End),
-            ) {
-                TextButton(onClick = onDismiss) {
+            if (documents.isEmpty()) {
+                TextButton(
+                    modifier = Modifier.align(Alignment.End),
+                    onClick = onDismiss,
+                ) {
                     Text(stringResource(R.string.tool_picker_cancel))
                 }
-                val actionLabel = stringResource(request.operation.actionResource)
-                val actionAccessibilityLabel = stringResource(
-                    R.string.tool_picker_primary_action,
-                    stringResource(request.operation.titleResource),
-                )
-                Button(
-                    modifier = Modifier.semantics {
-                        contentDescription = actionAccessibilityLabel
-                    },
-                    enabled = ready,
-                    onClick = { onConfirm(selection) },
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small, Alignment.End),
                 ) {
-                    Text(actionLabel)
+                    TextButton(onClick = onDismiss) {
+                        Text(stringResource(R.string.tool_picker_cancel))
+                    }
+                    val actionLabel = stringResource(request.operation.actionResource)
+                    val actionAccessibilityLabel = stringResource(
+                        R.string.tool_picker_primary_action,
+                        stringResource(request.operation.titleResource),
+                    )
+                    Button(
+                        modifier = Modifier.semantics {
+                            contentDescription = actionAccessibilityLabel
+                        },
+                        enabled = ready,
+                        onClick = { onConfirm(selection) },
+                    ) {
+                        Text(actionLabel)
+                    }
                 }
             }
         }
@@ -1511,8 +1508,6 @@ private val DocumentToolOperation.actionResource: Int
 private fun ToolsDestination(
     modifier: Modifier,
     interactionEnabled: Boolean,
-    query: String,
-    onQueryChange: (String) -> Unit,
     scannerSpikeState: ScannerSpikeState,
     hasActiveSession: Boolean,
     importUiState: DocumentImportUiState,
@@ -1522,11 +1517,6 @@ private fun ToolsDestination(
     onCardCopy: () -> Unit,
     onDocumentTool: (DocumentToolOperation) -> Unit,
 ) {
-    val focusManager = LocalFocusManager.current
-    val density = LocalDensity.current
-    val imeBottom = WindowInsets.ime.getBottom(density)
-    var imeWasVisible by remember { mutableStateOf(false) }
-    var searchFieldFocused by remember { mutableStateOf(false) }
     val tools = listOf(
         ToolLauncherItemModel(
             key = "import",
@@ -1641,25 +1631,6 @@ private fun ToolsDestination(
             onClick = { onDocumentTool(DocumentToolOperation.EXTRACT_TEXT) },
         ),
     )
-    val normalizedQuery = query.trim()
-    LaunchedEffect(imeBottom, query) {
-        val imeVisible = imeBottom > 0
-        if (imeWasVisible && !imeVisible && searchFieldFocused && query.isNotBlank()) {
-            onQueryChange("")
-            focusManager.clearFocus(force = true)
-        }
-        imeWasVisible = imeVisible
-    }
-    val visibleTools = if (normalizedQuery.isEmpty()) {
-        tools
-    } else {
-        tools.filter { tool ->
-            (tool.searchTerms + tool.label).any { term ->
-                term.contains(normalizedQuery, ignoreCase = true)
-            }
-        }
-    }
-
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val fontScale = LocalDensity.current.fontScale
         val columnCount = when {
@@ -1690,15 +1661,6 @@ private fun ToolsDestination(
             horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
             verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
         ) {
-            item(key = "tools-search", span = { GridItemSpan(maxLineSpan) }) {
-                ToolsSearchField(
-                    query = query,
-                    onQueryChange = onQueryChange,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusChanged { searchFieldFocused = it.isFocused },
-                )
-            }
             if (showActiveStatus) {
                 item(key = "tools-active-work", span = { GridItemSpan(maxLineSpan) }) {
                     ActiveWorkStatus(
@@ -1710,20 +1672,14 @@ private fun ToolsDestination(
                     )
                 }
             }
-            if (visibleTools.isEmpty()) {
-                item(key = "tools-empty", span = { GridItemSpan(maxLineSpan) }) {
-                    ToolsEmptyState()
-                }
-            } else {
-                ToolGroup.entries.forEach { group ->
-                    val groupedTools = visibleTools.filter { it.group == group }
-                    if (groupedTools.isNotEmpty()) {
-                        item(key = "tools-heading-${group.name}", span = { GridItemSpan(maxLineSpan) }) {
-                            ToolSectionHeading(group.titleResource)
-                        }
-                        items(groupedTools, key = { "tools-${it.key}" }) { tool ->
-                            ToolLauncherItem(tool)
-                        }
+            ToolGroup.entries.forEach { group ->
+                val groupedTools = tools.filter { it.group == group }
+                if (groupedTools.isNotEmpty()) {
+                    item(key = "tools-heading-${group.name}", span = { GridItemSpan(maxLineSpan) }) {
+                        ToolSectionHeading(group.titleResource)
+                    }
+                    items(groupedTools, key = { "tools-${it.key}" }) { tool ->
+                        ToolLauncherItem(tool)
                     }
                 }
             }
@@ -1755,11 +1711,11 @@ private fun MoreDestination(
                 .verticalScroll(rememberScrollState())
                 .padding(
                     start = PageHarborLayout.compactScreenHorizontalPadding,
-                    top = PageHarborSpacing.large,
+                    top = PageHarborSpacing.medium,
                     end = PageHarborLayout.compactScreenHorizontalPadding,
-                    bottom = PageHarborLayout.navigationContentBottomPadding,
+                    bottom = PageHarborSpacing.extraLarge,
                 ),
-            verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.large),
+            verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium),
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall)) {
                 Text(
@@ -1914,7 +1870,12 @@ private fun MoreActionGroup(actions: List<MoreAction>) {
                         Text(stringResource(action.titleResource), color = contentColor)
                     },
                     supportingContent = {
-                        Text(stringResource(action.descriptionResource), color = contentColor)
+                        Text(
+                            text = stringResource(action.descriptionResource),
+                            color = contentColor,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     },
                 )
                 if (index < actions.lastIndex) HorizontalDivider()
@@ -1943,50 +1904,11 @@ private fun ToolSectionHeading(titleResource: Int) {
 }
 
 @Composable
-private fun ToolsSearchField(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val label = stringResource(R.string.tools_search_label)
-    OutlinedTextField(
-        modifier = modifier
-            .heightIn(min = 52.dp)
-            .semantics { contentDescription = label },
-        value = query,
-        onValueChange = onQueryChange,
-        singleLine = true,
-        shape = MaterialTheme.shapes.extraLarge,
-        placeholder = { Text(label) },
-        leadingIcon = {
-            Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
-            )
-        },
-        trailingIcon = if (query.isNotEmpty()) {
-            {
-                IconButton(onClick = { onQueryChange("") }) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = stringResource(R.string.tools_search_clear),
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-            }
-        } else {
-            null
-        },
-    )
-}
-
-@Composable
 private fun ToolLauncherItem(tool: ToolLauncherItemModel) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 124.dp)
+            .heightIn(min = 108.dp)
             .clickable(
                 enabled = tool.enabled,
                 role = Role.Button,
@@ -2007,7 +1929,7 @@ private fun ToolLauncherItem(tool: ToolLauncherItemModel) {
         Column(
             modifier = Modifier.padding(
                 horizontal = PageHarborSpacing.small,
-                vertical = PageHarborSpacing.medium,
+                vertical = PageHarborSpacing.small,
             ),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
@@ -2016,7 +1938,7 @@ private fun ToolLauncherItem(tool: ToolLauncherItemModel) {
                 modifier = Modifier.size(48.dp),
                 shape = MaterialTheme.shapes.large,
                 color = if (tool.enabled) {
-                    MaterialTheme.colorScheme.secondaryContainer
+                    MaterialTheme.colorScheme.primaryContainer
                 } else {
                     MaterialTheme.colorScheme.surfaceContainerHighest
                 },
@@ -2027,7 +1949,7 @@ private fun ToolLauncherItem(tool: ToolLauncherItemModel) {
                         imageVector = tool.icon,
                         contentDescription = null,
                         tint = if (tool.enabled) {
-                            MaterialTheme.colorScheme.onSecondaryContainer
+                            MaterialTheme.colorScheme.onPrimaryContainer
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
                         },
@@ -2047,28 +1969,6 @@ private fun ToolLauncherItem(tool: ToolLauncherItemModel) {
                 overflow = TextOverflow.Ellipsis,
             )
         }
-    }
-}
-
-@Composable
-private fun ToolsEmptyState() {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = PageHarborSpacing.extraLarge),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
-    ) {
-        Icon(
-            imageVector = Icons.Default.Search,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            text = stringResource(R.string.tools_no_results),
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 

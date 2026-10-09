@@ -215,7 +215,7 @@
     <string name="card_copy_import">Import</string>
     <string name="card_copy_replace">Replace</string>
     <string name="card_copy_rotate_left">Rotate left</string>
-    <string name="card_copy_rotate_right">Rotate right</string>
+    <string name="card_copy_rotate_right">Rotate</string>
     <string name="card_copy_remove">Remove</string>
     <string name="card_copy_swap">Swap front and back</string>
     <string name="card_copy_continue">Continue</string>
@@ -258,6 +258,8 @@
     <string name="card_copy_decoding">Preparing %1$s…</string>
     <string name="card_copy_scan_source">Scanned</string>
     <string name="card_copy_import_source">Imported</string>
+    <string name="card_copy_front_preview_description">Front card preview. Pinch or double tap to zoom.</string>
+    <string name="card_copy_back_preview_description">Back card preview. Pinch or double tap to zoom.</string>
     <string name="card_copy_source_invalid">This image couldn’t be read. Choose another image.</string>
     <string name="card_copy_source_large">This image is too large to process safely.</string>
     <string name="card_copy_prepare_failed">RME couldn’t prepare this card copy. Your originals are unchanged.</string>
@@ -495,7 +497,7 @@
     <string name="scan_action">Scan</string>
     <string name="scan_chooser_title">New scan</string>
     <string name="scan_chooser_document_title">Document</string>
-    <string name="scan_chooser_document_description">Scan one or more document pages</string>
+    <string name="scan_chooser_document_description">Scan pages and adjust corners before importing</string>
     <string name="scan_chooser_card_title">ID / card</string>
     <string name="scan_chooser_card_description">Put the front and back on one page</string>
     <string name="scan_chooser_import_title">Import files</string>
@@ -697,12 +699,12 @@
     <string name="more_app_lock_description">Protect RME with your device PIN, pattern, password or strong biometrics.</string>
     <string name="more_data_backup_heading">Data &amp; backup</string>
     <string name="more_move_scanner_title">Move from another scanner</string>
-    <string name="more_move_scanner_description">Import many PDFs or images with names, order and folders preserved where available.</string>
+    <string name="more_move_scanner_description">Import exported PDFs and images.</string>
     <string name="more_backup_restore_title">Backup &amp; restore</string>
-    <string name="more_backup_restore_description">Create, verify, encrypt or restore a complete portable RME backup.</string>
+    <string name="more_backup_restore_description">Create or restore a portable backup.</string>
     <string name="more_new_phone_title">Move to a new phone</string>
-    <string name="more_new_phone_description">Use a verified backup and a transfer provider you choose.</string>
-    <string name="more_new_phone_empty_description">No documents to move yet. Restore remains available in Backup &amp; restore.</string>
+    <string name="more_new_phone_description">Move documents with a verified backup.</string>
+    <string name="more_new_phone_empty_description">Available when documents are saved.</string>
     <string name="more_rme_heading">RME</string>
     <string name="ocr_batch_recognize_selected">Recognize text</string>
     <string name="ocr_batch_title">Recognize selected documents</string>

@@ -106,11 +106,12 @@ class CardCopyScreenTest {
         composeRule.onNodeWithText("Back").assertIsDisplayed()
         composeRule.onNodeWithText("Add the back of the card to continue.").assertIsDisplayed()
         composeRule.onNodeWithText("Continue").assertIsNotEnabled()
+        composeRule.onNodeWithText("Replace").performClick()
         composeRule.onAllNodesWithText("Scan")[1].performClick()
-        composeRule.onAllNodesWithText("Import")[0].performClick()
+        composeRule.onNodeWithText("Import").performClick()
         composeRule.runOnIdle {
-            assertEquals(CardCopySide.BACK, scanned)
-            assertEquals(CardCopySide.FRONT, imported)
+            assertEquals(CardCopySide.FRONT, scanned)
+            assertEquals(CardCopySide.BACK, imported)
         }
     }
 
@@ -139,7 +140,7 @@ class CardCopyScreenTest {
             .assertExists()
         assertEquals(
             2,
-            composeRule.onAllNodes(hasContentDescription("Rotate right") and hasClickAction())
+            composeRule.onAllNodes(hasContentDescription("Rotate") and hasClickAction())
                 .fetchSemanticsNodes().size,
         )
         assertEquals(
@@ -147,6 +148,46 @@ class CardCopyScreenTest {
             composeRule.onAllNodes(hasContentDescription("Remove") and hasClickAction())
                 .fetchSemanticsNodes().size,
         )
+    }
+
+    @Test
+    fun reviewPreviewsAreZoomableAndReplacementUsesOneContextualMenu() {
+        var scanned: CardCopySide? = null
+        val rotations = mutableListOf<Pair<CardCopySide, Boolean>>()
+        composeRule.setContent {
+            PageHarborTheme {
+                CardCopyScreen(
+                    state = CardCopyWorkflowState.ReviewSides(
+                        CardCopySideState.Ready(front),
+                        CardCopySideState.Ready(back),
+                    ),
+                    onBack = {}, onScan = { scanned = it }, onImport = {},
+                    onContinueReview = {}, onRotate = { side, clockwise ->
+                        rotations += side to clockwise
+                    },
+                    onRemove = {}, onSwap = {}, onContinueLayout = {}, onPageSize = {},
+                    onLayout = {}, onSpacing = {}, onAlignment = {}, onShowPreview = {},
+                    onPrepare = {}, onSave = {}, onShare = {}, onRetry = {},
+                )
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithContentDescription(
+                "Front card preview. Pinch or double tap to zoom.",
+            ).fetchSemanticsNodes().size == 1 &&
+                composeRule.onAllNodesWithContentDescription(
+                    "Back card preview. Pinch or double tap to zoom.",
+                ).fetchSemanticsNodes().size == 1
+        }
+        composeRule.onAllNodesWithText("Replace")[0].performClick()
+        composeRule.onNodeWithText("Scan").performClick()
+        composeRule.onAllNodesWithContentDescription("Rotate")[0].performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(CardCopySide.FRONT, scanned)
+            assertEquals(listOf(CardCopySide.FRONT to true), rotations)
+        }
     }
 
     @Test
