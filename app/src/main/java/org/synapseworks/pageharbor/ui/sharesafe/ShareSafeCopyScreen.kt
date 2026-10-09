@@ -1,16 +1,18 @@
 package org.synapseworks.pageharbor.ui.sharesafe
 
+import android.content.ContentResolver
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.ImageDecoder
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
+import android.os.Build
 import android.os.ParcelFileDescriptor
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
@@ -63,7 +65,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.drawscope.withTransform
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -104,6 +105,7 @@ import org.synapseworks.pageharbor.document.targetsize.TargetSizeCustomValidatio
 import org.synapseworks.pageharbor.document.targetsize.formatDecimalBytes
 import org.synapseworks.pageharbor.document.targetsize.formatTargetSize
 import org.synapseworks.pageharbor.ui.home.ManagedDocumentPreviewState
+import org.synapseworks.pageharbor.ui.home.ZoomableDocumentPreview
 import org.synapseworks.pageharbor.ui.home.rememberManagedDocumentPreview
 import org.synapseworks.pageharbor.ui.theme.PageHarborLayout
 import org.synapseworks.pageharbor.ui.theme.PageHarborSpacing
@@ -271,45 +273,70 @@ private fun ConfigureContent(
     onPrepare: () -> Unit,
 ) {
     Column(
-        Modifier.widthIn(max = PageHarborLayout.homeContentMaxWidth).fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .padding(PageHarborLayout.compactScreenHorizontalPadding),
-        verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium),
+        Modifier
+            .widthIn(max = PageHarborLayout.homeContentMaxWidth)
+            .fillMaxSize(),
     ) {
-        when (state.step) {
-            ShareSafeConfigureStep.REDACT -> RedactionStep(
-                state,
-                onPage,
-                onAddRedaction,
-                onSelectRedaction,
-                onUpdateRedaction,
-                onDeleteRedaction,
-            )
-            ShareSafeConfigureStep.PURPOSE -> PurposeStep(
-                state.watermark,
-                onWatermarkEnabled,
-                onPurpose,
-                onDateEnabled,
-                onDate,
-                onPlacement,
-                onOpacity,
-            )
-            ShareSafeConfigureStep.SIZE -> SizeStep(
-                state,
-                onTargetEnabled,
-                onTargetBytes,
-                onNext,
-            )
-            ShareSafeConfigureStep.REVIEW -> ReviewStep(state, onPrepare)
-        }
-        if (state.step != ShareSafeConfigureStep.REVIEW &&
-            state.step != ShareSafeConfigureStep.SIZE
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(PageHarborLayout.compactScreenHorizontalPadding),
+            verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium),
         ) {
-            Button(
-                onClick = onNext,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                enabled = state.step != ShareSafeConfigureStep.PURPOSE || state.watermark.isValid,
-            ) { Text(stringResource(R.string.share_safe_next)) }
+            when (state.step) {
+                ShareSafeConfigureStep.REDACT -> RedactionStep(
+                    state,
+                    onPage,
+                    onAddRedaction,
+                    onSelectRedaction,
+                    onUpdateRedaction,
+                    onDeleteRedaction,
+                )
+                ShareSafeConfigureStep.PURPOSE -> PurposeStep(
+                    state = state,
+                    onEnabled = onWatermarkEnabled,
+                    onPurpose = onPurpose,
+                    onDateEnabled = onDateEnabled,
+                    onDate = onDate,
+                    onPlacement = onPlacement,
+                    onOpacity = onOpacity,
+                )
+                ShareSafeConfigureStep.SIZE -> SizeStep(
+                    state,
+                    onTargetEnabled,
+                    onTargetBytes,
+                    onNext,
+                )
+                ShareSafeConfigureStep.REVIEW -> ReviewStep(state)
+            }
+        }
+        if (state.step != ShareSafeConfigureStep.SIZE) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                tonalElevation = 3.dp,
+            ) {
+                Button(
+                    onClick = if (state.step == ShareSafeConfigureStep.REVIEW) onPrepare else onNext,
+                    modifier = Modifier
+                        .padding(PageHarborSpacing.medium)
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp),
+                    enabled = state.step != ShareSafeConfigureStep.PURPOSE || state.watermark.isValid,
+                ) {
+                    Text(
+                        stringResource(
+                            if (state.step == ShareSafeConfigureStep.REVIEW) {
+                                R.string.share_safe_prepare
+                            } else {
+                                R.string.share_safe_next
+                            },
+                        ),
+                    )
+                }
+            }
         }
     }
 }
@@ -422,7 +449,7 @@ private fun RedactionPagePreview(
     val resolver = LocalContext.current.contentResolver
     val preview by rememberManagedDocumentPreview(
         requestKey = uri,
-        decode = { decodeBounded(resolver::openInputStream, uri) },
+        decode = { decodeBoundedPreview(resolver, uri) },
     )
     Surface(
         Modifier.fillMaxWidth().heightIn(min = 260.dp, max = 520.dp),
@@ -435,18 +462,15 @@ private fun RedactionPagePreview(
                 ManagedDocumentPreviewState.Unavailable -> Text(
                     stringResource(R.string.scan_preview_unavailable),
                 )
-                is ManagedDocumentPreviewState.Ready -> Box(
-                    Modifier.fillMaxSize().aspectRatio(
+                is ManagedDocumentPreviewState.Ready -> ZoomableDocumentPreview(
+                    bitmap = current.owner.bitmap.asImageBitmap(),
+                    resetKey = uri,
+                    description = stringResource(R.string.share_safe_watermark_preview),
+                    modifier = Modifier.fillMaxSize().aspectRatio(
                         current.owner.bitmap.width.toFloat() / current.owner.bitmap.height,
                         matchHeightConstraintsFirst = true,
                     ),
                 ) {
-                    Image(
-                        current.owner.bitmap.asImageBitmap(),
-                        null,
-                        Modifier.fillMaxSize(),
-                        contentScale = ContentScale.FillBounds,
-                    )
                     Canvas(Modifier.fillMaxSize()) {
                         redactions.forEach { region ->
                             drawRect(
@@ -468,7 +492,7 @@ private fun RedactionPagePreview(
 
 @Composable
 private fun PurposeStep(
-    config: ShareSafeWatermarkConfig,
+    state: ShareSafeCopyWorkflowState.Configure,
     onEnabled: (Boolean) -> Unit,
     onPurpose: (String) -> Unit,
     onDateEnabled: (Boolean) -> Unit,
@@ -476,6 +500,7 @@ private fun PurposeStep(
     onPlacement: (ShareSafeWatermarkPlacement) -> Unit,
     onOpacity: (ShareSafeWatermarkOpacity) -> Unit,
 ) {
+    val config = state.watermark
     Text(
         stringResource(R.string.share_safe_purpose_heading),
         style = MaterialTheme.typography.titleLarge,
@@ -506,7 +531,7 @@ private fun PurposeStep(
         },
         isError = validation !is ShareSafePurposeValidation.Valid && config.purposeText.isNotEmpty(),
         modifier = Modifier.fillMaxWidth(),
-        minLines = 2,
+        minLines = 1,
         maxLines = 3,
     )
     ToggleRow(stringResource(R.string.share_safe_date_toggle), config.includeDate, onDateEnabled)
@@ -541,7 +566,9 @@ private fun PurposeStep(
         config.opacity,
         onOpacity,
     ) { opacityLabel(it) }
-    if (config.renderedText != null) WatermarkPreview(config)
+    if (config.renderedText != null) {
+        WatermarkPreview(state.selectedPagePreviewUri, config)
+    }
 }
 
 @Composable
@@ -633,7 +660,7 @@ private fun SizeStep(
 }
 
 @Composable
-private fun ReviewStep(state: ShareSafeCopyWorkflowState.Configure, onPrepare: () -> Unit) {
+private fun ReviewStep(state: ShareSafeCopyWorkflowState.Configure) {
     Text(
         stringResource(R.string.share_safe_review_heading),
         style = MaterialTheme.typography.titleLarge,
@@ -650,11 +677,6 @@ private fun ReviewStep(state: ShareSafeCopyWorkflowState.Configure, onPrepare: (
         else stringResource(R.string.share_safe_no_size_limit),
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
-    Button(
-        onClick = onPrepare,
-        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-        enabled = state.watermark.isValid,
-    ) { Text(stringResource(R.string.share_safe_prepare)) }
 }
 
 @Composable
@@ -792,41 +814,69 @@ private fun ToggleRow(label: String, checked: Boolean, onChecked: (Boolean) -> U
 }
 
 @Composable
-private fun WatermarkPreview(config: ShareSafeWatermarkConfig) {
+private fun WatermarkPreview(uri: Uri?, config: ShareSafeWatermarkConfig) {
     val text = config.renderedText ?: return
     val description = stringResource(R.string.share_safe_watermark_preview)
+    val resolver = LocalContext.current.contentResolver
+    val preview by rememberManagedDocumentPreview(
+        requestKey = uri,
+        decode = { uri?.let { decodeBoundedPreview(resolver, it) } },
+    )
     Surface(
-        Modifier.fillMaxWidth().heightIn(min = 260.dp).semantics { contentDescription = description },
-        color = androidx.compose.ui.graphics.Color.White,
+        Modifier.fillMaxWidth().heightIn(min = 260.dp, max = 420.dp)
+            .semantics { contentDescription = description },
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
         shape = MaterialTheme.shapes.large,
     ) {
-        Canvas(Modifier.fillMaxSize().padding(PageHarborSpacing.medium)) {
-            drawRect(androidx.compose.ui.graphics.Color.White)
-            val lines = text.lines()
-            ShareSafeWatermarkGeometry.stamps(config.placement).forEach { stamp ->
-                val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = Color.BLACK
-                    alpha = config.opacity.alpha
-                    textAlign = Paint.Align.CENTER
-                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                    textSize = minOf(size.width, size.height) * stamp.textSizeFraction
-                }
-                val maximumWidth = size.width * stamp.maximumWidthFraction
-                val widest = lines.maxOf(paint::measureText).coerceAtLeast(1f)
-                if (widest > maximumWidth) paint.textSize *= maximumWidth / widest
-                val metrics = paint.fontMetrics
-                val lineHeight = (metrics.descent - metrics.ascent) * 1.08f
-                val firstBaseline = size.height * stamp.centerY - lineHeight * lines.size / 2f - metrics.ascent
-                withTransform({
-                    rotate(stamp.rotationDegrees, Offset(size.width * stamp.centerX, size.height * stamp.centerY))
-                }) {
-                    lines.forEachIndexed { index, line ->
-                        drawContext.canvas.nativeCanvas.drawText(
-                            line,
-                            size.width * stamp.centerX,
-                            firstBaseline + index * lineHeight,
-                            paint,
-                        )
+        Box(contentAlignment = Alignment.Center) {
+            when (val current = preview) {
+                ManagedDocumentPreviewState.Loading -> CircularProgressIndicator()
+                ManagedDocumentPreviewState.Unavailable -> Text(
+                    stringResource(R.string.scan_preview_unavailable),
+                )
+                is ManagedDocumentPreviewState.Ready -> ZoomableDocumentPreview(
+                    bitmap = current.owner.bitmap.asImageBitmap(),
+                    resetKey = uri to config,
+                    description = description,
+                    exposeDescription = false,
+                    modifier = Modifier.fillMaxSize().aspectRatio(
+                        current.owner.bitmap.width.toFloat() / current.owner.bitmap.height,
+                        matchHeightConstraintsFirst = true,
+                    ),
+                ) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        val lines = text.lines()
+                        ShareSafeWatermarkGeometry.stamps(config.placement).forEach { stamp ->
+                            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                                color = Color.BLACK
+                                alpha = config.opacity.alpha
+                                textAlign = Paint.Align.CENTER
+                                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                                textSize = minOf(size.width, size.height) * stamp.textSizeFraction
+                            }
+                            val maximumWidth = size.width * stamp.maximumWidthFraction
+                            val widest = lines.maxOf(paint::measureText).coerceAtLeast(1f)
+                            if (widest > maximumWidth) paint.textSize *= maximumWidth / widest
+                            val metrics = paint.fontMetrics
+                            val lineHeight = (metrics.descent - metrics.ascent) * 1.08f
+                            val firstBaseline = size.height * stamp.centerY -
+                                lineHeight * lines.size / 2f - metrics.ascent
+                            withTransform({
+                                rotate(
+                                    stamp.rotationDegrees,
+                                    Offset(size.width * stamp.centerX, size.height * stamp.centerY),
+                                )
+                            }) {
+                                lines.forEachIndexed { index, line ->
+                                    drawContext.canvas.nativeCanvas.drawText(
+                                        line,
+                                        size.width * stamp.centerX,
+                                        firstBaseline + index * lineHeight,
+                                        paint,
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -862,11 +912,12 @@ private fun FinalPdfPreview(prepared: ShareSafePreparedPdf) {
                     ManagedDocumentPreviewState.Unavailable -> Text(
                         stringResource(R.string.share_safe_preview_unavailable),
                     )
-                    is ManagedDocumentPreviewState.Ready -> Image(
-                        current.owner.bitmap.asImageBitmap(),
-                        null,
-                        Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit,
+                    is ManagedDocumentPreviewState.Ready -> ZoomableDocumentPreview(
+                        bitmap = current.owner.bitmap.asImageBitmap(),
+                        resetKey = prepared.sha256 to pageIndex,
+                        description = description,
+                        exposeDescription = false,
+                        modifier = Modifier.fillMaxSize(),
                     )
                 }
             }
@@ -924,16 +975,33 @@ private fun resized(bounds: RedactionBounds, delta: Float): RedactionBounds? =
         bounds.bottom + delta,
     )
 
-private fun decodeBounded(
-    open: (Uri) -> java.io.InputStream?,
+internal fun decodeBoundedPreview(
+    contentResolver: ContentResolver,
     uri: Uri,
-): Bitmap? {
+): Bitmap? = try {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        ImageDecoder.decodeBitmap(ImageDecoder.createSource(contentResolver, uri)) { decoder, info, _ ->
+            var sample = 1
+            while (max(info.size.width / sample, info.size.height / sample) > 1_400) sample *= 2
+            decoder.setTargetSampleSize(sample)
+            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+        }
+    } else {
+        decodeBoundedLegacy(contentResolver, uri)
+    }
+} catch (_: Exception) {
+    null
+} catch (_: OutOfMemoryError) {
+    null
+}
+
+private fun decodeBoundedLegacy(contentResolver: ContentResolver, uri: Uri): Bitmap? {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    open(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) } ?: return null
+    contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) } ?: return null
     if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
     var sample = 1
     while (max(bounds.outWidth / sample, bounds.outHeight / sample) > 1_400) sample *= 2
-    return open(uri)?.use { stream ->
+    return contentResolver.openInputStream(uri)?.use { stream ->
         BitmapFactory.decodeStream(stream, null, BitmapFactory.Options().apply { inSampleSize = sample })
     }
 }

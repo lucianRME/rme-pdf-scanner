@@ -30,10 +30,10 @@ object PageHarborLayout {
     val readingContentMaxWidth = 720.dp
     val libraryContentMaxWidth = 1184.dp
     val libraryGridMinimumCellWidth = 260.dp
-    val compactThumbnailWidth = 88.dp
-    val compactThumbnailHeight = 112.dp
+    val compactThumbnailWidth = 72.dp
+    val compactThumbnailHeight = 92.dp
     val expandedThumbnailHeight = 168.dp
-    val navigationContentBottomPadding = 96.dp
+    val navigationContentBottomPadding = 136.dp
     val documentPreviewMinHeight = 180.dp
     val documentPreviewMaxHeight = 220.dp
     val editorDocumentPreviewMinHeight = 120.dp

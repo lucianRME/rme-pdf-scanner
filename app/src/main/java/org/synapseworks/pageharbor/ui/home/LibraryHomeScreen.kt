@@ -39,6 +39,8 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CheckBox
+import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.FitScreen
@@ -75,6 +77,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
@@ -107,6 +110,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
@@ -348,6 +352,7 @@ fun LibraryHomeScreen(
                 importUiState = importUiState,
                 thumbnailUri = thumbnailUri,
                 onQueryChange = onQueryChange,
+                onScan = { showAcquisitionChooser = true },
                 onImportFiles = onImportFiles,
                 onCancelImport = onCancelImport,
                 onViewScanResult = onViewScanResult,
@@ -654,6 +659,7 @@ private fun HomeDestination(
     importUiState: DocumentImportUiState,
     thumbnailUri: (String?) -> Uri?,
     onQueryChange: (String) -> Unit,
+    onScan: () -> Unit,
     onImportFiles: () -> Unit,
     onCancelImport: () -> Unit,
     onViewScanResult: () -> Unit,
@@ -732,6 +738,7 @@ private fun HomeDestination(
                     HomeEmptyState(
                         query = uiState.query,
                         enabled = !working && importUiState !is DocumentImportUiState.Processing,
+                        onScan = onScan,
                         onImportFiles = onImportFiles,
                     )
                 }
@@ -774,6 +781,7 @@ private fun HomeDestination(
 private fun HomeEmptyState(
     query: String,
     enabled: Boolean,
+    onScan: () -> Unit,
     onImportFiles: () -> Unit,
 ) {
     if (query.isNotBlank()) {
@@ -803,20 +811,24 @@ private fun HomeEmptyState(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
-        FilledTonalButton(
+        Row(
             modifier = Modifier.padding(top = PageHarborSpacing.large),
-            enabled = enabled,
-            onClick = onImportFiles,
+            horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
         ) {
-            Icon(
-                modifier = Modifier.size(18.dp),
-                imageVector = Icons.Default.UploadFile,
-                contentDescription = null,
-            )
-            Text(
-                modifier = Modifier.padding(start = PageHarborSpacing.small),
-                text = stringResource(R.string.home_import_files),
-            )
+            Button(enabled = enabled, onClick = onScan) {
+                Icon(Icons.Default.CameraAlt, contentDescription = null)
+                Text(
+                    modifier = Modifier.padding(start = PageHarborSpacing.small),
+                    text = stringResource(R.string.scan_chooser_document_title),
+                )
+            }
+            FilledTonalButton(enabled = enabled, onClick = onImportFiles) {
+                Icon(Icons.Default.UploadFile, contentDescription = null)
+                Text(
+                    modifier = Modifier.padding(start = PageHarborSpacing.small),
+                    text = stringResource(R.string.home_import_files),
+                )
+            }
         }
     }
 }
@@ -855,26 +867,23 @@ private fun DocumentsDestination(
             else -> PageHarborLayout.compactScreenHorizontalPadding
         }
 
-        LazyVerticalGrid(
+        Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .widthIn(max = PageHarborLayout.libraryContentMaxWidth)
-                .fillMaxSize()
-                .padding(horizontal = horizontalPadding),
-            columns = if (useGrid) {
-                GridCells.Adaptive(PageHarborLayout.libraryGridMinimumCellWidth)
-            } else {
-                GridCells.Fixed(1)
-            },
-            contentPadding = PaddingValues(
-                top = PageHarborSpacing.small,
-                bottom = PageHarborLayout.navigationContentBottomPadding,
-            ),
-            horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.large),
-            verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.large),
+                .fillMaxSize(),
         ) {
             if (mergeSelection.isNotEmpty()) {
-                item(key = "documents-selection", span = { GridItemSpan(maxLineSpan) }) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            start = horizontalPadding,
+                            top = PageHarborSpacing.small,
+                            end = horizontalPadding,
+                            bottom = PageHarborSpacing.small,
+                        ),
+                ) {
                     MergeBar(
                         selectedCount = mergeSelection.size,
                         enabled = !working,
@@ -885,64 +894,82 @@ private fun DocumentsDestination(
                     )
                 }
             }
-            item(key = "documents-search", span = { GridItemSpan(maxLineSpan) }) {
-                LibrarySearchField(
-                    modifier = Modifier.fillMaxWidth(),
-                    query = uiState.query,
-                    onQueryChange = onQueryChange,
-                )
-            }
-            if (uiState.query.isNotBlank()) {
-                librarySearchResults(
-                    uiState = uiState,
-                    enabled = !working,
-                    keyPrefix = "documents",
-                    onOpenDocument = onOpenDocument,
-                    onLoadMore = onLoadMoreSearchResults,
-                )
-            } else {
-                item(key = "documents-folders", span = { GridItemSpan(maxLineSpan) }) {
-                    FolderControls(
-                        folders = uiState.folders,
-                        breadcrumb = uiState.folderBreadcrumb,
-                        selectedFolderId = uiState.selectedFolderId,
+            LazyVerticalGrid(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = horizontalPadding),
+                columns = if (useGrid) {
+                    GridCells.Adaptive(PageHarborLayout.libraryGridMinimumCellWidth)
+                } else {
+                    GridCells.Fixed(1)
+                },
+                contentPadding = PaddingValues(
+                    top = PageHarborSpacing.small,
+                    bottom = PageHarborLayout.navigationContentBottomPadding,
+                ),
+                horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.large),
+                verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.large),
+            ) {
+                item(key = "documents-search", span = { GridItemSpan(maxLineSpan) }) {
+                    LibrarySearchField(
+                        modifier = Modifier.fillMaxWidth(),
+                        query = uiState.query,
+                        onQueryChange = onQueryChange,
+                    )
+                }
+                if (uiState.query.isNotBlank()) {
+                    librarySearchResults(
+                        uiState = uiState,
                         enabled = !working,
-                        onFolderSelected = onFolderSelected,
+                        keyPrefix = "documents",
+                        onOpenDocument = onOpenDocument,
+                        onLoadMore = onLoadMoreSearchResults,
                     )
-                }
-                item(key = "documents-heading", span = { GridItemSpan(maxLineSpan) }) {
-                    DocumentSectionHeader(
-                        documentCount = uiState.documents.size,
-                        sortOrder = uiState.sortOrder,
-                        selectedFolder = selectedFolder,
-                        working = working,
-                        stackControls = stackControls,
-                        onSortOrderChange = onSortOrderChange,
-                        onRenameFolder = onRenameFolder,
-                        onDeleteFolder = onDeleteFolder,
-                    )
-                }
-                if (uiState.documents.isEmpty()) {
-                    item(key = "documents-empty", span = { GridItemSpan(maxLineSpan) }) {
-                        LibraryEmptyState(
-                            query = uiState.query,
-                            selectedFolderName = selectedFolder?.name,
+                } else {
+                    item(key = "documents-folders", span = { GridItemSpan(maxLineSpan) }) {
+                        FolderControls(
+                            folders = uiState.folders,
+                            breadcrumb = uiState.folderBreadcrumb,
+                            selectedFolderId = uiState.selectedFolderId,
+                            enabled = !working,
+                            onFolderSelected = onFolderSelected,
                         )
                     }
-                } else {
-                    items(uiState.documents, key = { "documents-${it.id}" }) { document ->
-                        LibraryDocumentItem(
-                            document = document,
-                            thumbnailUri = thumbnailUri(document.thumbnailRelativePath),
-                            expanded = useGrid,
-                            mergePosition = mergeSelection.indexOf(document.id).takeIf { it >= 0 },
-                            enabled = !working,
-                            onOpen = { onOpenDocument(document.id, null) },
-                            onToggleMerge = { onToggleMerge(document) },
-                            onRename = { onRenameDocument(document) },
-                            onMove = { onMoveDocument(document) },
-                            onDelete = { onDeleteDocument(document) },
+                    item(key = "documents-heading", span = { GridItemSpan(maxLineSpan) }) {
+                        DocumentSectionHeader(
+                            documentCount = uiState.documents.size,
+                            sortOrder = uiState.sortOrder,
+                            selectedFolder = selectedFolder,
+                            working = working,
+                            stackControls = stackControls,
+                            onSortOrderChange = onSortOrderChange,
+                            onRenameFolder = onRenameFolder,
+                            onDeleteFolder = onDeleteFolder,
                         )
+                    }
+                    if (uiState.documents.isEmpty()) {
+                        item(key = "documents-empty", span = { GridItemSpan(maxLineSpan) }) {
+                            LibraryEmptyState(
+                                query = uiState.query,
+                                selectedFolderName = selectedFolder?.name,
+                            )
+                        }
+                    } else {
+                        items(uiState.documents, key = { "documents-${it.id}" }) { document ->
+                            LibraryDocumentItem(
+                                document = document,
+                                thumbnailUri = thumbnailUri(document.thumbnailRelativePath),
+                                expanded = useGrid,
+                                mergePosition = mergeSelection.indexOf(document.id).takeIf { it >= 0 },
+                                enabled = !working,
+                                onOpen = { onOpenDocument(document.id, null) },
+                                onToggleMerge = { onToggleMerge(document) },
+                                onRename = { onRenameDocument(document) },
+                                onMove = { onMoveDocument(document) },
+                                onDelete = { onDeleteDocument(document) },
+                            )
+                        }
                     }
                 }
             }
@@ -1163,11 +1190,15 @@ private fun AcquisitionChooserSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = PageHarborSpacing.large),
+                .padding(
+                    start = PageHarborSpacing.large,
+                    end = PageHarborSpacing.large,
+                    bottom = PageHarborSpacing.large,
+                ),
+            verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
         ) {
             Text(
                 modifier = Modifier
-                    .padding(horizontal = PageHarborSpacing.large)
                     .padding(bottom = PageHarborSpacing.small)
                     .semantics { heading() },
                 text = stringResource(R.string.scan_chooser_title),
@@ -1179,14 +1210,12 @@ private fun AcquisitionChooserSheet(
                 description = stringResource(R.string.scan_chooser_document_description),
                 onClick = onDocumentScan,
             )
-            HorizontalDivider()
             AcquisitionAction(
                 icon = Icons.Default.CreditCard,
                 title = stringResource(R.string.scan_chooser_card_title),
                 description = stringResource(R.string.scan_chooser_card_description),
                 onClick = onCardCopy,
             )
-            HorizontalDivider()
             AcquisitionAction(
                 icon = Icons.Default.UploadFile,
                 title = stringResource(R.string.scan_chooser_import_title),
@@ -1205,20 +1234,44 @@ private fun AcquisitionAction(
     onClick: () -> Unit,
 ) {
     val accessibilityLabel = "$title. $description"
-    ListItem(
+    Surface(
         modifier = Modifier
+            .fillMaxWidth()
             .semantics { contentDescription = accessibilityLabel }
             .clickable(role = Role.Button, onClick = onClick),
-        leadingContent = {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-            )
-        },
-        headlineContent = { Text(title) },
-        supportingContent = { Text(description) },
-    )
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        tonalElevation = 1.dp,
+    ) {
+        ListItem(
+            colors = ListItemDefaults.colors(
+                containerColor = androidx.compose.ui.graphics.Color.Transparent,
+            ),
+            leadingContent = {
+                Surface(
+                    modifier = Modifier.size(44.dp),
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                    }
+                }
+            },
+            headlineContent = { Text(title, style = MaterialTheme.typography.titleMedium) },
+            supportingContent = {
+                Text(
+                    text = description,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            },
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1333,13 +1386,22 @@ private fun ToolDocumentPickerSheet(
                         lazyListItems(visibleDocuments, key = LibraryDocumentSummary::id) { document ->
                             val selected = document.id in selection
                             ListItem(
-                                modifier = Modifier.clickable(role = Role.Button) {
-                                    selection = if (singleSelect) {
-                                        listOf(document.id)
+                                modifier = Modifier
+                                    .padding(vertical = PageHarborSpacing.extraSmall)
+                                    .clickable(role = Role.Button) {
+                                        selection = if (singleSelect) {
+                                            listOf(document.id)
+                                        } else {
+                                            selection.toggle(document.id)
+                                        }
+                                    },
+                                colors = ListItemDefaults.colors(
+                                    containerColor = if (selected) {
+                                        MaterialTheme.colorScheme.secondaryContainer
                                     } else {
-                                        selection.toggle(document.id)
-                                    }
-                                },
+                                        MaterialTheme.colorScheme.surfaceContainerLow
+                                    },
+                                ),
                                 leadingContent = {
                                     LibraryThumbnail(
                                         modifier = Modifier.size(48.dp),
@@ -1355,7 +1417,13 @@ private fun ToolDocumentPickerSheet(
                                     )
                                 },
                                 supportingContent = {
-                                    Text(stringResource(R.string.fit_limit_pages, document.pageCount))
+                                    Text(
+                                        pluralStringResource(
+                                            R.plurals.library_page_count,
+                                            document.pageCount,
+                                            document.pageCount,
+                                        ),
+                                    )
                                 },
                                 trailingContent = {
                                     Icon(
@@ -1377,7 +1445,6 @@ private fun ToolDocumentPickerSheet(
                                     )
                                 },
                             )
-                            HorizontalDivider()
                         }
                     }
                 }
@@ -1463,6 +1530,7 @@ private fun ToolsDestination(
     val tools = listOf(
         ToolLauncherItemModel(
             key = "import",
+            group = ToolGroup.CAPTURE,
             icon = Icons.Default.UploadFile,
             label = stringResource(R.string.tools_import_title),
             accessibilityLabel = if (interactionEnabled) {
@@ -1479,6 +1547,7 @@ private fun ToolsDestination(
         ),
         ToolLauncherItemModel(
             key = "merge",
+            group = ToolGroup.PDF,
             icon = Icons.AutoMirrored.Filled.CallMerge,
             label = stringResource(R.string.tools_merge_title),
             accessibilityLabel = if (!interactionEnabled) {
@@ -1495,6 +1564,7 @@ private fun ToolsDestination(
         ),
         ToolLauncherItemModel(
             key = "pages",
+            group = ToolGroup.PDF,
             icon = Icons.Default.ContentCut,
             label = stringResource(R.string.tools_pages_title),
             accessibilityLabel = if (!interactionEnabled) {
@@ -1511,6 +1581,7 @@ private fun ToolsDestination(
         ),
         ToolLauncherItemModel(
             key = "share-safe-copy",
+            group = ToolGroup.TEXT_PRIVACY,
             icon = Icons.Default.Description,
             label = stringResource(R.string.share_safe_title),
             accessibilityLabel = stringResource(R.string.share_safe_tool_accessibility),
@@ -1520,6 +1591,7 @@ private fun ToolsDestination(
         ),
         ToolLauncherItemModel(
             key = "fit-upload-limit",
+            group = ToolGroup.PDF,
             icon = Icons.Default.FitScreen,
             label = stringResource(R.string.fit_limit_title),
             accessibilityLabel = if (!interactionEnabled) {
@@ -1536,6 +1608,7 @@ private fun ToolsDestination(
         ),
         ToolLauncherItemModel(
             key = "card-copy",
+            group = ToolGroup.CAPTURE,
             icon = Icons.Default.CreditCard,
             label = stringResource(R.string.card_copy_title),
             accessibilityLabel = if (!interactionEnabled) {
@@ -1552,6 +1625,7 @@ private fun ToolsDestination(
         ),
         ToolLauncherItemModel(
             key = "ocr",
+            group = ToolGroup.TEXT_PRIVACY,
             icon = Icons.Default.TextFields,
             label = stringResource(R.string.tools_ocr_title),
             accessibilityLabel = if (!interactionEnabled) {
@@ -1589,11 +1663,10 @@ private fun ToolsDestination(
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val fontScale = LocalDensity.current.fontScale
         val columnCount = when {
-            fontScale >= 1.8f && maxWidth >= 840.dp -> 4
-            fontScale >= 1.8f && maxWidth >= 600.dp -> 3
             fontScale >= 1.8f -> 2
-            maxWidth < 360.dp -> 3
-            else -> 4
+            maxWidth >= 840.dp -> 5
+            maxWidth >= 600.dp -> 4
+            else -> 3
         }
         val horizontalPadding = when {
             maxWidth >= 840.dp -> PageHarborLayout.expandedScreenHorizontalPadding
@@ -1642,11 +1715,16 @@ private fun ToolsDestination(
                     ToolsEmptyState()
                 }
             } else {
-                item(key = "tools-heading-all", span = { GridItemSpan(maxLineSpan) }) {
-                    ToolSectionHeading(R.string.tools_all_heading)
-                }
-                items(visibleTools, key = { "tools-${it.key}" }) { tool ->
-                    ToolLauncherItem(tool)
+                ToolGroup.entries.forEach { group ->
+                    val groupedTools = visibleTools.filter { it.group == group }
+                    if (groupedTools.isNotEmpty()) {
+                        item(key = "tools-heading-${group.name}", span = { GridItemSpan(maxLineSpan) }) {
+                            ToolSectionHeading(group.titleResource)
+                        }
+                        items(groupedTools, key = { "tools-${it.key}" }) { tool ->
+                            ToolLauncherItem(tool)
+                        }
+                    }
                 }
             }
         }
@@ -1872,7 +1950,9 @@ private fun ToolsSearchField(
 ) {
     val label = stringResource(R.string.tools_search_label)
     OutlinedTextField(
-        modifier = modifier.semantics { contentDescription = label },
+        modifier = modifier
+            .heightIn(min = 52.dp)
+            .semantics { contentDescription = label },
         value = query,
         onValueChange = onQueryChange,
         singleLine = true,
@@ -1903,10 +1983,10 @@ private fun ToolsSearchField(
 
 @Composable
 private fun ToolLauncherItem(tool: ToolLauncherItemModel) {
-    Column(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 112.dp)
+            .heightIn(min = 124.dp)
             .clickable(
                 enabled = tool.enabled,
                 role = Role.Button,
@@ -1915,47 +1995,58 @@ private fun ToolLauncherItem(tool: ToolLauncherItemModel) {
             .semantics(mergeDescendants = true) {
                 contentDescription = tool.accessibilityLabel
                 if (!tool.enabled) disabled()
-            }
-            .padding(
-                horizontal = PageHarborSpacing.extraSmall,
-                vertical = PageHarborSpacing.small,
-            ),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
+            },
+        shape = MaterialTheme.shapes.large,
+        color = if (tool.enabled) {
+            MaterialTheme.colorScheme.surfaceContainerLow
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        },
+        tonalElevation = if (tool.enabled) 1.dp else 0.dp,
     ) {
-        Surface(
-            modifier = Modifier.size(56.dp),
-            shape = MaterialTheme.shapes.large,
-            color = if (tool.enabled) {
-                MaterialTheme.colorScheme.secondaryContainer
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant
-            },
+        Column(
+            modifier = Modifier.padding(
+                horizontal = PageHarborSpacing.small,
+                vertical = PageHarborSpacing.medium,
+            ),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    modifier = Modifier.size(28.dp),
-                    imageVector = tool.icon,
-                    contentDescription = null,
-                    tint = if (tool.enabled) {
-                        MaterialTheme.colorScheme.onSecondaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                    },
-                )
+            Surface(
+                modifier = Modifier.size(48.dp),
+                shape = MaterialTheme.shapes.large,
+                color = if (tool.enabled) {
+                    MaterialTheme.colorScheme.secondaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerHighest
+                },
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        modifier = Modifier.size(26.dp),
+                        imageVector = tool.icon,
+                        contentDescription = null,
+                        tint = if (tool.enabled) {
+                            MaterialTheme.colorScheme.onSecondaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                        },
+                    )
+                }
             }
+            Text(
+                text = tool.label,
+                style = MaterialTheme.typography.labelLarge,
+                color = if (tool.enabled) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                },
+                textAlign = TextAlign.Center,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
-        Text(
-            text = tool.label,
-            style = MaterialTheme.typography.labelLarge,
-            color = if (tool.enabled) {
-                MaterialTheme.colorScheme.onSurface
-            } else {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-            },
-            textAlign = TextAlign.Center,
-            maxLines = 2,
-        )
     }
 }
 
@@ -1983,6 +2074,7 @@ private fun ToolsEmptyState() {
 
 private data class ToolLauncherItemModel(
     val key: String,
+    val group: ToolGroup,
     val icon: androidx.compose.ui.graphics.vector.ImageVector,
     val label: String,
     val accessibilityLabel: String,
@@ -1990,6 +2082,12 @@ private data class ToolLauncherItemModel(
     val enabled: Boolean,
     val onClick: () -> Unit,
 )
+
+private enum class ToolGroup(val titleResource: Int) {
+    CAPTURE(R.string.tools_capture_heading),
+    PDF(R.string.tools_pdf_heading),
+    TEXT_PRIVACY(R.string.tools_text_privacy_heading),
+}
 
 enum class LibraryDestination(
     val titleResource: Int,
@@ -2003,6 +2101,20 @@ enum class LibraryDestination(
 
 private fun List<String>.toggle(value: String): List<String> =
     if (value in this) this - value else this + value
+
+internal enum class SelectionPrimaryAction {
+    EXTRACT_TEXT,
+    MERGE,
+}
+
+internal fun selectionPrimaryAction(selectedCount: Int): SelectionPrimaryAction {
+    require(selectedCount > 0)
+    return if (selectedCount == 1) {
+        SelectionPrimaryAction.EXTRACT_TEXT
+    } else {
+        SelectionPrimaryAction.MERGE
+    }
+}
 
 private const val HOME_RECENT_DOCUMENT_LIMIT = 4
 
@@ -2067,8 +2179,9 @@ private fun ActiveWorkStatus(
                 Text(
                     modifier = Modifier.weight(1f),
                     text = if (importUiState.preparedPages > 0) {
-                        stringResource(
-                            R.string.import_progress_with_pages,
+                        pluralStringResource(
+                            R.plurals.import_progress_with_pages,
+                            importUiState.preparedPages,
                             importUiState.completedItems,
                             importUiState.totalItems,
                             importUiState.preparedPages,
@@ -2339,65 +2452,95 @@ private fun MergeBar(
     onRecognizeText: () -> Unit,
 ) {
     val recognizeLabel = stringResource(R.string.ocr_batch_recognize_selected)
+    var showMore by remember { mutableStateOf(false) }
+    val compactActions = stackActions
+    val primaryAction = selectionPrimaryAction(selectedCount)
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.primaryContainer,
-        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = MaterialTheme.shapes.extraLarge,
+        tonalElevation = 2.dp,
     ) {
-        if (stackActions) {
-            Column(
-                modifier = Modifier.padding(PageHarborSpacing.medium),
-                verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
-            ) {
-                Text(
-                    text = stringResource(R.string.library_merge_selected_count, selectedCount),
-                    style = MaterialTheme.typography.titleMedium,
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 64.dp)
+                .padding(horizontal = PageHarborSpacing.small),
+            horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onClear) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = stringResource(R.string.library_clear_selection),
                 )
-                Column(verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall)) {
-                    TextButton(modifier = Modifier.fillMaxWidth(), onClick = onClear) {
-                        Text(stringResource(R.string.library_clear_selection))
-                    }
-                    Button(
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = enabled && selectedCount >= 1,
-                        onClick = onMerge,
-                    ) {
-                        Text(stringResource(R.string.library_merge_action))
-                    }
-                    FilledTonalButton(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .semantics { contentDescription = recognizeLabel },
-                        enabled = enabled,
-                        onClick = onRecognizeText,
-                    ) {
-                        Text(recognizeLabel)
-                    }
-                }
             }
-        } else {
-            Row(
-                modifier = Modifier.padding(PageHarborSpacing.medium),
-                horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    modifier = Modifier.weight(1f),
-                    text = stringResource(R.string.library_merge_selected_count, selectedCount),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                TextButton(onClick = onClear) {
-                    Text(stringResource(R.string.library_clear_selection))
-                }
-                Button(enabled = enabled && selectedCount >= 1, onClick = onMerge) {
-                    Text(stringResource(R.string.library_merge_action))
-                }
+            Text(
+                modifier = Modifier.weight(1f),
+                text = stringResource(R.string.library_merge_selected_count, selectedCount),
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (primaryAction == SelectionPrimaryAction.EXTRACT_TEXT) {
                 FilledTonalButton(
                     modifier = Modifier.semantics { contentDescription = recognizeLabel },
                     enabled = enabled,
+                    contentPadding = PaddingValues(horizontal = PageHarborSpacing.medium),
                     onClick = onRecognizeText,
                 ) {
-                    Text(recognizeLabel)
+                    Icon(Icons.Default.TextFields, contentDescription = null)
+                    if (!compactActions) {
+                        Text(
+                            modifier = Modifier.padding(start = PageHarborSpacing.extraSmall),
+                            text = stringResource(R.string.tools_ocr_title),
+                            maxLines = 1,
+                        )
+                    }
+                }
+            } else {
+                Button(
+                    enabled = enabled,
+                    contentPadding = PaddingValues(horizontal = PageHarborSpacing.medium),
+                    onClick = onMerge,
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.CallMerge, contentDescription = null)
+                    if (!compactActions) {
+                        Text(
+                            modifier = Modifier.padding(start = PageHarborSpacing.extraSmall),
+                            text = stringResource(R.string.library_merge_action),
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+            Box {
+                IconButton(enabled = enabled, onClick = { showMore = true }) {
+                    Icon(
+                        Icons.Default.MoreVert,
+                        contentDescription = stringResource(R.string.document_action_more),
+                    )
+                }
+                DropdownMenu(expanded = showMore, onDismissRequest = { showMore = false }) {
+                    if (primaryAction == SelectionPrimaryAction.EXTRACT_TEXT) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.library_merge_action)) },
+                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.CallMerge, null) },
+                            onClick = {
+                                showMore = false
+                                onMerge()
+                            },
+                        )
+                    } else {
+                        DropdownMenuItem(
+                            text = { Text(recognizeLabel) },
+                            leadingIcon = { Icon(Icons.Default.TextFields, null) },
+                            onClick = {
+                                showMore = false
+                                onRecognizeText()
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -2509,19 +2652,54 @@ private fun DocumentDetails(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall),
     ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Text(
+                modifier = Modifier.weight(1f),
+                text = document.title,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            IconButton(enabled = enabled, onClick = onToggleMerge) {
+                Icon(
+                    imageVector = if (mergePosition == null) {
+                        Icons.Default.CheckBoxOutlineBlank
+                    } else {
+                        Icons.Default.CheckBox
+                    },
+                    contentDescription = if (mergePosition == null) {
+                        stringResource(R.string.library_add_to_merge)
+                    } else {
+                        stringResource(R.string.library_remove_from_merge, mergePosition + 1)
+                    },
+                    tint = if (mergePosition == null) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    },
+                )
+            }
+            DocumentOverflowMenu(
+                documentTitle = document.title,
+                mergePosition = mergePosition,
+                enabled = enabled,
+                onToggleMerge = onToggleMerge,
+                onRename = onRename,
+                onMove = onMove,
+                onDelete = onDelete,
+            )
+        }
         Text(
-            text = document.title,
-            style = MaterialTheme.typography.titleMedium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = stringResource(
+            text = pluralStringResource(
                 when {
-                    document.documentDateEpochDay != null -> R.string.library_document_date_metadata
-                    document.importedAtMillis != null -> R.string.library_imported_metadata
-                    else -> R.string.library_document_metadata
+                    document.documentDateEpochDay != null -> R.plurals.library_document_date_metadata
+                    document.importedAtMillis != null -> R.plurals.library_imported_metadata
+                    else -> R.plurals.library_document_metadata
                 },
+                document.pageCount,
                 document.pageCount,
                 formattedDate,
             ),
@@ -2557,43 +2735,6 @@ private fun DocumentDetails(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (mergePosition != null) {
-                Text(
-                    text = stringResource(R.string.library_remove_from_merge, mergePosition + 1),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-            Spacer(modifier = Modifier.weight(1f))
-            IconButton(enabled = enabled, onClick = onToggleMerge) {
-                Icon(
-                    imageVector = if (mergePosition == null) {
-                        Icons.Default.RadioButtonUnchecked
-                    } else {
-                        Icons.Default.CheckCircle
-                    },
-                    contentDescription = if (mergePosition == null) {
-                        stringResource(R.string.library_add_to_merge)
-                    } else {
-                        stringResource(R.string.library_remove_from_merge, mergePosition + 1)
-                    },
-                )
-            }
-            DocumentOverflowMenu(
-                documentTitle = document.title,
-                mergePosition = mergePosition,
-                enabled = enabled,
-                onToggleMerge = onToggleMerge,
-                onRename = onRename,
-                onMove = onMove,
-                onDelete = onDelete,
             )
         }
     }

@@ -24,6 +24,18 @@ internal fun InlineOperationStatus(
     vararg formatArgs: Any,
     modifier: Modifier = Modifier,
 ) {
+    InlineOperationStatus(
+        message = stringResource(messageRes, *formatArgs),
+        modifier = modifier,
+    )
+}
+
+/** Compact, local feedback for an already formatted message. */
+@Composable
+internal fun InlineOperationStatus(
+    message: String,
+    modifier: Modifier = Modifier,
+) {
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
@@ -34,7 +46,7 @@ internal fun InlineOperationStatus(
         )
         Text(
             modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-            text = stringResource(messageRes, *formatArgs),
+            text = message,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

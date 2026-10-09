@@ -105,6 +105,7 @@ import org.synapseworks.pageharbor.document.redaction.confirmedSourceRegionsFor
 import org.synapseworks.pageharbor.document.transform
 import org.synapseworks.pageharbor.document.targetsize.formatDecimalBytes
 import org.synapseworks.pageharbor.ui.home.ManagedDocumentPreviewState
+import org.synapseworks.pageharbor.ui.home.ZoomableDocumentPreview
 import org.synapseworks.pageharbor.ui.home.rememberManagedDocumentPreview
 import org.synapseworks.pageharbor.ui.theme.PageHarborLayout
 import org.synapseworks.pageharbor.ui.theme.PageHarborSpacing
@@ -1052,7 +1053,7 @@ private fun PreparedPdfPreview(prepared: CardCopyPreparedPdf, modifier: Modifier
     )
     val previewDescription = stringResource(R.string.card_copy_prepared_preview_description)
     Surface(
-        modifier.semantics { contentDescription = previewDescription },
+        modifier = modifier.semantics { contentDescription = previewDescription },
         color = androidx.compose.ui.graphics.Color.White,
         shape = MaterialTheme.shapes.large,
     ) {
@@ -1060,11 +1061,12 @@ private fun PreparedPdfPreview(prepared: CardCopyPreparedPdf, modifier: Modifier
             when (val state = preview) {
                 ManagedDocumentPreviewState.Loading -> CircularProgressIndicator()
                 ManagedDocumentPreviewState.Unavailable -> Text(stringResource(R.string.scan_preview_unavailable))
-                is ManagedDocumentPreviewState.Ready -> Image(
-                    bitmap = state.owner.bitmap.asImageBitmap(),
-                    contentDescription = null,
+                is ManagedDocumentPreviewState.Ready -> ZoomableDocumentPreview(
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit,
+                    bitmap = state.owner.bitmap.asImageBitmap(),
+                    resetKey = prepared.bytes,
+                    description = previewDescription,
+                    exposeDescription = false,
                 )
             }
         }

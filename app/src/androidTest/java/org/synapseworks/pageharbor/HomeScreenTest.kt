@@ -9,12 +9,15 @@ import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
@@ -195,9 +198,13 @@ class HomeScreenTest {
         composeTestRule.onNodeWithText("Documents").assertIsDisplayed().performClick()
         composeTestRule.onNodeWithContentDescription("Create folder").assertIsDisplayed()
         composeTestRule.onNodeWithContentDescription("Scan").assertIsDisplayed()
+        composeTestRule.onAllNodesWithText("1 page", substring = true).assertCountEquals(2)
 
         composeTestRule.onNodeWithText("Tools").assertIsDisplayed().performClick()
         composeTestRule.onNodeWithContentDescription("Search tools").assertIsDisplayed()
+        listOf("Import & capture", "PDF tools", "Text & privacy").forEach { heading ->
+            composeTestRule.onNodeWithText(heading).assertIsDisplayed()
+        }
         composeTestRule.onNodeWithContentDescription("Import files").assertIsDisplayed()
         composeTestRule.onNodeWithContentDescription("Merge documents").assertIsDisplayed()
         composeTestRule.onNodeWithContentDescription("Split or extract pages").assertIsDisplayed()
@@ -302,7 +309,9 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithContentDescription("Scan").performClick()
-        composeTestRule.onNodeWithText("Document").performClick()
+        composeTestRule.onNodeWithContentDescription(
+            "Document. Scan one or more document pages",
+        ).performClick()
         assertEquals(1, scanClickCount)
 
         composeTestRule.onNodeWithContentDescription("Scan").performClick()
@@ -363,9 +372,9 @@ class HomeScreenTest {
         composeTestRule.onNodeWithText("Documents").performClick()
         composeTestRule.onAllNodesWithContentDescription("Select for actions")[0].performClick()
         composeTestRule.onAllNodesWithText("1 selected")[0]
-            .performScrollTo()
             .assertIsDisplayed()
-        composeTestRule.onNodeWithText("Merge").performScrollTo().performClick()
+        composeTestRule.onNodeWithContentDescription("More").performClick()
+        composeTestRule.onNodeWithText("Merge").performClick()
         composeTestRule.waitForIdle()
 
         composeTestRule.onNodeWithText("Choose documents to merge").assertIsDisplayed()
@@ -381,6 +390,22 @@ class HomeScreenTest {
             assertEquals(listOf("saved-1", "saved-2"), mergedIds)
         }
         composeTestRule.onAllNodesWithText("1 selected").assertCountEquals(0)
+    }
+
+    @Test
+    fun documentSelectionBarStaysVisibleForOneAndMultipleSelections() {
+        composeTestRule.setContent {
+            PageHarborApp(libraryUiState = savedLibraryState(2))
+        }
+
+        composeTestRule.onNodeWithText("Documents").performClick()
+        composeTestRule.onAllNodesWithContentDescription("Select for actions")[0].performClick()
+        composeTestRule.onNodeWithText("1 selected").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Recognize text").assertIsDisplayed()
+
+        composeTestRule.onAllNodesWithContentDescription("Select for actions")[0].performClick()
+        composeTestRule.onNodeWithText("2 selected").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Merge").assertIsDisplayed()
     }
 
     @Test
@@ -781,7 +806,9 @@ class HomeScreenTest {
             "Split or extract pages",
             "Extract text with OCR",
         ).forEach { description ->
-            composeTestRule.onNodeWithContentDescription(description)
+            val tool = hasContentDescription(description)
+            composeTestRule.onNode(hasScrollAction()).performScrollToNode(tool)
+            composeTestRule.onNode(tool)
                 .assertIsDisplayed()
                 .assertIsEnabled()
         }
@@ -866,7 +893,7 @@ class HomeScreenTest {
 
         composeTestRule.onNodeWithText("Document").assertIsDisplayed()
         composeTestRule.onNodeWithText("Page 1 of 3").assertIsDisplayed()
-        listOf("Add", "Edit", "OCR", "Share", "Actions").forEach { action ->
+        listOf("Add", "Edit", "OCR", "Share", "More").forEach { action ->
             composeTestRule.onNodeWithText(action).assertIsDisplayed()
         }
         openDocumentMore()
@@ -887,7 +914,7 @@ class HomeScreenTest {
         composeTestRule.onAllNodesWithText("Home").assertCountEquals(0)
         composeTestRule.onAllNodesWithText("Documents").assertCountEquals(0)
         composeTestRule.onAllNodesWithText("Tools").assertCountEquals(0)
-        listOf("Add", "Edit", "OCR", "Share", "Actions").forEach { action ->
+        listOf("Add", "Edit", "OCR", "Share", "More").forEach { action ->
             composeTestRule.onNodeWithText(action).assertIsDisplayed()
         }
     }
@@ -926,7 +953,7 @@ class HomeScreenTest {
             )
         }
 
-        composeTestRule.onNodeWithText("Importing file 1 of 3 · 1 pages ready…").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Importing file 1 of 3 · 1 page ready…").assertIsDisplayed()
         composeTestRule.onNodeWithText("Cancel import").performClick()
         assertEquals(1, cancelCount)
     }
@@ -1519,7 +1546,7 @@ class HomeScreenTest {
             )
         }
 
-        composeTestRule.onNodeWithText("OCR").performClick()
+        composeTestRule.onNodeWithContentDescription("OCR").performClick()
 
         assertEquals(1, callCount)
     }
@@ -1753,7 +1780,7 @@ class HomeScreenTest {
             )
         }
 
-        listOf("Add", "Edit", "OCR", "Share", "Actions").forEach { action ->
+        listOf("Add", "Edit", "OCR", "Share", "More").forEach { action ->
             composeTestRule.onNodeWithText(action).assertIsDisplayed()
         }
         openDocumentEdit()
@@ -1783,7 +1810,7 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("Page 1 of 2").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Edit").assertIsDisplayed().performClick()
+        composeTestRule.onNodeWithContentDescription("Edit").assertIsDisplayed().performClick()
         composeTestRule.onNodeWithText("Filter").assertIsDisplayed()
         composeTestRule.onNodeWithText("Done").assertIsDisplayed()
     }
@@ -1894,7 +1921,7 @@ class HomeScreenTest {
             }
         }
 
-        composeTestRule.onNodeWithText("OCR").performClick()
+        composeTestRule.onNodeWithContentDescription("OCR").performClick()
         composeTestRule.onNodeWithText("Heading\n  Preserved indentation")
             .performScrollTo()
             .assertIsDisplayed()
@@ -2006,7 +2033,7 @@ class HomeScreenTest {
                 .and(hasText("Document")),
         ).assertIsDisplayed()
         composeTestRule.onAllNodesWithText("Document").assertCountEquals(1)
-        composeTestRule.onNodeWithText("Actions").assertIsDisplayed()
+        composeTestRule.onNodeWithText("More").assertIsDisplayed()
     }
 
     @Test
@@ -2083,7 +2110,7 @@ class HomeScreenTest {
             }
         }
 
-        composeTestRule.onNodeWithText("Edit").assertIsDisplayed().performClick()
+        composeTestRule.onNodeWithContentDescription("Edit").assertIsDisplayed().performClick()
         composeTestRule.onNodeWithText("Filter").assertIsDisplayed()
         composeTestRule.onNodeWithText("Done").performClick()
         openDocumentMore()
@@ -2163,7 +2190,7 @@ class HomeScreenTest {
             }
         }
 
-        composeTestRule.onNodeWithText("OCR").performClick()
+        composeTestRule.onNodeWithContentDescription("OCR").performClick()
         composeTestRule.onNodeWithText("Page 1 of 2").performScrollTo().assertIsDisplayed()
         composeTestRule.onNodeWithText("Next page").performScrollTo().performClick()
         composeTestRule.onNodeWithText("Page 2 of 2").assertIsDisplayed()
@@ -2188,7 +2215,7 @@ class HomeScreenTest {
     }
 
     private fun openDocumentMore() {
-        composeTestRule.onNodeWithText("Actions").performClick()
+        composeTestRule.onNodeWithContentDescription("More").performClick()
         composeTestRule.onNodeWithText("Document actions").assertIsDisplayed()
     }
 

@@ -12,11 +12,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -93,6 +95,20 @@ class FitUploadLimitScreenTest {
 
         assertEquals(750_000L, state.selection.targetBytes)
         assertTrue(prepared)
+    }
+
+    @Test
+    fun chooseLimitUsesSingularPageCopyForOnePageDocument() {
+        composeRule.setContent {
+            PageHarborTheme {
+                screen(
+                    state = TargetSizeWorkflowState.ChooseLimit(input(pageCount = 1)),
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("1 page").assertIsDisplayed()
+        composeRule.onAllNodesWithText("1 pages").assertCountEquals(0)
     }
 
     @Test
@@ -249,8 +265,8 @@ class FitUploadLimitScreenTest {
         onRetry = {},
     )
 
-    private fun input(): TargetSizeWorkflowInput {
-        val pages = List(2) { index ->
+    private fun input(pageCount: Int = 2): TargetSizeWorkflowInput {
+        val pages = List(pageCount) { index ->
             TargetSizePdfPage(
                 pageId = index.toLong(),
                 sourceUri = Uri.EMPTY,
@@ -265,7 +281,7 @@ class FitUploadLimitScreenTest {
             )
         }
         return TargetSizeWorkflowInput(
-            summary = TargetSizeSourceSummary("Tax form", 2, 7_200_000L),
+            summary = TargetSizeSourceSummary("Tax form", pageCount, 3_600_000L * pageCount),
             request = TargetSizePdfRequest(pages, targetBytes = TargetSizeBytes.MB_1),
         )
     }

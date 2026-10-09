@@ -32,6 +32,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import org.synapseworks.pageharbor.R
@@ -239,8 +240,9 @@ private fun HomeScanStatus(
                 )
                 Text(
                     text = if (importUiState.totalItems > 0 && importUiState.preparedPages > 0) {
-                        stringResource(
-                            R.string.import_progress_with_pages,
+                        pluralStringResource(
+                            R.plurals.import_progress_with_pages,
+                            importUiState.preparedPages,
                             importUiState.completedItems,
                             importUiState.totalItems,
                             importUiState.preparedPages,

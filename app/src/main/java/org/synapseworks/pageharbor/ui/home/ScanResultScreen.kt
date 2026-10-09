@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -53,8 +54,6 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -74,15 +73,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import org.synapseworks.pageharbor.MAX_DOCUMENT_PAGES
 import org.synapseworks.pageharbor.R
 import org.synapseworks.pageharbor.document.PageExportState
@@ -279,11 +279,25 @@ fun ScanResultScreen(
             }
         },
     ) { padding ->
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
         ) {
+            val operationVisible =
+                libraryWorking || saving || savingSearchablePdf || sharing || exporting ||
+                    ocrRecognizing || importUiState is DocumentImportUiState.Processing
+            val previewHeightFraction = if (operationVisible) 0.48f else 0.62f
+            val previewMinHeight = minOf(
+                PageHarborLayout.editorDocumentPreviewMinHeight,
+                (maxHeight * 0.5f).coerceAtLeast(72.dp),
+            )
+            val availablePreviewHeight = (maxHeight * previewHeightFraction)
+                .coerceAtLeast(previewMinHeight)
+            val previewMaxHeight = minOf(
+                PageHarborLayout.editorDocumentPreviewMaxHeight,
+                availablePreviewHeight,
+            )
             Column(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -307,9 +321,9 @@ fun ScanResultScreen(
                         pageUri = page.source.toAndroidUri(),
                         pageNumber = selectedPageIndex + 1,
                         pageCount = documentPages.size,
-                        modifier = Modifier.weight(1f),
-                        minHeight = PageHarborLayout.editorDocumentPreviewMinHeight,
-                        maxHeight = PageHarborLayout.editorDocumentPreviewMaxHeight,
+                        modifier = Modifier.fillMaxWidth(),
+                        minHeight = previewMinHeight,
+                        maxHeight = previewMaxHeight,
                     )
                 } ?: EmptyDocumentWorkspace(
                     modifier = Modifier.weight(1f),
@@ -324,10 +338,7 @@ fun ScanResultScreen(
                     },
                 )
 
-                if (
-                    libraryWorking || saving || savingSearchablePdf || sharing || exporting ||
-                    ocrRecognizing || importUiState is DocumentImportUiState.Processing
-                ) {
+                if (operationVisible) {
                     OperationStatus(
                         pdfSaveState = pdfSaveState,
                         searchablePdfSaveState = searchablePdfSaveState,
@@ -495,32 +506,81 @@ private fun DocumentBottomBar(
     onShare: () -> Unit,
     onMore: () -> Unit,
 ) {
-    val labelStyle = if (LocalDensity.current.fontScale >= 1.8f) {
-        MaterialTheme.typography.labelMedium.copy(fontSize = 9.sp)
-    } else {
-        MaterialTheme.typography.labelMedium
-    }
-    NavigationBar {
-        listOf(
-            DocumentBarAction(Icons.Default.Add, R.string.document_action_add, canAddPages, onAdd),
-            DocumentBarAction(Icons.Default.Edit, R.string.document_action_edit, canEdit, onEdit),
-            DocumentBarAction(Icons.Default.TextFields, R.string.document_action_ocr, canRecognize, onOcr),
-            DocumentBarAction(Icons.Default.Share, R.string.document_action_share, canShare, onShare),
-            DocumentBarAction(Icons.Default.MoreHoriz, R.string.document_action_more, true, onMore),
-        ).forEach { action ->
-            NavigationBarItem(
-                selected = false,
-                enabled = action.enabled,
-                onClick = action.onClick,
-                icon = { Icon(action.icon, contentDescription = null) },
-                label = {
-                    Text(
-                        text = stringResource(action.labelResource),
-                        maxLines = 1,
-                        style = labelStyle,
-                    )
-                },
-            )
+    val fontScale = LocalDensity.current.fontScale
+    Surface(
+        tonalElevation = 3.dp,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = PageHarborSpacing.small, vertical = PageHarborSpacing.extraSmall),
+            horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            listOf(
+                DocumentBarAction(Icons.Default.Add, R.string.document_action_add, canAddPages, onAdd),
+                DocumentBarAction(Icons.Default.Edit, R.string.document_action_edit, canEdit, onEdit),
+                DocumentBarAction(
+                    Icons.Default.TextFields,
+                    R.string.document_action_ocr,
+                    canRecognize,
+                    onOcr,
+                ),
+                DocumentBarAction(Icons.Default.Share, R.string.document_action_share, canShare, onShare),
+                DocumentBarAction(Icons.Default.MoreHoriz, R.string.document_action_more, true, onMore),
+            ).forEachIndexed { index, action ->
+                val label = stringResource(action.labelResource)
+                val emphasized = index == 2 && action.enabled
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 56.dp)
+                        .semantics { contentDescription = label }
+                        .clickable(
+                            enabled = action.enabled,
+                            role = Role.Button,
+                            onClick = action.onClick,
+                        ),
+                    shape = MaterialTheme.shapes.extraLarge,
+                    color = if (emphasized) {
+                        MaterialTheme.colorScheme.secondaryContainer
+                    } else {
+                        androidx.compose.ui.graphics.Color.Transparent
+                    },
+                ) {
+                    Column(
+                        modifier = Modifier.padding(vertical = PageHarborSpacing.extraSmall),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Icon(
+                            modifier = Modifier.size(24.dp),
+                            imageVector = action.icon,
+                            contentDescription = null,
+                            tint = if (action.enabled) {
+                                if (emphasized) MaterialTheme.colorScheme.onSecondaryContainer
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                            },
+                        )
+                        if (fontScale < 1.8f) {
+                            Text(
+                                text = label,
+                                maxLines = 1,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (action.enabled) {
+                                    MaterialTheme.colorScheme.onSurface
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                },
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -1066,10 +1126,13 @@ private fun OperationStatus(
             if (importUiState.totalItems > 0) {
                 if (importUiState.preparedPages > 0) {
                     InlineOperationStatus(
-                        R.string.import_progress_with_pages,
-                        importUiState.completedItems,
-                        importUiState.totalItems,
-                        importUiState.preparedPages,
+                        message = pluralStringResource(
+                            R.plurals.import_progress_with_pages,
+                            importUiState.preparedPages,
+                            importUiState.completedItems,
+                            importUiState.totalItems,
+                            importUiState.preparedPages,
+                        ),
                     )
                 } else {
                     InlineOperationStatus(

@@ -5,11 +5,11 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -19,7 +19,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -60,22 +59,26 @@ internal fun FilteredDocumentPreview(
         },
     )
     val description = stringResource(R.string.scan_preview_description, pageNumber, pageCount)
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .heightIn(
-                min = minHeight,
-                max = maxHeight,
-            )
-            .semantics { contentDescription = description },
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceVariant,
-    ) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
+    val aspectRatio = (previewState as? ManagedDocumentPreviewState.Ready)
+        ?.owner
+        ?.bitmap
+        ?.let { bitmap -> bitmap.width.toFloat() / bitmap.height.coerceAtLeast(1) }
+        ?: 0.72f
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val fittedHeight = (maxWidth / aspectRatio).coerceIn(minHeight, maxHeight)
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(fittedHeight)
+                .semantics { contentDescription = description },
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
         ) {
-            when (val state = previewState) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                when (val state = previewState) {
                 ManagedDocumentPreviewState.Loading -> Text(
                     text = stringResource(R.string.scan_preview_loading),
                     style = MaterialTheme.typography.bodyMedium,
@@ -86,12 +89,14 @@ internal fun FilteredDocumentPreview(
                     style = MaterialTheme.typography.bodyMedium,
                 )
 
-                is ManagedDocumentPreviewState.Ready -> Image(
+                is ManagedDocumentPreviewState.Ready -> ZoomableDocumentPreview(
                     modifier = Modifier.fillMaxSize(),
                     bitmap = state.owner.bitmap.asImageBitmap(),
-                    contentDescription = null,
-                    contentScale = ContentScale.Fit,
+                    resetKey = request,
+                    description = description,
+                    exposeDescription = false,
                 )
+                }
             }
         }
     }

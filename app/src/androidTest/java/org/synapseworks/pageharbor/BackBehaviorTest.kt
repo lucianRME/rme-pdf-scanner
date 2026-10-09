@@ -8,8 +8,11 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.compose.runtime.getValue
@@ -89,9 +92,11 @@ class BackBehaviorTest {
         composeTestRule.onNodeWithContentDescription("Search tools").performTextInput("OCR")
         pressBack()
 
-        composeTestRule.onNodeWithContentDescription(
-            "Extract text. Unavailable. Requires a saved document. OCR.",
-        ).assertIsDisplayed()
+        val ocrTool = hasContentDescription(
+            "Extract text with OCR",
+        )
+        composeTestRule.onNode(hasScrollAction()).performScrollToNode(ocrTool)
+        composeTestRule.onNode(ocrTool).assertIsDisplayed()
         composeTestRule.onAllNodesWithText("Press back again to exit").assertCountEquals(0)
         pressBack()
 
@@ -296,7 +301,7 @@ class BackBehaviorTest {
             )
         }
 
-        composeTestRule.onNodeWithText("Actions").performClick()
+        composeTestRule.onNodeWithText("More").performClick()
         composeTestRule.onNodeWithText("Document actions").assertIsDisplayed()
         composeTestRule.runOnIdle { observedScreen = null }
         pressBack()
@@ -317,7 +322,7 @@ class BackBehaviorTest {
             )
         }
 
-        composeTestRule.onNodeWithText("Actions").performClick()
+        composeTestRule.onNodeWithText("More").performClick()
         composeTestRule.onNodeWithText("Discard").performScrollTo().assertIsDisplayed()
         composeTestRule.runOnIdle { observedScreen = null }
         pressBack()

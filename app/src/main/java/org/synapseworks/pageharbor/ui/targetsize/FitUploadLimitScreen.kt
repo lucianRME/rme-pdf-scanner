@@ -5,7 +5,6 @@ import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -45,7 +44,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -54,9 +52,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
@@ -87,6 +83,7 @@ import org.synapseworks.pageharbor.document.targetsize.formatTargetSize
 import org.synapseworks.pageharbor.document.targetsize.isObviouslyUnrealisticTarget
 import org.synapseworks.pageharbor.document.targetsize.reductionPercent
 import org.synapseworks.pageharbor.ui.home.ManagedDocumentPreviewState
+import org.synapseworks.pageharbor.ui.home.ZoomableDocumentPreview
 import org.synapseworks.pageharbor.ui.home.rememberManagedDocumentPreview
 import org.synapseworks.pageharbor.ui.theme.PageHarborLayout
 import org.synapseworks.pageharbor.ui.theme.PageHarborSpacing
@@ -313,7 +310,13 @@ private fun SourceSummary(summary: org.synapseworks.pageharbor.document.targetsi
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(summary.title, style = MaterialTheme.typography.titleLarge)
-            Text(stringResource(R.string.fit_limit_pages, summary.pageCount))
+            Text(
+                pluralStringResource(
+                    R.plurals.fit_limit_pages,
+                    summary.pageCount,
+                    summary.pageCount,
+                ),
+            )
             MetricRow(
                 stringResource(R.string.fit_limit_source_size),
                 summary.sourceBytes?.let(::formatDecimalBytes)
@@ -634,9 +637,6 @@ private fun FailedContent(
 @Composable
 private fun PreparedPdfPreview(prepared: TargetSizePreparedPdf, modifier: Modifier = Modifier) {
     var pageIndex by rememberSaveable(prepared.finalBytes, prepared.pageCount) { mutableIntStateOf(0) }
-    var scale by remember(prepared.finalBytes, pageIndex) { mutableFloatStateOf(1f) }
-    var offsetX by remember(prepared.finalBytes, pageIndex) { mutableFloatStateOf(0f) }
-    var offsetY by remember(prepared.finalBytes, pageIndex) { mutableFloatStateOf(0f) }
     LaunchedEffect(prepared.pageCount) {
         pageIndex = pageIndex.coerceIn(0, prepared.pageCount - 1)
     }
@@ -665,25 +665,12 @@ private fun PreparedPdfPreview(prepared: TargetSizePreparedPdf, modifier: Modifi
                         Text(stringResource(R.string.fit_limit_preview_loading))
                     ManagedDocumentPreviewState.Unavailable ->
                         Text(stringResource(R.string.fit_limit_preview_unavailable))
-                    is ManagedDocumentPreviewState.Ready -> Image(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .pointerInput(prepared.finalBytes, pageIndex) {
-                                detectTransformGestures { _, pan, zoom, _ ->
-                                    scale = (scale * zoom).coerceIn(1f, 4f)
-                                    offsetX = if (scale == 1f) 0f else offsetX + pan.x
-                                    offsetY = if (scale == 1f) 0f else offsetY + pan.y
-                                }
-                            }
-                            .graphicsLayer(
-                                scaleX = scale,
-                                scaleY = scale,
-                                translationX = offsetX,
-                                translationY = offsetY,
-                            ),
+                    is ManagedDocumentPreviewState.Ready -> ZoomableDocumentPreview(
+                        modifier = Modifier.fillMaxSize(),
                         bitmap = current.owner.bitmap.asImageBitmap(),
-                        contentDescription = null,
-                        contentScale = ContentScale.Fit,
+                        resetKey = prepared.finalBytes to pageIndex,
+                        description = description,
+                        exposeDescription = false,
                     )
                 }
             }

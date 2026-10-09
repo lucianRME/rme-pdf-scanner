@@ -36,7 +36,10 @@
     <string name="home_scan_cancelled">Scan cancelled.</string>
     <string name="home_scanner_error">Document scanner could not be opened.</string>
     <string name="import_progress">Importing file %1$d of %2$d…</string>
-    <string name="import_progress_with_pages">Importing file %1$d of %2$d · %3$d pages ready…</string>
+    <plurals name="import_progress_with_pages">
+        <item quantity="one">Importing file %1$d of %2$d · %3$d page ready…</item>
+        <item quantity="other">Importing file %1$d of %2$d · %3$d pages ready…</item>
+    </plurals>
     <string name="import_progress_preparing">Preparing shared files…</string>
     <string name="import_completed_one">1 page imported.</string>
     <string name="import_completed_many">%1$d pages imported.</string>
@@ -133,7 +136,10 @@
     <string name="fit_limit_workspace_description">Create a smaller copy for websites, forms or email.</string>
     <string name="fit_limit_opening">Opening document…</string>
     <string name="fit_limit_document_heading">Document</string>
-    <string name="fit_limit_pages">%1$d pages</string>
+    <plurals name="fit_limit_pages">
+        <item quantity="one">%1$d page</item>
+        <item quantity="other">%1$d pages</item>
+    </plurals>
     <string name="fit_limit_pages_label">Pages</string>
     <string name="fit_limit_source_size">Source size</string>
     <string name="fit_limit_source_size_unknown">Not available</string>
@@ -304,10 +310,10 @@
     <string name="share_safe_previous_page">Previous page</string>
     <string name="share_safe_next_page">Next page</string>
     <string name="share_safe_page_indicator">Page %1$d of %2$d</string>
-    <string name="share_safe_purpose_heading">Add a purpose</string>
+    <string name="share_safe_purpose_heading">Purpose watermark</string>
     <string name="share_safe_watermark_toggle">Add purpose watermark</string>
     <string name="share_safe_purpose_label">Purpose</string>
-    <string name="share_safe_purpose_support">Write the purpose yourself. RME never infers it.</string>
+    <string name="share_safe_purpose_support">Added only to this copy.</string>
     <string name="share_safe_purpose_empty">Enter a purpose, or turn the watermark off.</string>
     <string name="share_safe_purpose_too_long">Use no more than 120 characters.</string>
     <string name="share_safe_purpose_too_many_lines">Use no more than 3 lines.</string>
@@ -333,7 +339,7 @@
     <string name="share_safe_id_copy_title">ID copy</string>
     <string name="share_safe_no_watermark">No purpose watermark</string>
     <string name="share_safe_no_size_limit">No size limit</string>
-    <string name="share_safe_prepare">Prepare share-safe copy</string>
+    <string name="share_safe_prepare">Prepare copy</string>
     <string name="share_safe_continue">Continue to share-safe options</string>
     <string name="share_safe_next">Next</string>
     <string name="share_safe_preparing_sanitizing">Removing selected information…</string>
@@ -471,6 +477,9 @@
     <string name="home_library_empty_title">Your local library is empty</string>
     <string name="home_library_empty_message">Scan your first document or import an existing PDF or image.</string>
     <string name="tools_all_heading">All tools</string>
+    <string name="tools_capture_heading">Import &amp; capture</string>
+    <string name="tools_pdf_heading">PDF tools</string>
+    <string name="tools_text_privacy_heading">Text &amp; privacy</string>
     <string name="tools_search_label">Search tools</string>
     <string name="tools_search_clear">Clear tool search</string>
     <string name="tools_no_results">No tools found</string>
@@ -527,9 +536,22 @@
     <string name="library_merge_selected_count">%1$d selected</string>
     <string name="library_clear_selection">Clear</string>
     <string name="library_merge_action">Merge</string>
-    <string name="library_document_metadata">%1$d pages · updated %2$s</string>
-    <string name="library_document_date_metadata">%1$d pages · document date %2$s</string>
-    <string name="library_imported_metadata">%1$d pages · imported %2$s</string>
+    <plurals name="library_document_metadata">
+        <item quantity="one">%1$d page · updated %2$s</item>
+        <item quantity="other">%1$d pages · updated %2$s</item>
+    </plurals>
+    <plurals name="library_document_date_metadata">
+        <item quantity="one">%1$d page · document date %2$s</item>
+        <item quantity="other">%1$d pages · document date %2$s</item>
+    </plurals>
+    <plurals name="library_imported_metadata">
+        <item quantity="one">%1$d page · imported %2$s</item>
+        <item quantity="other">%1$d pages · imported %2$s</item>
+    </plurals>
+    <plurals name="library_page_count">
+        <item quantity="one">%1$d page</item>
+        <item quantity="other">%1$d pages</item>
+    </plurals>
     <string name="library_document_folder">Folder: %1$s</string>
     <string name="library_search_match_title">Title match</string>
     <string name="library_search_match_ocr">Recognized-text match</string>
@@ -608,7 +630,7 @@
     <string name="document_action_edit">Edit</string>
     <string name="document_action_ocr">OCR</string>
     <string name="document_action_share">Share</string>
-    <string name="document_action_more">Actions</string>
+    <string name="document_action_more">More</string>
     <string name="document_add_title">Add to document</string>
     <string name="document_add_pages_description">Scan more pages into this document.</string>
     <string name="document_add_files_description">Import PDF or image pages from this device.</string>
