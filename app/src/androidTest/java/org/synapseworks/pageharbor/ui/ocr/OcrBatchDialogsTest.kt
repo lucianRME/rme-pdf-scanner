@@ -44,8 +44,7 @@ class OcrBatchDialogsTest {
             .performScrollTo()
             .performSemanticsAction(SemanticsActions.OnClick)
         composeRule.onNodeWithContentDescription("Recognize text")
-            .performScrollTo()
-            .performSemanticsAction(SemanticsActions.OnClick)
+            .performClick()
         composeRule.runOnIdle { assertEquals(listOf("document-one"), selectedIds) }
     }
 
