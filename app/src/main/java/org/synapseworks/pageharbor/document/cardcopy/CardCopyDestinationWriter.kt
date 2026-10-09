@@ -1,12 +1,8 @@
 package org.synapseworks.pageharbor.document.cardcopy
 
 import android.content.Context
-import android.graphics.Color
-import android.graphics.pdf.PdfRenderer
 import android.net.Uri
-import android.os.ParcelFileDescriptor
 import androidx.core.content.FileProvider
-import androidx.core.graphics.createBitmap
 import java.io.InputStream
 import java.security.MessageDigest
 import kotlin.coroutines.cancellation.CancellationException
@@ -14,6 +10,8 @@ import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import org.synapseworks.pageharbor.document.redaction.RedactedPdfVerificationResult
+import org.synapseworks.pageharbor.document.redaction.RedactedPdfVerifier
 
 internal sealed interface CardCopyDestinationResult {
     data class Success(val bytes: Long) : CardCopyDestinationResult
@@ -21,11 +19,19 @@ internal sealed interface CardCopyDestinationResult {
 }
 
 internal class CardCopyDestinationWriter(private val context: Context) {
+    private val verifier = RedactedPdfVerifier(context)
+
     suspend fun write(
         prepared: CardCopyPreparedPdf,
         destination: Uri,
     ): CardCopyDestinationResult = withContext(Dispatchers.IO) {
-        if (!prepared.file.isFile || prepared.file.length() != prepared.bytes) {
+        val policy = prepared.verificationPolicy
+        val evidence = prepared.verificationEvidence
+        if (!prepared.securelyVerified || policy == null || evidence == null ||
+            !prepared.file.isFile ||
+            prepared.file.length() != prepared.bytes ||
+            !verifier.stillMatches(prepared.file, evidence)
+        ) {
             return@withContext CardCopyDestinationResult.Failure(CardCopyFailure.VALIDATION_FAILED)
         }
         val output = try {
@@ -60,7 +66,12 @@ internal class CardCopyDestinationWriter(private val context: Context) {
     }
 
     private suspend fun verify(prepared: CardCopyPreparedPdf, destination: Uri): Boolean {
+        val policy = prepared.verificationPolicy ?: return false
+        val expectedEvidence = prepared.verificationEvidence ?: return false
         val sourceDigest = digest(prepared.file.inputStream()) ?: return false
+        if (sourceDigest.first != prepared.bytes ||
+            sourceDigest.second.toHexString() != prepared.outputSha256
+        ) return false
         val destinationDigest = try {
             context.contentResolver.openInputStream(destination)?.let { digest(it) }
         } catch (error: CancellationException) {
@@ -71,34 +82,12 @@ internal class CardCopyDestinationWriter(private val context: Context) {
         if (sourceDigest.first != destinationDigest.first ||
             !sourceDigest.second.contentEquals(destinationDigest.second)
         ) return false
-        val descriptor = try {
-            context.contentResolver.openFileDescriptor(destination, "r")
-        } catch (_: Exception) {
-            null
-        } ?: return false
-        return try {
-            descriptor.use { pfd ->
-                PdfRenderer(pfd).use { renderer ->
-                    if (renderer.pageCount != 1) return false
-                    renderer.openPage(0).use { page ->
-                        val expected = prepared.geometry.pageSize
-                        if (kotlin.math.abs(page.width - expected.widthPoints) > 2f ||
-                            kotlin.math.abs(page.height - expected.heightPoints) > 2f
-                        ) return false
-                        val bitmap = createBitmap(96, 128)
-                        try {
-                            bitmap.eraseColor(Color.WHITE)
-                            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                        } finally {
-                            bitmap.recycle()
-                        }
-                    }
-                }
-            }
-            true
-        } catch (_: Exception) {
-            false
-        }
+        val verified = verifier.verify(destination, policy)
+        val destinationEvidence =
+            (verified as? RedactedPdfVerificationResult.Verified)?.evidence ?: return false
+        return destinationEvidence.sha256 == expectedEvidence.sha256 &&
+            destinationEvidence.bytes == expectedEvidence.bytes &&
+            destinationEvidence.policySha256 == expectedEvidence.policySha256
     }
 
     private suspend fun digest(input: InputStream): Pair<Long, ByteArray>? = try {
@@ -123,9 +112,17 @@ internal class CardCopyDestinationWriter(private val context: Context) {
 }
 
 fun cardCopyShareUri(context: Context, prepared: CardCopyPreparedPdf): Uri? = try {
-    if (!prepared.file.isFile || prepared.file.length() != prepared.bytes) null else {
+    val evidence = prepared.verificationEvidence
+    if (!prepared.securelyVerified || evidence == null || !prepared.file.isFile ||
+        prepared.file.length() != prepared.bytes ||
+        prepared.bytes != evidence.bytes ||
+        cardCopySha256(prepared.file) != evidence.sha256
+    ) null else {
         FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", prepared.file)
     }
 } catch (_: RuntimeException) {
     null
 }
+
+private fun ByteArray.toHexString(): String =
+    joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }

@@ -10,8 +10,8 @@
         name="target_size_pdfs"
         path="target-size-pdfs/" />
     <cache-path
-        name="card_copy_pdfs"
-        path="card-copy-pdfs/" />
+        name="verified_share_safe_pdfs"
+        path="share-safe-pdfs/verified/" />
     <files-path
         name="document_library"
         path="document-library/" />

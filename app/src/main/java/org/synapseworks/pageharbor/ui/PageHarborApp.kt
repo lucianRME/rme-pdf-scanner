@@ -40,6 +40,8 @@ import org.synapseworks.pageharbor.document.cardcopy.CardCopyPageSize
 import org.synapseworks.pageharbor.document.cardcopy.CardCopySide
 import org.synapseworks.pageharbor.document.cardcopy.CardCopySpacing
 import org.synapseworks.pageharbor.document.cardcopy.CardCopyWorkflowState
+import org.synapseworks.pageharbor.document.redaction.RedactionBounds
+import org.synapseworks.pageharbor.document.redaction.RedactionRegionId
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.image.DocumentFilter
 import org.synapseworks.pageharbor.ocr.OcrUiState
@@ -175,6 +177,14 @@ fun PageHarborApp(
     onCardCopyShare: () -> Unit = {},
     onCardCopyRetry: () -> Unit = {},
     onCardCopyBack: () -> Unit = {},
+    onCardCopyOpenRedaction: (CardCopySide) -> Unit = {},
+    onCardCopyAddRedaction: (RedactionBounds) -> Unit = {},
+    onCardCopySelectRedaction: (RedactionRegionId) -> Unit = {},
+    onCardCopyUpdateRedaction: (RedactionRegionId, RedactionBounds) -> Unit = { _, _ -> },
+    onCardCopyDeleteRedaction: () -> Unit = {},
+    onCardCopyUndoRedaction: () -> Unit = {},
+    onCardCopyRedoRedaction: () -> Unit = {},
+    onCardCopyApplyRedactions: () -> Unit = {},
     onExportPages: () -> Unit = {},
     onRecognizeText: () -> Unit = {},
     onRecognizeTextWithLanguage: ((OcrOperationSelection, Boolean) -> Unit)? = null,
@@ -545,6 +555,14 @@ fun PageHarborApp(
             onSave = onCardCopySave,
             onShare = onCardCopyShare,
             onRetry = onCardCopyRetry,
+            onOpenRedaction = onCardCopyOpenRedaction,
+            onAddRedaction = onCardCopyAddRedaction,
+            onSelectRedaction = onCardCopySelectRedaction,
+            onUpdateRedaction = onCardCopyUpdateRedaction,
+            onDeleteRedaction = onCardCopyDeleteRedaction,
+            onUndoRedaction = onCardCopyUndoRedaction,
+            onRedoRedaction = onCardCopyRedoRedaction,
+            onApplyRedactions = onCardCopyApplyRedactions,
         )
         currentScreen == PageHarborScreen.OcrResult && ocrUiState is OcrUiState.Success -> {
             OcrResultScreen(

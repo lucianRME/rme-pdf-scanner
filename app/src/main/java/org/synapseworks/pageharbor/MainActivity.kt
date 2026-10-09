@@ -33,6 +33,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.text.DateFormat
 import java.util.Date
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -85,6 +86,8 @@ import org.synapseworks.pageharbor.document.cardcopy.CardCopyWorkflowState
 import org.synapseworks.pageharbor.document.cardcopy.cardCopyFilename
 import org.synapseworks.pageharbor.document.cardcopy.cardCopyShareUri
 import org.synapseworks.pageharbor.document.cardcopy.deleteStaleCardCopyFiles
+import org.synapseworks.pageharbor.document.redaction.deleteStaleSecureRedactedPdfs
+import org.synapseworks.pageharbor.document.redaction.deleteStaleRedactedPdfVerifierFiles
 import org.synapseworks.pageharbor.document.searchablepdf.LocalSearchablePdfExportCoordinator
 import org.synapseworks.pageharbor.document.searchablepdf.EffectiveOcrPageProvider
 import org.synapseworks.pageharbor.document.searchablepdf.EffectiveOcrPageProvision
@@ -224,6 +227,10 @@ private const val STATE_INBOUND_MIGRATION_RESTORE_EXISTING_TASK =
     "inbound_migration_restore_existing_task"
 
 class MainActivity : FragmentActivity() {
+    private companion object {
+        val m7ProcessStartupCleanupClaimed = AtomicBoolean(false)
+    }
+
     private val session: PageHarborSessionViewModel by viewModels()
     private val library: LibraryViewModel by viewModels()
     private val ocrReview: OcrReviewViewModel by viewModels()
@@ -523,6 +530,8 @@ class MainActivity : FragmentActivity() {
         reviewEligibility.recordAppSession()
         enableEdgeToEdge()
         var observedDocumentRevision = session.documentRevision
+        val m7CleanupCutoffMillis = System.currentTimeMillis()
+        val deleteM7ProcessOrphans = m7ProcessStartupCleanupClaimed.compareAndSet(false, true)
         lifecycleScope.launch {
             session.documentRevisionChanges.collect { revision ->
                 if (revision == observedDocumentRevision) return@collect
@@ -536,7 +545,23 @@ class MainActivity : FragmentActivity() {
             deleteStaleSearchablePdfs(cacheDir)
             deleteStaleNormalPdfs(cacheDir)
             deleteStaleTargetSizePdfs(cacheDir)
-            deleteStaleCardCopyFiles(cacheDir)
+            if (deleteM7ProcessOrphans) {
+                deleteStaleCardCopyFiles(cacheDir, m7CleanupCutoffMillis, minimumAgeMillis = 0L)
+                deleteStaleSecureRedactedPdfs(
+                    cacheDir,
+                    m7CleanupCutoffMillis,
+                    minimumAgeMillis = 0L,
+                )
+                deleteStaleRedactedPdfVerifierFiles(
+                    cacheDir,
+                    m7CleanupCutoffMillis,
+                    minimumAgeMillis = 0L,
+                )
+            } else {
+                deleteStaleCardCopyFiles(cacheDir)
+                deleteStaleSecureRedactedPdfs(cacheDir)
+                deleteStaleRedactedPdfVerifierFiles(cacheDir)
+            }
             if (session.documentPages.isEmpty()) {
                 deleteStaleDocumentImports(cacheDir)
             }
@@ -775,6 +800,16 @@ class MainActivity : FragmentActivity() {
                     onCardCopyShare = ::shareCardCopy,
                     onCardCopyRetry = cardCopyWorkflow::retryPreparation,
                     onCardCopyBack = cardCopyWorkflow::back,
+                    onCardCopyOpenRedaction = { side ->
+                        cardCopyWorkflow.openRedactionEditor(side)
+                    },
+                    onCardCopyAddRedaction = cardCopyWorkflow::addRedactionFromDisplay,
+                    onCardCopySelectRedaction = cardCopyWorkflow::selectRedaction,
+                    onCardCopyUpdateRedaction = cardCopyWorkflow::updateRedactionFromDisplay,
+                    onCardCopyDeleteRedaction = cardCopyWorkflow::deleteSelectedRedaction,
+                    onCardCopyUndoRedaction = cardCopyWorkflow::undoRedactionEdit,
+                    onCardCopyRedoRedaction = cardCopyWorkflow::redoRedactionEdit,
+                    onCardCopyApplyRedactions = cardCopyWorkflow::applyRedactions,
                     onExportPages = ::exportPages,
                     onRecognizeText = ::recognizeText,
                     onRecognizeTextWithLanguage = { selection, useAsDefault ->
@@ -2551,7 +2586,7 @@ class MainActivity : FragmentActivity() {
 
     private fun chooseCardCopyDestination() {
         if (cardCopyWorkflow.state !is CardCopyWorkflowState.Prepared) return
-        cardCopyWorkflow.markSavePickerOpen()
+        if (!cardCopyWorkflow.markSavePickerOpen()) return
         try {
             createCardCopyPdfLauncher.launch(cardCopyFilename())
         } catch (_: ActivityNotFoundException) {

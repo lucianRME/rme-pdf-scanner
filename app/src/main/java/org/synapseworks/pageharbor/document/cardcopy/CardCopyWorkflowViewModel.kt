@@ -11,6 +11,13 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import org.synapseworks.pageharbor.document.redaction.RedactionBounds
+import org.synapseworks.pageharbor.document.redaction.RedactionCoordinateMapper
+import org.synapseworks.pageharbor.document.redaction.RedactionCoordinateSpace
+import org.synapseworks.pageharbor.document.redaction.RedactionRegion
+import org.synapseworks.pageharbor.document.redaction.RedactionRegionId
+import org.synapseworks.pageharbor.document.redaction.RedactionTarget
+import org.synapseworks.pageharbor.document.redaction.RedactionTargetKind
 import org.synapseworks.pageharbor.document.session.DocumentPageRotation
 
 class CardCopyWorkflowViewModel(
@@ -131,10 +138,160 @@ class CardCopyWorkflowViewModel(
         )
     }
 
+    /**
+     * Opens the deliberately narrow card-side redaction editor. Drafts are detached from the
+     * applied source until [applyRedactions] so system Back is a true cancel operation.
+     */
+    fun openRedactionEditor(side: CardCopySide): Boolean {
+        val current = state as? CardCopyWorkflowState.ReviewSides ?: return false
+        val front = current.front.readySource() ?: return false
+        val back = current.back.readySource() ?: return false
+        val source = if (side == CardCopySide.FRONT) front else back
+        if (!source.hasValidAppliedRedactions()) return false
+        val drafts = source.redactions.map { it.copy(confirmed = false) }
+        generation++
+        state = CardCopyWorkflowState.RedactSide(
+            front = front,
+            back = back,
+            editor = CardCopyRedactionEditor(
+                side = side,
+                history = listOf(drafts),
+                historyIndex = 0,
+                selectedId = drafts.firstOrNull()?.id,
+                nextOrdinal = (drafts.maxOfOrNull(RedactionRegion::order) ?: -1) + 2,
+            ),
+        )
+        return true
+    }
+
+    /** [displayBounds] belongs to the currently rotated editor image, never the screen itself. */
+    fun addRedactionFromDisplay(displayBounds: RedactionBounds = defaultRedactionBounds()) {
+        val current = state as? CardCopyWorkflowState.RedactSide ?: return
+        val source = current.editorSource()
+        val bounds = runCatching {
+            RedactionCoordinateMapper.inverseRotate(displayBounds, source.rotation)
+        }.getOrNull() ?: return
+        val ordinal = current.editor.nextOrdinal
+        val id = RedactionRegionId("${source.sourceId}-redaction-$ordinal")
+        val region = RedactionRegion(
+            id = id,
+            coordinateSpace = RedactionCoordinateSpace.SOURCE_NORMALIZED,
+            bounds = bounds,
+            target = RedactionTarget(RedactionTargetKind.CARD_SOURCE, source.sourceId),
+            confirmed = false,
+            order = ordinal - 1,
+        )
+        generation++
+        state = current.copy(
+            editor = current.editor.withEdit(
+                regions = current.editor.regions + region,
+                selectedId = id,
+                nextOrdinal = ordinal + 1,
+            ),
+        )
+    }
+
+    fun selectRedaction(id: RedactionRegionId) {
+        val current = state as? CardCopyWorkflowState.RedactSide ?: return
+        if (current.editor.regions.none { it.id == id }) return
+        state = current.copy(editor = current.editor.copy(selectedId = id))
+    }
+
+    /** Updates a draft from rotated editor coordinates while persisting source-normalized bounds. */
+    fun updateRedactionFromDisplay(id: RedactionRegionId, displayBounds: RedactionBounds) {
+        val current = state as? CardCopyWorkflowState.RedactSide ?: return
+        val source = current.editorSource()
+        val existing = current.editor.regions.firstOrNull { it.id == id } ?: return
+        if (existing.target.kind != RedactionTargetKind.CARD_SOURCE ||
+            existing.target.stableId != source.sourceId
+        ) return
+        val bounds = runCatching {
+            RedactionCoordinateMapper.inverseRotate(displayBounds, source.rotation)
+        }.getOrNull() ?: return
+        if (bounds == existing.bounds) {
+            selectRedaction(id)
+            return
+        }
+        generation++
+        state = current.copy(
+            editor = current.editor.withEdit(
+                regions = current.editor.regions.map { region ->
+                    if (region.id == id) region.copy(bounds = bounds, confirmed = false) else region
+                },
+                selectedId = id,
+            ),
+        )
+    }
+
+    fun deleteSelectedRedaction() {
+        val current = state as? CardCopyWorkflowState.RedactSide ?: return
+        val selected = current.editor.selectedId ?: return
+        if (current.editor.regions.none { it.id == selected }) return
+        generation++
+        state = current.copy(
+            editor = current.editor.withEdit(
+                regions = current.editor.regions.filterNot { it.id == selected },
+                selectedId = null,
+            ),
+        )
+    }
+
+    fun undoRedactionEdit() {
+        val current = state as? CardCopyWorkflowState.RedactSide ?: return
+        if (!current.editor.canUndo) return
+        generation++
+        val editor = current.editor.copy(historyIndex = current.editor.historyIndex - 1)
+        state = current.copy(
+            editor = editor.copy(
+                selectedId = editor.selectedId?.takeIf { selected ->
+                    editor.regions.any { it.id == selected }
+                },
+            ),
+        )
+    }
+
+    fun redoRedactionEdit() {
+        val current = state as? CardCopyWorkflowState.RedactSide ?: return
+        if (!current.editor.canRedo) return
+        generation++
+        val editor = current.editor.copy(historyIndex = current.editor.historyIndex + 1)
+        state = current.copy(
+            editor = editor.copy(
+                selectedId = editor.selectedId?.takeIf { selected ->
+                    editor.regions.any { it.id == selected }
+                },
+            ),
+        )
+    }
+
+    /** Explicit confirmation is the only operation that attaches draft regions to a source. */
+    fun applyRedactions() {
+        val current = state as? CardCopyWorkflowState.RedactSide ?: return
+        val source = current.editorSource()
+        val confirmed = current.editor.regions.map { region ->
+            if (region.coordinateSpace != RedactionCoordinateSpace.SOURCE_NORMALIZED ||
+                region.target.kind != RedactionTargetKind.CARD_SOURCE ||
+                region.target.stableId != source.sourceId
+            ) return
+            region.copy(confirmed = true)
+        }
+        val updated = source.copy(redactions = confirmed)
+        generation++
+        state = CardCopyWorkflowState.ReviewSides(
+            front = CardCopySideState.Ready(
+                if (current.editor.side == CardCopySide.FRONT) updated else current.front,
+            ),
+            back = CardCopySideState.Ready(
+                if (current.editor.side == CardCopySide.BACK) updated else current.back,
+            ),
+        )
+    }
+
     fun continueToLayout() {
         val current = state as? CardCopyWorkflowState.ReviewSides ?: return
         val front = current.front.readySource() ?: return
         val back = current.back.readySource() ?: return
+        if (!front.hasValidAppliedRedactions() || !back.hasValidAppliedRedactions()) return
         state = CardCopyWorkflowState.Layout(front, back)
     }
 
@@ -150,6 +307,9 @@ class CardCopyWorkflowViewModel(
 
     fun prepare() {
         val current = state as? CardCopyWorkflowState.Preview ?: return
+        if (!current.front.hasValidAppliedRedactions() ||
+            !current.back.hasValidAppliedRedactions()
+        ) return
         val operation = ++generation
         preparationJob?.cancel()
         state = CardCopyWorkflowState.Preparing(current.front, current.back, current.settings)
@@ -174,12 +334,30 @@ class CardCopyWorkflowViewModel(
         }
     }
 
-    fun markSavePickerOpen() = updatePrepared {
-        it.copy(saveStatus = CardCopySaveStatus.ChoosingDestination)
+    fun markSavePickerOpen(): Boolean {
+        val current = state as? CardCopyWorkflowState.Prepared ?: return false
+        if (!current.isSecurelyCurrent()) {
+            state = current.copy(
+                saveStatus = CardCopySaveStatus.Failed(
+                    CardCopyFailure.SECURITY_VERIFICATION_FAILED,
+                ),
+            )
+            return false
+        }
+        state = current.copy(saveStatus = CardCopySaveStatus.ChoosingDestination)
+        return true
     }
 
     fun onSaveDestination(uri: Uri?) {
         val current = state as? CardCopyWorkflowState.Prepared ?: return
+        if (!current.isSecurelyCurrent()) {
+            state = current.copy(
+                saveStatus = CardCopySaveStatus.Failed(
+                    CardCopyFailure.SECURITY_VERIFICATION_FAILED,
+                ),
+            )
+            return
+        }
         if (uri == null) {
             state = current.copy(saveStatus = CardCopySaveStatus.Idle)
             return
@@ -201,8 +379,10 @@ class CardCopyWorkflowViewModel(
         }
     }
 
-    fun preparedForShare(): CardCopyPreparedPdf? =
-        (state as? CardCopyWorkflowState.Prepared)?.prepared
+    fun preparedForShare(): CardCopyPreparedPdf? {
+        val current = state as? CardCopyWorkflowState.Prepared ?: return null
+        return current.prepared.takeIf { current.isSecurelyCurrent() }
+    }
 
     fun markShareFailed() = updatePrepared { it.copy(shareFailed = true) }
     fun markShareInvoked() = updatePrepared { it.copy(shareFailed = false) }
@@ -213,6 +393,9 @@ class CardCopyWorkflowViewModel(
             is CardCopyWorkflowState.AcquireSides -> close()
             is CardCopyWorkflowState.ReviewSides ->
                 state = CardCopyWorkflowState.AcquireSides(current.front, current.back)
+            is CardCopyWorkflowState.RedactSide -> state = CardCopyWorkflowState.ReviewSides(
+                CardCopySideState.Ready(current.front), CardCopySideState.Ready(current.back),
+            )
             is CardCopyWorkflowState.Layout -> state = CardCopyWorkflowState.ReviewSides(
                 CardCopySideState.Ready(current.front), CardCopySideState.Ready(current.back),
             )
@@ -306,6 +489,7 @@ class CardCopyWorkflowViewModel(
         is CardCopyWorkflowState.ReviewSides -> listOfNotNull(
             current.front.readySource(), current.back.readySource(),
         )
+        is CardCopyWorkflowState.RedactSide -> listOf(current.front, current.back)
         is CardCopyWorkflowState.Layout -> listOf(current.front, current.back)
         is CardCopyWorkflowState.Preview -> listOf(current.front, current.back)
         is CardCopyWorkflowState.Preparing -> listOf(current.front, current.back)
@@ -327,6 +511,25 @@ class CardCopyWorkflowViewModel(
     private fun DocumentPageRotation.counterClockwise(): DocumentPageRotation =
         DocumentPageRotation.entries[(ordinal + DocumentPageRotation.entries.size - 1) %
             DocumentPageRotation.entries.size]
+
+    private fun CardCopyWorkflowState.RedactSide.editorSource(): CardCopySource =
+        if (editor.side == CardCopySide.FRONT) front else back
+
+    private fun CardCopySource.hasValidAppliedRedactions(): Boolean = redactions.all { region ->
+        region.confirmed &&
+            region.coordinateSpace == RedactionCoordinateSpace.SOURCE_NORMALIZED &&
+            region.target.kind == RedactionTargetKind.CARD_SOURCE &&
+            region.target.stableId == sourceId
+    }
+
+    private fun CardCopyWorkflowState.Prepared.isSecurelyCurrent(): Boolean =
+        prepared.securelyVerified &&
+            prepared.verificationEvidence?.let { evidence ->
+                prepared.file.isFile && prepared.file.length() == evidence.bytes &&
+                    cardCopySha256(prepared.file) == evidence.sha256
+            } == true &&
+            prepared.redactionCount == front.redactions.size + back.redactions.size &&
+            front.hasValidAppliedRedactions() && back.hasValidAppliedRedactions()
 
     private companion object {
         const val ACTIVE_KEY = "card_copy_workflow_active"

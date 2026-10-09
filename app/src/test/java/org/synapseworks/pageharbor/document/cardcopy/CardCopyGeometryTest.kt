@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.synapseworks.pageharbor.document.session.DocumentPageRotation
+import org.synapseworks.pageharbor.document.redaction.RedactionBounds
 
 class CardCopyGeometryTest {
     private val cardWidth = 1_012
@@ -164,6 +165,24 @@ class CardCopyGeometryTest {
             placement.bounds,
             placement.mapSourceRegion(CardCopyNormalizedRegion(0f, 0f, 1f, 1f)),
         )
+    }
+
+    @Test
+    fun securePreviewCoverageUsesTheSameOutwardRasterMarginAsExport() {
+        val region = RedactionBounds(0.2f, 0.25f, 0.7f, 0.55f)
+        DocumentPageRotation.entries.forEach { rotation ->
+            val placement = geometry(frontRotation = rotation).front
+            val requested = placement.mapSourceRegion(region)
+            val covered = requireNotNull(placement.mapSecureRasterCoverage(region))
+            assertTrue(covered.left <= requested.left)
+            assertTrue(covered.top <= requested.top)
+            assertTrue(covered.right >= requested.right)
+            assertTrue(covered.bottom >= requested.bottom)
+            assertTrue(covered.left >= placement.bounds.left)
+            assertTrue(covered.top >= placement.bounds.top)
+            assertTrue(covered.right <= placement.bounds.right)
+            assertTrue(covered.bottom <= placement.bounds.bottom)
+        }
     }
 
     @Test

@@ -149,6 +149,8 @@ internal fun writeSizedJpegToDestination(
     encoding: SizedJpegEncoding,
     limits: DocumentInputLimits = DEFAULT_DOCUMENT_INPUT_LIMITS,
     isCancellationRequested: () -> Boolean = { false },
+    /** Optional final in-place pixel sanitizer, applied after transforms/filters and before encode. */
+    pixelSanitizer: ((Bitmap) -> Boolean)? = null,
 ): PageExportResult {
     if (destination == null) return PageExportResult.DestinationUnavailable
     transformedImagePreflight(imageMetadata, limits = limits)?.let { failure ->
@@ -197,13 +199,25 @@ internal fun writeSizedJpegToDestination(
         working = null
         outputBitmap = scaled
         ensureEncodingActive(isCancellationRequested)
-        val filtered = if (filter == DocumentFilter.ORIGINAL) {
+        var filtered = if (filter == DocumentFilter.ORIGINAL) {
             scaled
         } else {
             filterBitmap(scaled, filter, isCancellationRequested)
         }
         if (filtered !== scaled) scaled.recycle()
         outputBitmap = filtered
+        ensureEncodingActive(isCancellationRequested)
+        if (pixelSanitizer != null && !filtered.isMutable) {
+            val mutable = filtered.copy(Bitmap.Config.ARGB_8888, true)
+                ?: return PageExportResult.WriteFailed
+            filtered.recycle()
+            filtered = mutable
+            outputBitmap = mutable
+        }
+        if (pixelSanitizer?.invoke(filtered) == false) {
+            destination.closeSafely()
+            return PageExportResult.WriteFailed
+        }
         ensureEncodingActive(isCancellationRequested)
         destination.use { output ->
             if (filtered.compress(Bitmap.CompressFormat.JPEG, encoding.quality, output)) {
@@ -303,6 +317,7 @@ private fun decodeWithSample(openSource: () -> InputStream?, sampleSize: Int): B
                 Rect(0, 0, decoder.width, decoder.height),
                 BitmapFactory.Options().apply {
                     inPreferredConfig = Bitmap.Config.ARGB_8888
+                    inMutable = true
                     inSampleSize = sampleSize
                 },
             )
@@ -420,6 +435,11 @@ internal fun exifOrientationSwapsAxes(orientation: Int): Boolean = orientation i
     ExifInterface.ORIENTATION_ROTATE_90,
     ExifInterface.ORIENTATION_TRANSVERSE,
     ExifInterface.ORIENTATION_ROTATE_270,
+)
+
+internal fun exifOrientationIsIdentity(orientation: Int): Boolean = orientation in setOf(
+    ExifInterface.ORIENTATION_UNDEFINED,
+    ExifInterface.ORIENTATION_NORMAL,
 )
 
 private fun scaleToFit(source: Bitmap, maximumWidth: Int, maximumHeight: Int): Bitmap {

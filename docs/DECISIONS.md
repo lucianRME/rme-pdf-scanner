@@ -338,3 +338,31 @@ incompletely reconstructable PDFs are rejected conservatively. The Milestone 5 U
 destination commit remain separate work. No schema, backup-format, dependency, permission,
 networking, analytics, telemetry, account, backend, or cloud behavior is added. See
 [Target-size PDF engine](TARGET_SIZE_PDF_ENGINE.md) for the implementation mapping and bounds.
+
+## ADR-019: Destructive Reconstruction For Local Redaction
+
+Decision:
+Represent workflow-local redactions as immutable typed regions attached to a stable source/page
+identity in normalized source coordinates. Apply accepted regions destructively to the final effective
+raster with conservative outward rounding, rebuild safe positioned searchable text, and construct a new
+PDF containing only sanitized images and that safe text. Freeform, corrected, imported, rotated, or
+otherwise untrustworthy text geometry is omitted for an affected page rather than guessed.
+
+Save and Share accept only a closed, reopened, adversarially verified derivative whose digest still
+matches its prepared attestation. Source and working files remain outside the narrow FileProvider output
+root. The source digest is checked before and after preparation, and no redaction operation modifies a
+library page, source file, OCR artifact, correction, Room row, or backup payload.
+
+Rationale:
+A PDF rectangle, annotation, clip, crop box, or layer can leave the covered pixels or text recoverable.
+Fresh reconstruction from overwritten pixels removes those source objects. Explicit coordinate spaces,
+stable identities, generation ownership, and fail-closed searchable-text rules address the other common
+ways a correct-looking preview can disclose hidden content.
+
+Consequences:
+Redacted export prioritizes removal over arbitrary source-PDF fidelity. Affected pages can lose
+searchability when trustworthy geometry is unavailable. The engine processes pages sequentially and
+deletes owned work on failure or cancellation. Target-size recompression may consume only a verified
+sanitized raster and sanitized/null OCR, never the original page state. M7 adds no schema, backup-format,
+version, permission, dependency, network, analytics, telemetry, backend, account, or cloud behavior. See
+[Irreversible local redaction security boundary](REDACTION_SECURITY.md) for the implementation mapping.

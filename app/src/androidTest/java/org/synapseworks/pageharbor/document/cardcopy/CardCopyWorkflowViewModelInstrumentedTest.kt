@@ -19,6 +19,8 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.synapseworks.pageharbor.document.redaction.RedactionBounds
+import org.synapseworks.pageharbor.document.redaction.RedactionCoordinateMapper
 import org.synapseworks.pageharbor.document.session.DocumentPageRotation
 
 class CardCopyWorkflowViewModelInstrumentedTest {
@@ -34,7 +36,11 @@ class CardCopyWorkflowViewModelInstrumentedTest {
     @After
     fun tearDown() {
         root.deleteRecursively()
-        listOf(CARD_COPY_SOURCE_DIRECTORY, CARD_COPY_OUTPUT_DIRECTORY).forEach { name ->
+        listOf(
+            CARD_COPY_SOURCE_DIRECTORY,
+            CARD_COPY_WORK_DIRECTORY,
+            CARD_COPY_OUTPUT_DIRECTORY,
+        ).forEach { name ->
             File(context.cacheDir, name).listFiles()?.forEach { it.deleteRecursively() }
         }
     }
@@ -153,6 +159,68 @@ class CardCopyWorkflowViewModelInstrumentedTest {
         assertEquals(null, state.front)
         assertEquals(null, state.back)
         restored.close()
+    }
+
+    @Test
+    fun explicitApplyStoresSourceNormalizedDraftAndRotationAndSwapKeepItAttached() = runBlocking {
+        val viewModel = CardCopyWorkflowViewModel(application, SavedStateHandle())
+        viewModel.open()
+        val originalFront = import(viewModel, CardCopySide.FRONT, fixture("redact-front", Color.RED))
+        import(viewModel, CardCopySide.BACK, fixture("redact-back", Color.BLUE))
+        viewModel.continueToReview()
+        viewModel.rotate(CardCopySide.FRONT, clockwise = true)
+
+        assertTrue(viewModel.openRedactionEditor(CardCopySide.FRONT))
+        val displayBounds = RedactionBounds(0.1f, 0.2f, 0.55f, 0.4f)
+        viewModel.addRedactionFromDisplay(displayBounds)
+        var editorState = viewModel.state as CardCopyWorkflowState.RedactSide
+        val draft = editorState.editor.regions.single()
+        assertFalse(draft.confirmed)
+        assertEquals(originalFront.sourceId, draft.target.stableId)
+        assertEquals(
+            RedactionCoordinateMapper.inverseRotate(
+                displayBounds,
+                DocumentPageRotation.DEGREES_90,
+            ),
+            draft.bounds,
+        )
+
+        val updatedDisplay = RedactionBounds(0.2f, 0.25f, 0.7f, 0.5f)
+        viewModel.updateRedactionFromDisplay(draft.id, updatedDisplay)
+        viewModel.undoRedactionEdit()
+        editorState = viewModel.state as CardCopyWorkflowState.RedactSide
+        assertEquals(draft.bounds, editorState.editor.regions.single().bounds)
+        viewModel.redoRedactionEdit()
+        editorState = viewModel.state as CardCopyWorkflowState.RedactSide
+        assertEquals(
+            RedactionCoordinateMapper.inverseRotate(
+                updatedDisplay,
+                DocumentPageRotation.DEGREES_90,
+            ),
+            editorState.editor.regions.single().bounds,
+        )
+
+        viewModel.applyRedactions()
+        var review = viewModel.state as CardCopyWorkflowState.ReviewSides
+        val applied = requireNotNull(review.front.readySource()).redactions.single()
+        assertTrue(applied.confirmed)
+        val sourceBounds = applied.bounds
+
+        viewModel.rotate(CardCopySide.FRONT, clockwise = true)
+        review = viewModel.state as CardCopyWorkflowState.ReviewSides
+        assertEquals(sourceBounds, requireNotNull(review.front.readySource()).redactions.single().bounds)
+        viewModel.swap()
+        review = viewModel.state as CardCopyWorkflowState.ReviewSides
+        val swapped = requireNotNull(review.back.readySource())
+        assertEquals(originalFront.sourceId, swapped.sourceId)
+        assertEquals(sourceBounds, swapped.redactions.single().bounds)
+
+        assertTrue(viewModel.openRedactionEditor(CardCopySide.BACK))
+        viewModel.addRedactionFromDisplay(RedactionBounds(0.6f, 0.6f, 0.9f, 0.8f))
+        viewModel.back()
+        review = viewModel.state as CardCopyWorkflowState.ReviewSides
+        assertEquals(1, requireNotNull(review.back.readySource()).redactions.size)
+        viewModel.close()
     }
 
     private suspend fun import(

@@ -2,7 +2,11 @@ package org.synapseworks.pageharbor.document.cardcopy
 
 import kotlin.math.abs
 import kotlin.math.min
+import kotlin.math.roundToInt
 import org.synapseworks.pageharbor.document.session.DocumentPageRotation
+import org.synapseworks.pageharbor.document.redaction.RedactionBounds
+import org.synapseworks.pageharbor.document.redaction.RedactionCoordinateMapper
+import org.synapseworks.pageharbor.document.redaction.RedactionPageRect
 
 data class CardCopyRect(
     val left: Float,
@@ -37,6 +41,15 @@ data class CardCopyPlacement(
     val sourceHeight: Int,
     val rotation: DocumentPageRotation,
 ) {
+    fun mapSourceRegion(region: RedactionBounds): CardCopyRect {
+        val transformed = RedactionCoordinateMapper.rotate(region, rotation)
+        val mapped = RedactionCoordinateMapper.mapIntoPage(
+            transformed,
+            RedactionPageRect(bounds.left, bounds.top, bounds.right, bounds.bottom),
+        )
+        return CardCopyRect(mapped.left, mapped.top, mapped.right, mapped.bottom)
+    }
+
     fun mapSourceRegion(region: CardCopyNormalizedRegion): CardCopyRect {
         val transformed = region.rotate(rotation)
         return CardCopyRect(
@@ -46,7 +59,38 @@ data class CardCopyPlacement(
             bottom = bounds.top + transformed.bottom * bounds.height,
         )
     }
+
+    /** Exact black coverage after output sizing, outward rounding, and JPEG safety expansion. */
+    fun mapSecureRasterCoverage(region: RedactionBounds): CardCopyRect? {
+        val rotated = RedactionCoordinateMapper.rotate(region, rotation)
+        val orientedWidth = if (rotation.degrees % 180 == 0) sourceWidth else sourceHeight
+        val orientedHeight = if (rotation.degrees % 180 == 0) sourceHeight else sourceWidth
+        val maximumWidth = pointsToCardCopyPixels(bounds.width)
+        val maximumHeight = pointsToCardCopyPixels(bounds.height)
+        val scale = minOf(
+            1.0,
+            maximumWidth.toDouble() / orientedWidth,
+            maximumHeight.toDouble() / orientedHeight,
+        )
+        val rasterWidth = (orientedWidth * scale).toInt().coerceAtLeast(1)
+        val rasterHeight = (orientedHeight * scale).toInt().coerceAtLeast(1)
+        val covered = RedactionCoordinateMapper.coveredNormalizedBounds(
+            rotated,
+            rasterWidth,
+            rasterHeight,
+        ) ?: return null
+        val mapped = RedactionCoordinateMapper.mapIntoPage(
+            covered,
+            RedactionPageRect(bounds.left, bounds.top, bounds.right, bounds.bottom),
+        )
+        return CardCopyRect(mapped.left, mapped.top, mapped.right, mapped.bottom)
+    }
 }
+
+internal const val CARD_COPY_COMPOSITION_PIXELS_PER_INCH = 180
+
+internal fun pointsToCardCopyPixels(points: Float): Int =
+    (points * CARD_COPY_COMPOSITION_PIXELS_PER_INCH / 72f).roundToInt().coerceAtLeast(1)
 
 enum class CardCopyCompositionLayer {
     WHITE_BACKGROUND,

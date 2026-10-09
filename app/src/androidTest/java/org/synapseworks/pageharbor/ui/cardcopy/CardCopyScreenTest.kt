@@ -33,12 +33,19 @@ import org.synapseworks.pageharbor.document.cardcopy.CardCopyGeometryEngine
 import org.synapseworks.pageharbor.document.cardcopy.CardCopyLayout
 import org.synapseworks.pageharbor.document.cardcopy.CardCopyPageSize
 import org.synapseworks.pageharbor.document.cardcopy.CardCopyPreparedPdf
+import org.synapseworks.pageharbor.document.cardcopy.CardCopyRedactionEditor
 import org.synapseworks.pageharbor.document.cardcopy.CardCopySettings
 import org.synapseworks.pageharbor.document.cardcopy.CardCopySide
 import org.synapseworks.pageharbor.document.cardcopy.CardCopySideState
 import org.synapseworks.pageharbor.document.cardcopy.CardCopySource
 import org.synapseworks.pageharbor.document.cardcopy.CardCopySpacing
 import org.synapseworks.pageharbor.document.cardcopy.CardCopyWorkflowState
+import org.synapseworks.pageharbor.document.redaction.RedactionBounds
+import org.synapseworks.pageharbor.document.redaction.RedactionCoordinateSpace
+import org.synapseworks.pageharbor.document.redaction.RedactionRegion
+import org.synapseworks.pageharbor.document.redaction.RedactionRegionId
+import org.synapseworks.pageharbor.document.redaction.RedactionTarget
+import org.synapseworks.pageharbor.document.redaction.RedactionTargetKind
 import org.synapseworks.pageharbor.document.session.DocumentImageMetadata
 import org.synapseworks.pageharbor.document.session.DocumentPageRotation
 import org.synapseworks.pageharbor.ui.theme.PageHarborTheme
@@ -215,6 +222,72 @@ class CardCopyScreenTest {
             assertEquals(1, saves)
             assertEquals(1, shares)
             assertEquals(1, changes)
+        }
+    }
+
+    @Test
+    fun redactionEditorExposesExplicitApplyAndAccessibleRegionManagement() {
+        val id = RedactionRegionId("front-redaction-1")
+        val region = RedactionRegion(
+            id = id,
+            coordinateSpace = RedactionCoordinateSpace.SOURCE_NORMALIZED,
+            bounds = RedactionBounds(0.2f, 0.3f, 0.7f, 0.5f),
+            target = RedactionTarget(RedactionTargetKind.CARD_SOURCE, front.sourceId),
+            confirmed = false,
+            order = 0,
+        )
+        var adds = 0
+        var deletes = 0
+        var undoes = 0
+        var redoes = 0
+        var applies = 0
+        composeRule.setContent {
+            PageHarborTheme(darkTheme = true) {
+                CompositionLocalProvider(LocalDensity provides Density(2f, fontScale = 2f)) {
+                    CardCopyScreen(
+                        state = CardCopyWorkflowState.RedactSide(
+                            front = front,
+                            back = back,
+                            editor = CardCopyRedactionEditor(
+                                side = CardCopySide.FRONT,
+                                history = listOf(emptyList(), listOf(region)),
+                                historyIndex = 1,
+                                selectedId = id,
+                                nextOrdinal = 2,
+                            ),
+                        ),
+                        onBack = {}, onScan = {}, onImport = {}, onContinueReview = {},
+                        onRotate = { _, _ -> }, onRemove = {}, onSwap = {},
+                        onContinueLayout = {}, onPageSize = {}, onLayout = {}, onSpacing = {},
+                        onAlignment = {}, onShowPreview = {}, onPrepare = {}, onSave = {},
+                        onShare = {}, onRetry = {}, onOpenRedaction = {},
+                        onAddRedaction = { adds++ }, onSelectRedaction = {},
+                        onUpdateRedaction = { _, _ -> },
+                        onDeleteRedaction = { deletes++ }, onUndoRedaction = { undoes++ },
+                        onRedoRedaction = { redoes++ }, onApplyRedactions = { applies++ },
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithText(
+            "Redactions are permanently removed from the copy you create. Your original stays unchanged.",
+        ).assertIsDisplayed()
+        composeRule.onNodeWithContentDescription(
+            "Card redaction editor. Drag on the image to add a redaction, or select an existing redaction to move or resize it.",
+        ).assertIsDisplayed()
+        composeRule.onNode(hasText("Redaction 1") and hasClickAction()).assertExists()
+        composeRule.onNodeWithText("Add redaction").performClick()
+        composeRule.onNodeWithText("Undo").performClick()
+        composeRule.onNodeWithText("Delete").performClick()
+        composeRule.onNode(hasText("Move right") and hasClickAction()).assertExists()
+        composeRule.onNodeWithText("Apply redactions").performScrollTo().assertIsEnabled().performClick()
+        composeRule.runOnIdle {
+            assertEquals(1, adds)
+            assertEquals(1, undoes)
+            assertEquals(0, redoes)
+            assertEquals(1, deletes)
+            assertEquals(1, applies)
         }
     }
 

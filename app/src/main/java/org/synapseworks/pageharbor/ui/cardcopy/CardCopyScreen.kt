@@ -8,6 +8,8 @@ import android.os.ParcelFileDescriptor
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -50,6 +52,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -58,6 +61,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -87,8 +91,17 @@ import org.synapseworks.pageharbor.document.cardcopy.CardCopySideState
 import org.synapseworks.pageharbor.document.cardcopy.CardCopySource
 import org.synapseworks.pageharbor.document.cardcopy.CardCopySpacing
 import org.synapseworks.pageharbor.document.cardcopy.CardCopyWorkflowState
+import org.synapseworks.pageharbor.document.cardcopy.defaultRedactionBounds
 import org.synapseworks.pageharbor.document.cardcopy.readySource
+import org.synapseworks.pageharbor.document.cardcopy.selectedRegion
 import org.synapseworks.pageharbor.document.readOrientation
+import org.synapseworks.pageharbor.document.redaction.RedactionBounds
+import org.synapseworks.pageharbor.document.redaction.RedactionCoordinateMapper
+import org.synapseworks.pageharbor.document.redaction.RedactionCoordinateSpace
+import org.synapseworks.pageharbor.document.redaction.RedactionRegion
+import org.synapseworks.pageharbor.document.redaction.RedactionRegionId
+import org.synapseworks.pageharbor.document.redaction.RedactionTargetKind
+import org.synapseworks.pageharbor.document.redaction.confirmedSourceRegionsFor
 import org.synapseworks.pageharbor.document.transform
 import org.synapseworks.pageharbor.document.targetsize.formatDecimalBytes
 import org.synapseworks.pageharbor.ui.home.ManagedDocumentPreviewState
@@ -117,6 +130,14 @@ fun CardCopyScreen(
     onSave: () -> Unit,
     onShare: () -> Unit,
     onRetry: () -> Unit,
+    onOpenRedaction: (CardCopySide) -> Unit = {},
+    onAddRedaction: (RedactionBounds) -> Unit = {},
+    onSelectRedaction: (RedactionRegionId) -> Unit = {},
+    onUpdateRedaction: (RedactionRegionId, RedactionBounds) -> Unit = { _, _ -> },
+    onDeleteRedaction: () -> Unit = {},
+    onUndoRedaction: () -> Unit = {},
+    onRedoRedaction: () -> Unit = {},
+    onApplyRedactions: () -> Unit = {},
 ) {
     BackHandler(onBack = onBack)
     Scaffold(
@@ -145,7 +166,17 @@ fun CardCopyScreen(
                 )
                 is CardCopyWorkflowState.ReviewSides -> ReviewContent(
                     state.front, state.back, onScan, onImport, onRotate, onRemove,
-                    onSwap, onContinueLayout,
+                    onSwap, onOpenRedaction, onContinueLayout,
+                )
+                is CardCopyWorkflowState.RedactSide -> RedactionEditorContent(
+                    state = state,
+                    onAdd = onAddRedaction,
+                    onSelect = onSelectRedaction,
+                    onUpdate = onUpdateRedaction,
+                    onDelete = onDeleteRedaction,
+                    onUndo = onUndoRedaction,
+                    onRedo = onRedoRedaction,
+                    onApply = onApplyRedactions,
                 )
                 is CardCopyWorkflowState.Layout -> LayoutContent(
                     state.front, state.back, state.settings, onPageSize, onLayout,
@@ -181,8 +212,8 @@ private fun AcquireContent(
         verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium),
     ) {
         Text(stringResource(R.string.card_copy_tool_description), style = MaterialTheme.typography.bodyLarge)
-        SideCard(CardCopySide.FRONT, front, onScan, onImport, null, null)
-        SideCard(CardCopySide.BACK, back, onScan, onImport, null, null)
+        SideCard(CardCopySide.FRONT, front, onScan, onImport, null, null, null)
+        SideCard(CardCopySide.BACK, back, onScan, onImport, null, null, null)
         if (!frontReady) Notice(stringResource(R.string.card_copy_add_front))
         else if (!backReady) Notice(stringResource(R.string.card_copy_add_back))
         Text(stringResource(R.string.card_copy_processed_locally), color = MaterialTheme.colorScheme.primary)
@@ -204,6 +235,7 @@ private fun ReviewContent(
     onRotate: (CardCopySide, Boolean) -> Unit,
     onRemove: (CardCopySide) -> Unit,
     onSwap: () -> Unit,
+    onRedact: (CardCopySide) -> Unit,
     onContinue: () -> Unit,
 ) {
     Column(
@@ -217,8 +249,8 @@ private fun ReviewContent(
             style = MaterialTheme.typography.headlineSmall,
             modifier = Modifier.semantics { heading() },
         )
-        SideCard(CardCopySide.FRONT, front, onScan, onImport, onRotate, onRemove)
-        SideCard(CardCopySide.BACK, back, onScan, onImport, onRotate, onRemove)
+        SideCard(CardCopySide.FRONT, front, onScan, onImport, onRotate, onRemove, onRedact)
+        SideCard(CardCopySide.BACK, back, onScan, onImport, onRotate, onRemove, onRedact)
         OutlinedButton(
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
             onClick = onSwap,
@@ -236,6 +268,410 @@ private fun ReviewContent(
 }
 
 @Composable
+private fun RedactionEditorContent(
+    state: CardCopyWorkflowState.RedactSide,
+    onAdd: (RedactionBounds) -> Unit,
+    onSelect: (RedactionRegionId) -> Unit,
+    onUpdate: (RedactionRegionId, RedactionBounds) -> Unit,
+    onDelete: () -> Unit,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+    onApply: () -> Unit,
+) {
+    val source = if (state.editor.side == CardCopySide.FRONT) state.front else state.back
+    val selected = state.editor.selectedRegion()
+    val selectedDisplay = selected?.let { region ->
+        RedactionCoordinateMapper.rotate(region.bounds, source.rotation)
+    }
+    Column(
+        Modifier.widthIn(max = PageHarborLayout.homeContentMaxWidth).fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(PageHarborLayout.compactScreenHorizontalPadding),
+        verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
+    ) {
+        Text(
+            stringResource(
+                if (state.editor.side == CardCopySide.FRONT) {
+                    R.string.card_copy_redact_front
+                } else {
+                    R.string.card_copy_redact_back
+                },
+            ),
+            style = MaterialTheme.typography.headlineSmall,
+            modifier = Modifier.semantics { heading() },
+        )
+        Text(stringResource(R.string.card_copy_redaction_warning))
+        RedactionEditorCanvas(
+            source = source,
+            regions = state.editor.regions,
+            selectedId = state.editor.selectedId,
+            onAdd = onAdd,
+            onSelect = onSelect,
+            onUpdate = onUpdate,
+            modifier = Modifier.fillMaxWidth()
+                .aspectRatio(source.orientedWidth.toFloat() / source.orientedHeight)
+                .heightIn(min = 220.dp, max = 520.dp),
+        )
+        if (state.editor.regions.isEmpty()) {
+            Notice(stringResource(R.string.card_copy_redaction_empty))
+        } else {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
+            ) {
+                state.editor.regions.sortedBy(RedactionRegion::order).forEachIndexed { index, region ->
+                    FilterChip(
+                        selected = region.id == state.editor.selectedId,
+                        onClick = { onSelect(region.id) },
+                        label = { Text(stringResource(R.string.card_copy_redaction_label, index + 1)) },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    )
+                }
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
+        ) {
+            OutlinedButton(
+                modifier = Modifier.heightIn(min = 48.dp),
+                onClick = { onAdd(defaultRedactionBounds()) },
+            ) { Text(stringResource(R.string.card_copy_add_redaction)) }
+            TextButton(
+                modifier = Modifier.heightIn(min = 48.dp),
+                enabled = state.editor.canUndo,
+                onClick = onUndo,
+            ) { Text(stringResource(R.string.card_copy_redaction_undo)) }
+            TextButton(
+                modifier = Modifier.heightIn(min = 48.dp),
+                enabled = state.editor.canRedo,
+                onClick = onRedo,
+            ) { Text(stringResource(R.string.card_copy_redaction_redo)) }
+            TextButton(
+                modifier = Modifier.heightIn(min = 48.dp),
+                enabled = selected != null,
+                onClick = onDelete,
+            ) { Text(stringResource(R.string.card_copy_redaction_delete)) }
+        }
+        if (selected != null && selectedDisplay != null) {
+            Text(
+                stringResource(
+                    R.string.card_copy_redaction_selected,
+                    state.editor.regions.sortedBy(RedactionRegion::order).indexOfFirst {
+                        it.id == selected.id
+                    } + 1,
+                ),
+                style = MaterialTheme.typography.labelLarge,
+            )
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
+            ) {
+                RedactionAdjustButton(R.string.card_copy_move_left) {
+                    moveRedaction(selectedDisplay, -REDACTION_NUDGE, 0f)?.let {
+                        onUpdate(selected.id, it)
+                    }
+                }
+                RedactionAdjustButton(R.string.card_copy_move_right) {
+                    moveRedaction(selectedDisplay, REDACTION_NUDGE, 0f)?.let {
+                        onUpdate(selected.id, it)
+                    }
+                }
+                RedactionAdjustButton(R.string.card_copy_move_up) {
+                    moveRedaction(selectedDisplay, 0f, -REDACTION_NUDGE)?.let {
+                        onUpdate(selected.id, it)
+                    }
+                }
+                RedactionAdjustButton(R.string.card_copy_move_down) {
+                    moveRedaction(selectedDisplay, 0f, REDACTION_NUDGE)?.let {
+                        onUpdate(selected.id, it)
+                    }
+                }
+                RedactionAdjustButton(R.string.card_copy_make_smaller) {
+                    resizeRedaction(selectedDisplay, -REDACTION_NUDGE)?.let {
+                        onUpdate(selected.id, it)
+                    }
+                }
+                RedactionAdjustButton(R.string.card_copy_make_larger) {
+                    resizeRedaction(selectedDisplay, REDACTION_NUDGE)?.let {
+                        onUpdate(selected.id, it)
+                    }
+                }
+            }
+        }
+        Button(
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            onClick = onApply,
+        ) { Text(stringResource(R.string.card_copy_apply_redactions)) }
+        Spacer(Modifier.height(PageHarborSpacing.large))
+    }
+}
+
+@Composable
+private fun RedactionAdjustButton(label: Int, onClick: () -> Unit) {
+    OutlinedButton(
+        modifier = Modifier.heightIn(min = 48.dp),
+        onClick = onClick,
+    ) { Text(stringResource(label)) }
+}
+
+private enum class RedactionDragMode {
+    CREATE,
+    MOVE,
+    TOP_LEFT,
+    TOP_RIGHT,
+    BOTTOM_LEFT,
+    BOTTOM_RIGHT,
+}
+
+@Composable
+private fun RedactionEditorCanvas(
+    source: CardCopySource,
+    regions: List<RedactionRegion>,
+    selectedId: RedactionRegionId?,
+    onAdd: (RedactionBounds) -> Unit,
+    onSelect: (RedactionRegionId) -> Unit,
+    onUpdate: (RedactionRegionId, RedactionBounds) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val preview by rememberCardBitmap(source)
+    val selectionColor = MaterialTheme.colorScheme.primary
+    val handleColor = MaterialTheme.colorScheme.onPrimary
+    val editorDescription = stringResource(R.string.card_copy_redaction_editor_description)
+    var draftBounds by remember(source.sourceId, source.rotation, regions, selectedId) {
+        mutableStateOf<RedactionBounds?>(null)
+    }
+    var dragId by remember { mutableStateOf<RedactionRegionId?>(null) }
+    var dragMode by remember { mutableStateOf(RedactionDragMode.CREATE) }
+    var dragStart by remember { mutableStateOf(Offset.Zero) }
+    var dragDelta by remember { mutableStateOf(Offset.Zero) }
+    var dragOrigin by remember { mutableStateOf<RedactionBounds?>(null) }
+
+    Surface(
+        modifier = modifier.semantics { contentDescription = editorDescription },
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = MaterialTheme.shapes.medium,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            when (val state = preview) {
+                ManagedDocumentPreviewState.Loading -> CircularProgressIndicator()
+                ManagedDocumentPreviewState.Unavailable -> Text(stringResource(R.string.scan_preview_unavailable))
+                is ManagedDocumentPreviewState.Ready -> Canvas(
+                    Modifier.fillMaxSize()
+                        .pointerInput(regions, selectedId, source.rotation) {
+                            detectTapGestures { tap ->
+                                val point = tap.toNormalizedOffset(size.width, size.height)
+                                displayRegions(regions, source).lastOrNull { (_, bounds) ->
+                                    bounds.contains(point)
+                                }?.first?.let(onSelect)
+                            }
+                        }
+                        .pointerInput(regions, selectedId, source.rotation) {
+                            detectDragGestures(
+                                onDragStart = { position ->
+                                    dragStart = position.toNormalizedOffset(size.width, size.height)
+                                    dragDelta = Offset.Zero
+                                    val displays = displayRegions(regions, source)
+                                    val selected = displays.firstOrNull { it.first == selectedId }
+                                    val thresholdX = 24.dp.toPx() / size.width.coerceAtLeast(1)
+                                    val thresholdY = 24.dp.toPx() / size.height.coerceAtLeast(1)
+                                    val handle = selected?.second?.handleAt(
+                                        dragStart,
+                                        thresholdX,
+                                        thresholdY,
+                                    )
+                                    val hit = selected?.takeIf { handle != null }
+                                        ?: displays.lastOrNull { (_, bounds) -> bounds.contains(dragStart) }
+                                    dragMode = handle ?: if (hit != null) {
+                                        RedactionDragMode.MOVE
+                                    } else {
+                                        RedactionDragMode.CREATE
+                                    }
+                                    dragId = hit?.first
+                                    dragOrigin = hit?.second
+                                    draftBounds = hit?.second
+                                },
+                                onDragCancel = {
+                                    draftBounds = null
+                                    dragId = null
+                                    dragOrigin = null
+                                },
+                                onDragEnd = {
+                                    val completed = draftBounds
+                                    val id = dragId
+                                    if (completed != null) {
+                                        if (dragMode == RedactionDragMode.CREATE) onAdd(completed)
+                                        else if (id != null) onUpdate(id, completed)
+                                    }
+                                    draftBounds = null
+                                    dragId = null
+                                    dragOrigin = null
+                                },
+                            ) { change, amount ->
+                                change.consume()
+                                dragDelta += Offset(
+                                    amount.x / size.width.coerceAtLeast(1),
+                                    amount.y / size.height.coerceAtLeast(1),
+                                )
+                                draftBounds = dragBounds(
+                                    dragMode,
+                                    dragStart,
+                                    dragDelta,
+                                    dragOrigin,
+                                ) ?: draftBounds
+                            }
+                        },
+                ) {
+                    drawImage(
+                        state.owner.bitmap.asImageBitmap(),
+                        dstSize = androidx.compose.ui.unit.IntSize(size.width.toInt(), size.height.toInt()),
+                    )
+                    val displays = displayRegions(regions, source)
+                    displays.forEach { (id, bounds) ->
+                        val shown = if (id == dragId && draftBounds != null) draftBounds!! else bounds
+                        drawRedactionRegion(
+                            bounds = shown,
+                            selected = id == selectedId || id == dragId,
+                            selectionColor = selectionColor,
+                            handleColor = handleColor,
+                        )
+                    }
+                    if (dragMode == RedactionDragMode.CREATE && dragId == null) {
+                        draftBounds?.let { bounds ->
+                            drawRedactionRegion(bounds, true, selectionColor, handleColor)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun displayRegions(
+    regions: List<RedactionRegion>,
+    source: CardCopySource,
+): List<Pair<RedactionRegionId, RedactionBounds>> = regions.mapNotNull { region ->
+    if (region.coordinateSpace != RedactionCoordinateSpace.SOURCE_NORMALIZED ||
+        region.target.kind != RedactionTargetKind.CARD_SOURCE ||
+        region.target.stableId != source.sourceId
+    ) null else region.id to RedactionCoordinateMapper.rotate(region.bounds, source.rotation)
+}
+
+private fun Offset.toNormalizedOffset(width: Int, height: Int): Offset = Offset(
+    (x / width.coerceAtLeast(1)).coerceIn(0f, 1f),
+    (y / height.coerceAtLeast(1)).coerceIn(0f, 1f),
+)
+
+private fun RedactionBounds.contains(point: Offset): Boolean =
+    point.x in left..right && point.y in top..bottom
+
+private fun RedactionBounds.handleAt(
+    point: Offset,
+    thresholdX: Float,
+    thresholdY: Float,
+): RedactionDragMode? {
+    val handles = listOf(
+        RedactionDragMode.TOP_LEFT to Offset(left, top),
+        RedactionDragMode.TOP_RIGHT to Offset(right, top),
+        RedactionDragMode.BOTTOM_LEFT to Offset(left, bottom),
+        RedactionDragMode.BOTTOM_RIGHT to Offset(right, bottom),
+    )
+    return handles.firstOrNull { (_, handle) ->
+        kotlin.math.abs(point.x - handle.x) <= thresholdX &&
+            kotlin.math.abs(point.y - handle.y) <= thresholdY
+    }?.first
+}
+
+private fun dragBounds(
+    mode: RedactionDragMode,
+    start: Offset,
+    delta: Offset,
+    origin: RedactionBounds?,
+): RedactionBounds? = when (mode) {
+    RedactionDragMode.CREATE -> RedactionBounds.clamped(
+        start.x,
+        start.y,
+        start.x + delta.x,
+        start.y + delta.y,
+    )
+    RedactionDragMode.MOVE -> origin?.let { moveRedaction(it, delta.x, delta.y) }
+    RedactionDragMode.TOP_LEFT -> origin?.let {
+        RedactionBounds.clamped(it.left + delta.x, it.top + delta.y, it.right, it.bottom)
+    }
+    RedactionDragMode.TOP_RIGHT -> origin?.let {
+        RedactionBounds.clamped(it.left, it.top + delta.y, it.right + delta.x, it.bottom)
+    }
+    RedactionDragMode.BOTTOM_LEFT -> origin?.let {
+        RedactionBounds.clamped(it.left + delta.x, it.top, it.right, it.bottom + delta.y)
+    }
+    RedactionDragMode.BOTTOM_RIGHT -> origin?.let {
+        RedactionBounds.clamped(it.left, it.top, it.right + delta.x, it.bottom + delta.y)
+    }
+}
+
+private fun moveRedaction(bounds: RedactionBounds, deltaX: Float, deltaY: Float): RedactionBounds? {
+    val appliedX = deltaX.coerceIn(-bounds.left, 1f - bounds.right)
+    val appliedY = deltaY.coerceIn(-bounds.top, 1f - bounds.bottom)
+    return RedactionBounds.clamped(
+        bounds.left + appliedX,
+        bounds.top + appliedY,
+        bounds.right + appliedX,
+        bounds.bottom + appliedY,
+    )
+}
+
+private fun resizeRedaction(bounds: RedactionBounds, delta: Float): RedactionBounds? =
+    RedactionBounds.clamped(
+        bounds.left - delta,
+        bounds.top - delta,
+        bounds.right + delta,
+        bounds.bottom + delta,
+    )
+
+private fun DrawScope.drawRedactionRegion(
+    bounds: RedactionBounds,
+    selected: Boolean,
+    selectionColor: androidx.compose.ui.graphics.Color,
+    handleColor: androidx.compose.ui.graphics.Color,
+) {
+    val left = bounds.left * size.width
+    val top = bounds.top * size.height
+    val right = bounds.right * size.width
+    val bottom = bounds.bottom * size.height
+    drawRect(
+        color = androidx.compose.ui.graphics.Color.Black,
+        topLeft = Offset(left, top),
+        size = Size(right - left, bottom - top),
+    )
+    if (!selected) return
+    val stroke = 3.dp.toPx()
+    drawRect(
+        color = selectionColor,
+        topLeft = Offset(left, top),
+        size = Size(right - left, bottom - top),
+        style = Stroke(stroke),
+    )
+    val handle = 12.dp.toPx()
+    listOf(
+        Offset(left, top), Offset(right, top), Offset(left, bottom), Offset(right, bottom),
+    ).forEach { point ->
+        drawRect(
+            color = handleColor,
+            topLeft = Offset(point.x - handle / 2f, point.y - handle / 2f),
+            size = Size(handle, handle),
+        )
+        drawRect(
+            color = selectionColor,
+            topLeft = Offset(point.x - handle / 2f, point.y - handle / 2f),
+            size = Size(handle, handle),
+            style = Stroke(stroke.coerceAtMost(handle / 3f)),
+        )
+    }
+}
+
+private const val REDACTION_NUDGE = 0.02f
+
+@Composable
 private fun SideCard(
     side: CardCopySide,
     state: CardCopySideState,
@@ -243,6 +679,7 @@ private fun SideCard(
     onImport: (CardCopySide) -> Unit,
     onRotate: ((CardCopySide, Boolean) -> Unit)?,
     onRemove: ((CardCopySide) -> Unit)?,
+    onRedact: ((CardCopySide) -> Unit)?,
 ) {
     val source = state.readySource()
     Surface(
@@ -309,6 +746,23 @@ private fun SideCard(
                         modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
                         onClick = { onRemove(side) },
                     ) { Icon(Icons.Default.Delete, stringResource(R.string.card_copy_remove)) }
+                }
+            }
+            if (source != null && onRedact != null) {
+                OutlinedButton(
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    onClick = { onRedact(side) },
+                ) {
+                    Text(
+                        if (source.redactions.isEmpty()) {
+                            stringResource(R.string.card_copy_redact)
+                        } else {
+                            stringResource(
+                                R.string.card_copy_redaction_count,
+                                source.redactions.size,
+                            )
+                        },
+                    )
                 }
             }
         }
@@ -543,14 +997,20 @@ private fun LivePagePreview(
             if (frontBitmap == null || backBitmap == null) {
                 Box(contentAlignment = Alignment.Center) { Text(stringResource(R.string.card_copy_preview_loading)) }
             } else Canvas(Modifier.fillMaxSize()) {
-                drawCard(frontBitmap, geometry.front.bounds, geometry)
-                drawCard(backBitmap, geometry.back.bounds, geometry)
+                drawCard(front, frontBitmap, geometry.front, geometry)
+                drawCard(back, backBitmap, geometry.back, geometry)
             }
         }
     }
 }
 
-private fun DrawScope.drawCard(bitmap: Bitmap, rect: org.synapseworks.pageharbor.document.cardcopy.CardCopyRect, geometry: CardCopyGeometry) {
+private fun DrawScope.drawCard(
+    source: CardCopySource,
+    bitmap: Bitmap,
+    placement: org.synapseworks.pageharbor.document.cardcopy.CardCopyPlacement,
+    geometry: CardCopyGeometry,
+) {
+    val rect = placement.bounds
     val sx = size.width / geometry.pageSize.widthPoints
     val sy = size.height / geometry.pageSize.heightPoints
     drawImage(
@@ -558,6 +1018,20 @@ private fun DrawScope.drawCard(bitmap: Bitmap, rect: org.synapseworks.pageharbor
         dstOffset = androidx.compose.ui.unit.IntOffset((rect.left * sx).toInt(), (rect.top * sy).toInt()),
         dstSize = androidx.compose.ui.unit.IntSize((rect.width * sx).toInt(), (rect.height * sy).toInt()),
     )
+    source.redactions.confirmedSourceRegionsFor(
+        source.sourceId,
+        RedactionTargetKind.CARD_SOURCE,
+    )?.forEach { region ->
+        val mapped = placement.mapSecureRasterCoverage(region.bounds) ?: return@forEach
+        drawRect(
+            color = androidx.compose.ui.graphics.Color.Black,
+            topLeft = Offset(mapped.left * sx, mapped.top * sy),
+            size = Size(
+                (mapped.right - mapped.left) * sx,
+                (mapped.bottom - mapped.top) * sy,
+            ),
+        )
+    }
 }
 
 @Composable
@@ -642,4 +1116,7 @@ private fun failureText(reason: CardCopyFailure): Int = when (reason) {
     CardCopyFailure.DESTINATION_UNAVAILABLE -> R.string.card_copy_destination_failed
     CardCopyFailure.WRITE_FAILED -> R.string.card_copy_write_failed
     CardCopyFailure.PROCESS_INTERRUPTED -> R.string.card_copy_interrupted
+    CardCopyFailure.INVALID_REDACTION -> R.string.card_copy_redaction_invalid
+    CardCopyFailure.SOURCE_CHANGED -> R.string.card_copy_source_changed
+    CardCopyFailure.SECURITY_VERIFICATION_FAILED -> R.string.card_copy_security_verification_failed
 }
