@@ -857,11 +857,14 @@ class ActiveOperationInterruptionTest {
         val saveCompleted = CountDownLatch(1)
         val shareLaunched = CountDownLatch(1)
         val pageCompleted = CountDownLatch(1)
+        val selectedPdfDestination = testDestinationUri("chosen-folder/saved.pdf")
+        var writtenPdfDestination: Uri? = null
 
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.replaceNormalOperationsForTest(
-                    writeNormalPdf = { _, _ ->
+                    writeNormalPdf = { _, destinationUri ->
+                        writtenPdfDestination = destinationUri
                         saveCompleted.countDown()
                         PdfExportResult.Success
                     },
@@ -878,13 +881,14 @@ class ActiveOperationInterruptionTest {
                 )
                 activity.restoreCompletedSessionForTest(scanSummary(), pageUris = listOf(testPageUri()))
                 activity.chooseNormalPdfDestinationForTest()
-                activity.deliverNormalPdfDestinationForTest(testDestinationUri("saved.pdf"))
+                activity.deliverNormalPdfDestinationForTest(selectedPdfDestination)
             }
 
             assertTrue(saveCompleted.await(10, TimeUnit.SECONDS))
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
             scenario.onActivity { activity ->
                 assertEquals(PdfSaveState.Saved, activity.normalPdfStateForTest())
+                assertEquals(selectedPdfDestination, writtenPdfDestination)
                 activity.sharePdfForTest()
             }
             assertTrue(shareLaunched.await(10, TimeUnit.SECONDS))

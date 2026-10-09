@@ -117,6 +117,7 @@ fun ScanResultScreen(
     libraryDocument: LibraryDocumentReference?,
     openedPageRequestId: Long,
     openedPagePersistentId: String?,
+    pageToolsRequestId: Long = 0L,
     libraryFolders: List<LibraryFolder>,
     libraryActionState: LibraryActionState,
     smartNameState: SmartNameUiState?,
@@ -148,6 +149,7 @@ fun ScanResultScreen(
 ) {
     var selectedPageId by rememberSaveable { mutableStateOf<Long?>(null) }
     var handledOpenPageRequestId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var handledPageToolsRequestId by rememberSaveable { mutableStateOf(0L) }
     var showLibrarySaveDialog by rememberSaveable { mutableStateOf(false) }
     var showPageToolsDialog by rememberSaveable { mutableStateOf(false) }
     var showRenameDialog by rememberSaveable { mutableStateOf(false) }
@@ -163,6 +165,12 @@ fun ScanResultScreen(
             handledOpenPageRequestId = openedPageRequestId
         } else if (documentPages.none { it.id.value == selectedPageId }) {
             selectedPageId = documentPages.firstOrNull()?.id?.value
+        }
+    }
+    LaunchedEffect(pageToolsRequestId, libraryDocument?.documentId) {
+        if (pageToolsRequestId > handledPageToolsRequestId && libraryDocument != null) {
+            showPageToolsDialog = true
+            handledPageToolsRequestId = pageToolsRequestId
         }
     }
     val selectedPageIndex = documentPages.indexOfFirst { it.id.value == selectedPageId }

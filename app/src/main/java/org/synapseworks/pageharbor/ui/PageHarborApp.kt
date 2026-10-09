@@ -8,12 +8,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import android.net.Uri
 import android.os.SystemClock
@@ -58,6 +60,7 @@ import org.synapseworks.pageharbor.ocr.review.OcrReviewUiState
 import org.synapseworks.pageharbor.ocr.batch.OcrBatchMode
 import org.synapseworks.pageharbor.ocr.batch.OcrBatchUiState
 import org.synapseworks.pageharbor.library.LibrarySortOrder
+import org.synapseworks.pageharbor.library.LibraryOcrStatus
 import org.synapseworks.pageharbor.library.LibraryUiState
 import org.synapseworks.pageharbor.security.AppLockAuthenticatedChangeResult
 import org.synapseworks.pageharbor.security.AppLockAuthenticationAvailability
@@ -92,6 +95,9 @@ import org.synapseworks.pageharbor.ui.theme.PageHarborTheme
 import org.synapseworks.pageharbor.ui.targetsize.FitUploadLimitScreen
 import org.synapseworks.pageharbor.ui.cardcopy.CardCopyScreen
 import org.synapseworks.pageharbor.ui.sharesafe.ShareSafeCopyScreen
+import org.synapseworks.pageharbor.ui.flow.DocumentToolOperation
+import org.synapseworks.pageharbor.ui.flow.ToolInvocationContext
+import org.synapseworks.pageharbor.ui.flow.ToolInvocationSource
 
 @Composable
 fun PageHarborApp(
@@ -280,6 +286,10 @@ fun PageHarborApp(
             mutableIntStateOf(LibraryDestination.Home.ordinal)
         }
         val libraryDestination = LibraryDestination.entries[libraryDestinationIndex]
+        var pendingToolInvocation by rememberSaveable {
+            mutableStateOf<ToolInvocationContext?>(null)
+        }
+        var pageToolsRequestId by rememberSaveable { mutableLongStateOf(0L) }
         var backupEncryption by remember { mutableStateOf(BackupEncryptionUiState()) }
         val scanCancelledMessage = stringResource(R.string.home_scan_cancelled)
         val scannerErrorMessage = stringResource(R.string.home_scanner_error)
@@ -318,6 +328,7 @@ fun PageHarborApp(
         val importTemporaryFileMessage = stringResource(R.string.import_error_temporary_file)
         val importBusyMessage = stringResource(R.string.import_error_busy)
         val importInterruptedMessage = stringResource(R.string.import_error_interrupted)
+        val toolDocumentOpenFailedMessage = stringResource(R.string.tool_document_open_failed)
         val exitBackHintMessage = stringResource(R.string.exit_back_hint)
         val exitController = remember(exitBackClock, exitBackTimeoutMillis) {
             DoubleBackExitController(exitBackClock, exitBackTimeoutMillis)
@@ -346,6 +357,64 @@ fun PageHarborApp(
 
         LaunchedEffect(screen) {
             currentScreen = screen
+        }
+
+        LaunchedEffect(
+            pendingToolInvocation,
+            libraryDocument?.documentId,
+            currentScreen,
+            libraryUiState.recentDocuments,
+        ) {
+            val invocation = pendingToolInvocation ?: return@LaunchedEffect
+            val documentId = invocation.documentIds.singleOrNull() ?: run {
+                pendingToolInvocation = null
+                return@LaunchedEffect
+            }
+            if (currentScreen != PageHarborScreen.ScanResult ||
+                libraryDocument?.documentId != documentId
+            ) {
+                onOpenLibraryDocument(documentId, null)
+                delay(TOOL_DOCUMENT_OPEN_TIMEOUT_MILLIS)
+                if (pendingToolInvocation == invocation &&
+                    (currentScreen != PageHarborScreen.ScanResult ||
+                        libraryDocument?.documentId != documentId)
+                ) {
+                    pendingToolInvocation = null
+                    showTransientFeedback(toolDocumentOpenFailedMessage)
+                }
+                return@LaunchedEffect
+            }
+            pendingToolInvocation = null
+            when (invocation.operation) {
+                DocumentToolOperation.EXTRACT_TEXT -> {
+                    val existingOcr = libraryUiState.recentDocuments
+                        .firstOrNull { it.id == documentId }
+                        ?.ocrStatus
+                        ?.let { it != LibraryOcrStatus.NOT_INDEXED }
+                        ?: false
+                    if (existingOcr) {
+                        onOpenOcrReview()
+                    } else if (onRecognizeTextWithLanguage != null) {
+                        ocrOperationPrompt = OcrOperationPrompt.RECOGNIZE_TEXT
+                    } else {
+                        onRecognizeText()
+                    }
+                }
+                DocumentToolOperation.SPLIT_EXTRACT -> pageToolsRequestId += 1L
+                DocumentToolOperation.FIT_UPLOAD_LIMIT -> {
+                    if (invocation.source == ToolInvocationSource.TOOLS_SCREEN) {
+                        navigateTo(PageHarborScreen.Home)
+                    }
+                    onOpenFitUploadLimit()
+                }
+                DocumentToolOperation.SHARE_SAFE_COPY -> {
+                    if (invocation.source == ToolInvocationSource.TOOLS_SCREEN) {
+                        navigateTo(PageHarborScreen.Home)
+                    }
+                    onOpenShareSafeCopy()
+                }
+                DocumentToolOperation.MERGE -> Unit
+            }
         }
 
         LaunchedEffect(
@@ -671,6 +740,7 @@ fun PageHarborApp(
             libraryDocument = libraryDocument,
             openedPageRequestId = openedPageRequestId,
             openedPagePersistentId = openedPagePersistentId,
+            pageToolsRequestId = pageToolsRequestId,
             libraryFolders = libraryUiState.folders,
             libraryActionState = libraryUiState.actionState,
             smartNameState = libraryDocument?.documentId?.let(libraryUiState.smartNameStates::get),
@@ -751,9 +821,11 @@ fun PageHarborApp(
             onImportFiles = onImportFiles,
             onCancelImport = onCancelImport,
             onViewScanResult = { navigateTo(PageHarborScreen.ScanResult) },
-            onFitUploadLimit = onOpenFitUploadLimit,
             onCardCopy = onOpenCardCopy,
-            onShareSafeCopy = onOpenShareSafeCopy,
+            onInvokeDocumentTool = { invocation ->
+                val ready = invocation.requireReady()
+                pendingToolInvocation = ready
+            },
             onPrivacyInfo = {
                 showPrivacyInfo = true
             },
@@ -1016,3 +1088,5 @@ private enum class OcrOperationPrompt {
     RERUN_DOCUMENT,
     BATCH,
 }
+
+private const val TOOL_DOCUMENT_OPEN_TIMEOUT_MILLIS = 15_000L

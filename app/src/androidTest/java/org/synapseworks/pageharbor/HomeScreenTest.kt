@@ -43,6 +43,7 @@ import org.synapseworks.pageharbor.document.session.DocumentPageId
 import org.synapseworks.pageharbor.document.session.DocumentResource
 import org.synapseworks.pageharbor.document.session.DocumentResourceOwnership
 import org.synapseworks.pageharbor.document.session.DocumentSourceCategory
+import org.synapseworks.pageharbor.document.session.LibraryDocumentReference
 import org.synapseworks.pageharbor.image.DocumentFilter
 import org.synapseworks.pageharbor.library.LibraryDocumentSummary
 import org.synapseworks.pageharbor.library.LibraryOcrStatus
@@ -193,7 +194,7 @@ class HomeScreenTest {
         composeTestRule.onNodeWithText("Home").assertIsDisplayed()
         composeTestRule.onNodeWithText("Documents").assertIsDisplayed().performClick()
         composeTestRule.onNodeWithContentDescription("Create folder").assertIsDisplayed()
-        composeTestRule.onNodeWithContentDescription("Scan document").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Scan").assertIsDisplayed()
 
         composeTestRule.onNodeWithText("Tools").assertIsDisplayed().performClick()
         composeTestRule.onNodeWithContentDescription("Search tools").assertIsDisplayed()
@@ -207,13 +208,13 @@ class HomeScreenTest {
             "ID / card copy. Front and back on one PDF page.",
         ).assertIsDisplayed().assertIsEnabled()
         composeTestRule.onNodeWithContentDescription("Extract text with OCR").assertIsDisplayed()
-        composeTestRule.onNodeWithContentDescription("Scan document").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Scan").assertIsDisplayed()
 
         composeTestRule.onNodeWithText("More").assertIsDisplayed().performClick()
         composeTestRule.onNodeWithText("Rate RME").performScrollTo().assertIsDisplayed()
         composeTestRule.onNodeWithText("Suggest a feature").performScrollTo().assertIsDisplayed()
         composeTestRule.onNodeWithText("Share RME").performScrollTo().assertIsDisplayed()
-        composeTestRule.onNodeWithContentDescription("Scan document").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Scan").assertIsDisplayed()
     }
 
     @Test
@@ -234,7 +235,7 @@ class HomeScreenTest {
             PageHarborApp()
         }
 
-        composeTestRule.onNodeWithContentDescription("Scan document")
+        composeTestRule.onNodeWithContentDescription("Scan")
             .assertIsDisplayed()
             .assertIsEnabled()
     }
@@ -287,20 +288,32 @@ class HomeScreenTest {
     }
 
     @Test
-    fun clickingScanDocumentInvokesCallback() {
+    fun scanChooserRoutesDocumentIdAndImportToTheirExistingEntryPoints() {
         var scanClickCount = 0
+        var cardClickCount = 0
+        var importClickCount = 0
 
         composeTestRule.setContent {
             PageHarborApp(
-                onScanDocument = {
-                    scanClickCount += 1
-                },
+                onScanDocument = { scanClickCount += 1 },
+                onOpenCardCopy = { cardClickCount += 1 },
+                onImportFiles = { importClickCount += 1 },
             )
         }
 
-        composeTestRule.onNodeWithContentDescription("Scan document").performClick()
-
+        composeTestRule.onNodeWithContentDescription("Scan").performClick()
+        composeTestRule.onNodeWithText("Document").performClick()
         assertEquals(1, scanClickCount)
+
+        composeTestRule.onNodeWithContentDescription("Scan").performClick()
+        composeTestRule.onNodeWithText("ID / card").performClick()
+        assertEquals(1, cardClickCount)
+
+        composeTestRule.onNodeWithContentDescription("Scan").performClick()
+        composeTestRule.onNodeWithContentDescription(
+            "Import files. Choose an existing PDF or images",
+        ).performClick()
+        assertEquals(1, importClickCount)
     }
 
     @Test
@@ -316,6 +329,75 @@ class HomeScreenTest {
             .performClick()
 
         assertEquals(1, importClickCount)
+    }
+
+    @Test
+    fun cancellingToolPickerReturnsToToolsWithoutInvokingDocument() {
+        var openedDocumentId: String? = null
+        composeTestRule.setContent {
+            PageHarborApp(
+                libraryUiState = savedLibraryState(1),
+                onOpenLibraryDocument = { id, _ -> openedDocumentId = id },
+            )
+        }
+
+        composeTestRule.onNodeWithText("Tools").performClick()
+        composeTestRule.onNodeWithContentDescription("Extract text with OCR").performClick()
+        composeTestRule.onNodeWithText("Choose a document").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Cancel").performClick()
+
+        composeTestRule.onNodeWithContentDescription("Search tools").assertIsDisplayed()
+        composeTestRule.runOnIdle { assertEquals(null, openedDocumentId) }
+    }
+
+    @Test
+    fun oneSelectedDocumentMergeAsksForAnotherAndKeepsSelectionLocal() {
+        var mergedIds: List<String> = emptyList()
+        composeTestRule.setContent {
+            PageHarborApp(
+                libraryUiState = savedLibraryState(2),
+                onMergeLibraryDocuments = { ids, _ -> mergedIds = ids },
+            )
+        }
+
+        composeTestRule.onNodeWithText("Documents").performClick()
+        composeTestRule.onAllNodesWithContentDescription("Select for actions")[0].performClick()
+        composeTestRule.onAllNodesWithText("1 selected")[0]
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeTestRule.onNodeWithText("Merge").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithText("Choose documents to merge").assertIsDisplayed()
+        composeTestRule.onAllNodesWithText("1 selected")[0].assertIsDisplayed()
+        composeTestRule.onNodeWithText("Choose at least one more document").assertIsDisplayed()
+        composeTestRule.onAllNodesWithText("Saved document 2")[1].performClick()
+        composeTestRule.onNodeWithContentDescription("Continue: Merge").performClick()
+        composeTestRule.onNodeWithText("Name merged document").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Name").performTextInput("Merged")
+        composeTestRule.onNodeWithContentDescription("Confirm Merge").performClick()
+
+        composeTestRule.runOnIdle {
+            assertEquals(listOf("saved-1", "saved-2"), mergedIds)
+        }
+        composeTestRule.onAllNodesWithText("1 selected").assertCountEquals(0)
+    }
+
+    @Test
+    fun cancelledMergeSelectionDoesNotLeakIntoExtractText() {
+        composeTestRule.setContent {
+            PageHarborApp(libraryUiState = savedLibraryState(2))
+        }
+
+        composeTestRule.onNodeWithText("Tools").performClick()
+        composeTestRule.onNodeWithContentDescription("Merge documents").performClick()
+        composeTestRule.onNodeWithText("Saved document 1").performClick()
+        composeTestRule.onNodeWithText("Cancel").performClick()
+        composeTestRule.onNodeWithContentDescription("Extract text with OCR").performClick()
+
+        composeTestRule.onNodeWithText("Choose a document").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Continue: Extract text").assertIsNotEnabled()
+        composeTestRule.onAllNodesWithText("1 selected").assertCountEquals(0)
     }
 
     @Test
@@ -362,12 +444,14 @@ class HomeScreenTest {
     }
 
     @Test
-    fun importAndMergeLaunchersKeepExistingActions() {
+    fun importAndMergeLaunchersUseDirectActionAndFocusedPicker() {
         var importClickCount = 0
+        var mergedIds: List<String> = emptyList()
         composeTestRule.setContent {
             PageHarborApp(
                 libraryUiState = savedLibraryState(2),
                 onImportFiles = { importClickCount += 1 },
+                onMergeLibraryDocuments = { ids, _ -> mergedIds = ids },
             )
         }
 
@@ -376,39 +460,116 @@ class HomeScreenTest {
         assertEquals(1, importClickCount)
 
         composeTestRule.onNodeWithContentDescription("Merge documents").performClick()
-        composeTestRule.onNodeWithContentDescription("Create folder").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Choose documents to merge").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Saved document 1").performClick()
+        composeTestRule.onNodeWithText("Saved document 2").performClick()
+        composeTestRule.onNodeWithContentDescription("Continue: Merge").performClick()
+        composeTestRule.onNodeWithText("Name merged document").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Name").performTextInput("Merged")
+        composeTestRule.onNodeWithContentDescription("Confirm Merge").performClick()
+        composeTestRule.runOnIdle {
+            assertEquals(listOf("saved-1", "saved-2"), mergedIds)
+        }
     }
 
     @Test
-    fun splitLauncherKeepsExistingDocumentNavigationAction() {
+    fun splitLauncherOpensFocusedDocumentPicker() {
         composeTestRule.setContent {
             PageHarborApp(libraryUiState = savedLibraryState(1))
         }
 
         composeTestRule.onNodeWithText("Tools").performClick()
         composeTestRule.onNodeWithContentDescription("Split or extract pages").performClick()
-        composeTestRule.onNodeWithContentDescription("Create folder").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Choose a document").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Saved document 1").assertIsDisplayed()
     }
 
     @Test
-    fun ocrLauncherKeepsExistingDocumentNavigationAction() {
+    fun ocrLauncherOpensFocusedDocumentPicker() {
         composeTestRule.setContent {
             PageHarborApp(libraryUiState = savedLibraryState(1))
         }
 
         composeTestRule.onNodeWithText("Tools").performClick()
         composeTestRule.onNodeWithContentDescription("Extract text with OCR").performClick()
-        composeTestRule.onNodeWithContentDescription("Create folder").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Choose a document").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Saved document 1").assertIsDisplayed()
     }
 
     @Test
-    fun fitUploadLimitToolUsesTheActiveDocumentWithoutDuplicatingTheWorkflow() {
-        var openCount = 0
+    fun toolsExtractTextRoutesTheChosenDocumentToExistingOcrAction() {
+        var recognizeCount = 0
+        var screen by mutableStateOf(org.synapseworks.pageharbor.ui.PageHarborScreen.Home)
+        var libraryDocument by mutableStateOf<LibraryDocumentReference?>(null)
         composeTestRule.setContent {
             PageHarborApp(
+                screen = screen,
                 autoNavigateToScanResult = false,
                 scannerSpikeState = scanSummary(jpegPageCount = 1),
                 documentPages = listOf(documentPage(1L)),
+                libraryDocument = libraryDocument,
+                libraryUiState = savedLibraryState(1),
+                onOpenLibraryDocument = { id, _ ->
+                    libraryDocument = LibraryDocumentReference(id, "Saved document 1")
+                    screen = org.synapseworks.pageharbor.ui.PageHarborScreen.ScanResult
+                },
+                onRecognizeText = { recognizeCount += 1 },
+            )
+        }
+
+        composeTestRule.onNodeWithText("Tools").performClick()
+        composeTestRule.onNodeWithContentDescription("Extract text with OCR").performClick()
+        composeTestRule.onNodeWithText("Saved document 1").performClick()
+        composeTestRule.onNodeWithContentDescription("Continue: Extract text").performClick()
+
+        composeTestRule.waitForIdle()
+        assertEquals(1, recognizeCount)
+    }
+
+    @Test
+    fun toolsSplitRoutesTheChosenDocumentToExistingPageTools() {
+        var screen by mutableStateOf(org.synapseworks.pageharbor.ui.PageHarborScreen.Home)
+        var libraryDocument by mutableStateOf<LibraryDocumentReference?>(null)
+        composeTestRule.setContent {
+            PageHarborApp(
+                screen = screen,
+                autoNavigateToScanResult = false,
+                scannerSpikeState = scanSummary(jpegPageCount = 2),
+                documentPages = listOf(documentPage(1L), documentPage(2L)),
+                libraryDocument = libraryDocument,
+                libraryUiState = savedLibraryState(1),
+                onOpenLibraryDocument = { id, _ ->
+                    libraryDocument = LibraryDocumentReference(id, "Saved document 1")
+                    screen = org.synapseworks.pageharbor.ui.PageHarborScreen.ScanResult
+                },
+            )
+        }
+
+        composeTestRule.onNodeWithText("Tools").performClick()
+        composeTestRule.onNodeWithContentDescription("Split or extract pages").performClick()
+        composeTestRule.onNodeWithText("Saved document 1").performClick()
+        composeTestRule.onNodeWithContentDescription("Continue: Split / Extract").performClick()
+
+        composeTestRule.onNodeWithText("Page tools").assertIsDisplayed()
+    }
+
+    @Test
+    fun fitUploadLimitToolChoosesExactDocumentBeforeOpeningSharedWorkflow() {
+        var openCount = 0
+        var screen by mutableStateOf(org.synapseworks.pageharbor.ui.PageHarborScreen.Home)
+        var libraryDocument by mutableStateOf<LibraryDocumentReference?>(null)
+        composeTestRule.setContent {
+            PageHarborApp(
+                screen = screen,
+                autoNavigateToScanResult = false,
+                scannerSpikeState = scanSummary(jpegPageCount = 1),
+                documentPages = listOf(documentPage(1L)),
+                libraryDocument = libraryDocument,
+                libraryUiState = savedLibraryState(1),
+                onOpenLibraryDocument = { id, _ ->
+                    libraryDocument = LibraryDocumentReference(id, "Saved document 1")
+                    screen = org.synapseworks.pageharbor.ui.PageHarborScreen.ScanResult
+                },
                 onOpenFitUploadLimit = { openCount += 1 },
             )
         }
@@ -417,18 +578,30 @@ class HomeScreenTest {
         composeTestRule.onNodeWithContentDescription(
             "Fit upload limit. Create a PDF under a chosen file-size limit.",
         ).performClick()
+        composeTestRule.onNodeWithText("Saved document 1").performClick()
+        composeTestRule.onNodeWithContentDescription("Continue: Fit upload limit").performClick()
 
+        composeTestRule.waitForIdle()
         assertEquals(1, openCount)
     }
 
     @Test
-    fun shareSafeToolUsesTheSharedWorkflowEntryPoint() {
+    fun shareSafeToolChoosesExactDocumentBeforeOpeningSharedWorkflow() {
         var openCount = 0
+        var screen by mutableStateOf(org.synapseworks.pageharbor.ui.PageHarborScreen.Home)
+        var libraryDocument by mutableStateOf<LibraryDocumentReference?>(null)
         composeTestRule.setContent {
             PageHarborApp(
+                screen = screen,
                 autoNavigateToScanResult = false,
                 scannerSpikeState = scanSummary(jpegPageCount = 1),
                 documentPages = listOf(documentPage(1L)),
+                libraryDocument = libraryDocument,
+                libraryUiState = savedLibraryState(1),
+                onOpenLibraryDocument = { id, _ ->
+                    libraryDocument = LibraryDocumentReference(id, "Saved document 1")
+                    screen = org.synapseworks.pageharbor.ui.PageHarborScreen.ScanResult
+                },
                 onOpenShareSafeCopy = { openCount += 1 },
             )
         }
@@ -437,7 +610,10 @@ class HomeScreenTest {
         composeTestRule.onNodeWithContentDescription(
             "Share-safe copy. Create a local copy with optional redaction, purpose watermark and file-size limit.",
         ).performClick()
+        composeTestRule.onNodeWithText("Saved document 1").performClick()
+        composeTestRule.onNodeWithContentDescription("Continue: Share-safe copy").performClick()
 
+        composeTestRule.waitForIdle()
         assertEquals(1, openCount)
     }
 
@@ -492,12 +668,12 @@ class HomeScreenTest {
         composeTestRule.onNodeWithContentDescription("Extract text with OCR")
             .assertIsDisplayed()
             .performClick()
-        composeTestRule.onNodeWithContentDescription("Create folder").assertIsDisplayed()
-        composeTestRule.onNodeWithContentDescription("Scan document").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Choose a document").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Scan").assertIsDisplayed()
     }
 
     @Test
-    fun toolsWithNoSavedDocumentsKeepImportEnabledAndOtherLaunchersUnavailable() {
+    fun toolsWithNoSavedDocumentsOpenActionableEmptyPicker() {
         var importClickCount = 0
         composeTestRule.setContent {
             PageHarborApp(onImportFiles = { importClickCount += 1 })
@@ -507,32 +683,25 @@ class HomeScreenTest {
         composeTestRule.onNodeWithContentDescription("Import files")
             .assertIsEnabled()
             .performClick()
-        composeTestRule.onNodeWithContentDescription(
-            "Merge. Unavailable. Requires at least two saved documents.",
-        ).assertIsNotEnabled()
-        composeTestRule.onNodeWithContentDescription(
-            "Split or Extract. Unavailable. Requires a saved document.",
-        ).assertIsNotEnabled().performClick()
-        composeTestRule.onNodeWithContentDescription(
-            "Extract text. Unavailable. Requires a saved document. OCR.",
-        ).assertIsNotEnabled()
-        composeTestRule.onNodeWithContentDescription(
-            "Open an RME document first, then choose Fit upload limit.",
-        ).assertIsNotEnabled()
-        composeTestRule.onAllNodesWithContentDescription("Create folder").assertCountEquals(0)
         assertEquals(1, importClickCount)
+
+        composeTestRule.onNodeWithContentDescription("Extract text with OCR")
+            .assertIsEnabled()
+            .performClick()
+        composeTestRule.onNodeWithText("No saved documents yet").assertIsDisplayed()
+        composeTestRule.onAllNodesWithText("Import files").assertCountEquals(2)
+        composeTestRule.onNodeWithText("Scan").assertIsEnabled()
+        composeTestRule.onNodeWithContentDescription("Continue: Extract text").assertIsNotEnabled()
     }
 
     @Test
-    fun toolsWithOneSavedDocumentEnableSingleDocumentToolsOnly() {
+    fun toolsWithOneSavedDocumentKeepMergeActionable() {
         composeTestRule.setContent {
             PageHarborApp(libraryUiState = savedLibraryState(1))
         }
 
         composeTestRule.onNodeWithText("Tools").performClick()
-        composeTestRule.onNodeWithContentDescription(
-            "Merge. Unavailable. Requires at least two saved documents.",
-        ).assertIsNotEnabled()
+        composeTestRule.onNodeWithContentDescription("Merge documents").assertIsEnabled()
         composeTestRule.onNodeWithContentDescription("Split or extract pages").assertIsEnabled()
         composeTestRule.onNodeWithContentDescription("Extract text with OCR").assertIsEnabled()
     }
@@ -555,7 +724,7 @@ class HomeScreenTest {
     }
 
     @Test
-    fun toolsAvailabilityUpdatesWhenSavedDocumentCountChanges() {
+    fun toolsRemainActionableWhenSavedDocumentCountChanges() {
         val libraryState = mutableStateOf(savedLibraryState(2))
         composeTestRule.setContent {
             PageHarborApp(libraryUiState = libraryState.value)
@@ -564,40 +733,35 @@ class HomeScreenTest {
         composeTestRule.onNodeWithText("Tools").performClick()
         composeTestRule.onNodeWithContentDescription("Merge documents").assertIsEnabled()
         composeTestRule.runOnIdle { libraryState.value = savedLibraryState(1) }
-        composeTestRule.onNodeWithContentDescription(
-            "Merge. Unavailable. Requires at least two saved documents.",
-        ).assertIsNotEnabled()
+        composeTestRule.onNodeWithContentDescription("Merge documents").assertIsEnabled()
         composeTestRule.onNodeWithContentDescription("Split or extract pages").assertIsEnabled()
     }
 
     @Test
-    fun toolsSearchPreservesDisabledStateAndOcrAlias() {
+    fun toolsSearchPreservesActionableOcrAlias() {
         composeTestRule.setContent {
             PageHarborApp()
         }
 
         composeTestRule.onNodeWithText("Tools").performClick()
         composeTestRule.onNodeWithContentDescription("Search tools").performTextInput("OCR")
-        composeTestRule.onNodeWithContentDescription(
-            "Extract text. Unavailable. Requires a saved document. OCR.",
-        ).assertIsDisplayed().assertIsNotEnabled()
+        composeTestRule.onNodeWithContentDescription("Extract text with OCR")
+            .assertIsDisplayed().assertIsEnabled()
         composeTestRule.onAllNodesWithContentDescription("Import files").assertCountEquals(0)
     }
 
     @Test
-    fun toolsDisabledStatesRemainVisibleInDarkTheme() {
+    fun toolsActionableStatesRemainVisibleInDarkTheme() {
         composeTestRule.setContent {
             PageHarborApp(darkTheme = true)
         }
 
         composeTestRule.onNodeWithText("Tools").performClick()
         composeTestRule.onNodeWithContentDescription("Import files").assertIsEnabled()
-        composeTestRule.onNodeWithContentDescription(
-            "Merge. Unavailable. Requires at least two saved documents.",
-        ).assertIsDisplayed().assertIsNotEnabled()
-        composeTestRule.onNodeWithContentDescription(
-            "Extract text. Unavailable. Requires a saved document. OCR.",
-        ).assertIsDisplayed().assertIsNotEnabled()
+        composeTestRule.onNodeWithContentDescription("Merge documents")
+            .assertIsDisplayed().assertIsEnabled()
+        composeTestRule.onNodeWithContentDescription("Extract text with OCR")
+            .assertIsDisplayed().assertIsEnabled()
     }
 
     @Test
@@ -629,7 +793,7 @@ class HomeScreenTest {
             PageHarborApp(scannerSpikeState = ScannerSpikeState.Preparing)
         }
 
-        composeTestRule.onNodeWithContentDescription("Scan document")
+        composeTestRule.onNodeWithContentDescription("Scan")
             .assertIsDisplayed()
             .assertIsNotEnabled()
         composeTestRule.onNodeWithText("Preparing scanner…")
@@ -647,7 +811,7 @@ class HomeScreenTest {
             }
         }
 
-        composeTestRule.onNodeWithContentDescription("Scan document").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Scan").assertIsDisplayed()
         composeTestRule.onNodeWithText("Home").assertIsDisplayed()
     }
 
@@ -665,7 +829,7 @@ class HomeScreenTest {
             )
         }
 
-        composeTestRule.onNodeWithContentDescription("Scan document")
+        composeTestRule.onNodeWithContentDescription("Scan")
             .assertIsDisplayed()
             .assertIsEnabled()
         composeTestRule.onNodeWithText("Resume document").assertIsDisplayed()

@@ -29,6 +29,8 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items as lazyListItems
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -74,6 +76,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
@@ -84,6 +87,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -91,7 +95,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -122,7 +125,6 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Date
 import java.util.Locale
-import kotlinx.coroutines.launch
 import org.synapseworks.pageharbor.R
 import org.synapseworks.pageharbor.document.importing.DocumentImportUiState
 import org.synapseworks.pageharbor.library.LibraryActionState
@@ -141,6 +143,10 @@ import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.ui.theme.PageHarborLayout
 import org.synapseworks.pageharbor.ui.theme.PageHarborSpacing
 import org.synapseworks.pageharbor.ui.theme.PageHarborTheme
+import org.synapseworks.pageharbor.ui.flow.DocumentToolOperation
+import org.synapseworks.pageharbor.ui.flow.ToolInputCardinality
+import org.synapseworks.pageharbor.ui.flow.ToolInvocationContext
+import org.synapseworks.pageharbor.ui.flow.ToolInvocationSource
 
 /** Adaptive, local-first entry point for saved and in-progress documents. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -179,9 +185,8 @@ fun LibraryHomeScreen(
     onImportFiles: () -> Unit,
     onCancelImport: () -> Unit,
     onViewScanResult: () -> Unit,
-    onFitUploadLimit: () -> Unit = {},
     onCardCopy: () -> Unit = {},
-    onShareSafeCopy: () -> Unit = {},
+    onInvokeDocumentTool: (ToolInvocationContext) -> Unit = {},
     onPrivacyInfo: () -> Unit,
     onDismissPrivacyInfo: () -> Unit,
     onAbout: () -> Unit,
@@ -205,11 +210,14 @@ fun LibraryHomeScreen(
     var namingDialog by remember { mutableStateOf<NamingDialog?>(null) }
     var movingDocument by remember { mutableStateOf<LibraryDocumentSummary?>(null) }
     var deletingDocument by remember { mutableStateOf<LibraryDocumentSummary?>(null) }
-    var mergeSelection by remember { mutableStateOf<List<String>>(emptyList()) }
+    var mergeSelection by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     var confirmFolderDelete by remember { mutableStateOf(false) }
     var toolsQuery by rememberSaveable { mutableStateOf("") }
+    var showAcquisitionChooser by rememberSaveable { mutableStateOf(false) }
+    var toolPickerContext by rememberSaveable {
+        mutableStateOf<ToolInvocationContext?>(null)
+    }
     val destination = selectedDestination
-    val coroutineScope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     val selectedFolder = libraryUiState.folders.firstOrNull {
         it.id == libraryUiState.selectedFolderId
@@ -228,12 +236,21 @@ fun LibraryHomeScreen(
         -> null
     }
 
-    LaunchedEffect(namingDialog, movingDocument, deletingDocument, confirmFolderDelete) {
+    LaunchedEffect(
+        namingDialog,
+        movingDocument,
+        deletingDocument,
+        confirmFolderDelete,
+        showAcquisitionChooser,
+        toolPickerContext,
+    ) {
         val isBusy =
             namingDialog != null ||
             movingDocument != null ||
             deletingDocument != null ||
-            confirmFolderDelete
+            confirmFolderDelete ||
+            showAcquisitionChooser ||
+            toolPickerContext != null
         onTransientUiBusyChange(isBusy)
         if (isBusy) {
             onTopLevelBackSequenceReset()
@@ -248,7 +265,7 @@ fun LibraryHomeScreen(
         onDispose { onTransientUiBusyChange(false) }
     }
 
-    BackHandler {
+    BackHandler(enabled = !showAcquisitionChooser && toolPickerContext == null) {
         when {
             destination == LibraryDestination.Tools && toolsQuery.isNotBlank() -> {
                 onTopLevelBackSequenceReset()
@@ -312,11 +329,11 @@ fun LibraryHomeScreen(
                 } else {
                     MaterialTheme.colorScheme.onSurfaceVariant
                 },
-                onClick = { if (canStartScan) onScanDocument() },
+                onClick = { if (canStartScan) showAcquisitionChooser = true },
             ) {
                 Icon(
                     imageVector = Icons.Default.CameraAlt,
-                    contentDescription = stringResource(R.string.home_scan_document),
+                    contentDescription = stringResource(R.string.scan_action),
                 )
             }
         },
@@ -342,7 +359,7 @@ fun LibraryHomeScreen(
                 onDeleteDocument = { deletingDocument = it },
                 mergeSelection = mergeSelection,
                 onToggleMerge = { document ->
-                mergeSelection = mergeSelection.toggle(document.id)
+                    mergeSelection = mergeSelection.toggle(document.id)
                     onDestinationSelected(LibraryDestination.Documents)
                 },
             )
@@ -362,7 +379,17 @@ fun LibraryHomeScreen(
                 },
                 onDeleteFolder = { confirmFolderDelete = true },
                 onClearMerge = { mergeSelection = emptyList() },
-                onMerge = { namingDialog = NamingDialog.MergeDocuments },
+                onMerge = {
+                    if (mergeSelection.size >= 2) {
+                        namingDialog = NamingDialog.MergeDocuments(mergeSelection)
+                    } else {
+                        toolPickerContext = ToolInvocationContext(
+                            source = ToolInvocationSource.DOCUMENT_SELECTION,
+                            operation = DocumentToolOperation.MERGE,
+                            documentIds = mergeSelection,
+                        )
+                    }
+                },
                 onRecognizeText = { onRecognizeSelectedDocuments(mergeSelection) },
                 onOpenDocument = onOpenDocument,
                 onLoadMoreSearchResults = onLoadMoreSearchResults,
@@ -377,7 +404,6 @@ fun LibraryHomeScreen(
             LibraryDestination.Tools -> ToolsDestination(
                 modifier = Modifier.padding(padding),
                 interactionEnabled = !working && !acquiring,
-                savedDocumentCount = libraryUiState.recentDocuments.size,
                 query = toolsQuery,
                 onQueryChange = { toolsQuery = it },
                 scannerSpikeState = scannerSpikeState,
@@ -386,15 +412,13 @@ fun LibraryHomeScreen(
                 onImportFiles = onImportFiles,
                 onCancelImport = onCancelImport,
                 onViewScanResult = onViewScanResult,
-                onFitUploadLimit = onFitUploadLimit,
                 onCardCopy = onCardCopy,
-                onShareSafeCopy = onShareSafeCopy,
-                onOpenDocuments = { message ->
-                    onDestinationSelected(LibraryDestination.Documents)
-                    coroutineScope.launch {
-                        snackbarHostState.currentSnackbarData?.dismiss()
-                        snackbarHostState.showSnackbar(message)
-                    }
+                onDocumentTool = { operation ->
+                    toolPickerContext = ToolInvocationContext(
+                        source = ToolInvocationSource.TOOLS_SCREEN,
+                        operation = operation,
+                        documentIds = emptyList(),
+                    )
                 },
             )
 
@@ -415,14 +439,57 @@ fun LibraryHomeScreen(
         }
     }
 
+    if (showAcquisitionChooser) {
+        AcquisitionChooserSheet(
+            onDismiss = { showAcquisitionChooser = false },
+            onDocumentScan = {
+                showAcquisitionChooser = false
+                onScanDocument()
+            },
+            onCardCopy = {
+                showAcquisitionChooser = false
+                onCardCopy()
+            },
+            onImportFiles = {
+                showAcquisitionChooser = false
+                onImportFiles()
+            },
+        )
+    }
+
+    toolPickerContext?.let { request ->
+        ToolDocumentPickerSheet(
+            request = request,
+            documents = libraryUiState.recentDocuments,
+            thumbnailUri = thumbnailUri,
+            onDismiss = { toolPickerContext = null },
+            onScan = {
+                toolPickerContext = null
+                showAcquisitionChooser = true
+            },
+            onImport = {
+                toolPickerContext = null
+                onImportFiles()
+            },
+            onConfirm = { documentIds ->
+                val invocation = request.copy(documentIds = documentIds).requireReady()
+                toolPickerContext = null
+                if (invocation.operation == DocumentToolOperation.MERGE) {
+                    namingDialog = NamingDialog.MergeDocuments(invocation.documentIds)
+                } else {
+                    onInvokeDocumentTool(invocation)
+                }
+            },
+        )
+    }
+
     namingDialog?.let { dialog ->
         if (dialog is NamingDialog.RenameDocument) {
             LaunchedEffect(dialog.document.id) { onRequestSmartName(dialog.document.id) }
         }
         val initialValue = when (dialog) {
-            NamingDialog.CreateFolder,
-            NamingDialog.MergeDocuments,
-            -> ""
+            NamingDialog.CreateFolder -> ""
+            is NamingDialog.MergeDocuments -> ""
             is NamingDialog.RenameDocument -> dialog.document.title
             is NamingDialog.RenameFolder -> dialog.folder.name
         }
@@ -446,11 +513,13 @@ fun LibraryHomeScreen(
             onConfirm = { value ->
                 when (dialog) {
                     NamingDialog.CreateFolder -> onCreateFolder(value)
-                    NamingDialog.MergeDocuments -> onMergeDocuments(mergeSelection, value)
+                    is NamingDialog.MergeDocuments -> {
+                        onMergeDocuments(dialog.documentIds, value)
+                        mergeSelection = emptyList()
+                    }
                     is NamingDialog.RenameDocument -> onRenameDocument(dialog.document.id, value)
                     is NamingDialog.RenameFolder -> onRenameFolder(dialog.folder.id, value)
                 }
-                if (dialog == NamingDialog.MergeDocuments) mergeSelection = emptyList()
                 namingDialog = null
             },
         )
@@ -1079,11 +1148,302 @@ private fun LibrarySearchResultItem(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AcquisitionChooserSheet(
+    onDismiss: () -> Unit,
+    onDocumentScan: () -> Unit,
+    onCardCopy: () -> Unit,
+    onImportFiles: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = PageHarborSpacing.large),
+        ) {
+            Text(
+                modifier = Modifier
+                    .padding(horizontal = PageHarborSpacing.large)
+                    .padding(bottom = PageHarborSpacing.small)
+                    .semantics { heading() },
+                text = stringResource(R.string.scan_chooser_title),
+                style = MaterialTheme.typography.headlineSmall,
+            )
+            AcquisitionAction(
+                icon = Icons.Default.CameraAlt,
+                title = stringResource(R.string.scan_chooser_document_title),
+                description = stringResource(R.string.scan_chooser_document_description),
+                onClick = onDocumentScan,
+            )
+            HorizontalDivider()
+            AcquisitionAction(
+                icon = Icons.Default.CreditCard,
+                title = stringResource(R.string.scan_chooser_card_title),
+                description = stringResource(R.string.scan_chooser_card_description),
+                onClick = onCardCopy,
+            )
+            HorizontalDivider()
+            AcquisitionAction(
+                icon = Icons.Default.UploadFile,
+                title = stringResource(R.string.scan_chooser_import_title),
+                description = stringResource(R.string.scan_chooser_import_description),
+                onClick = onImportFiles,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AcquisitionAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    description: String,
+    onClick: () -> Unit,
+) {
+    val accessibilityLabel = "$title. $description"
+    ListItem(
+        modifier = Modifier
+            .semantics { contentDescription = accessibilityLabel }
+            .clickable(role = Role.Button, onClick = onClick),
+        leadingContent = {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        },
+        headlineContent = { Text(title) },
+        supportingContent = { Text(description) },
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ToolDocumentPickerSheet(
+    request: ToolInvocationContext,
+    documents: List<LibraryDocumentSummary>,
+    thumbnailUri: (String?) -> Uri?,
+    onDismiss: () -> Unit,
+    onScan: () -> Unit,
+    onImport: () -> Unit,
+    onConfirm: (List<String>) -> Unit,
+) {
+    var query by rememberSaveable(request.operation) { mutableStateOf("") }
+    var selection by rememberSaveable(request.operation, request.source) {
+        mutableStateOf(request.documentIds)
+    }
+    val normalizedQuery = query.trim()
+    val visibleDocuments = remember(documents, normalizedQuery) {
+        if (normalizedQuery.isEmpty()) documents else documents.filter { document ->
+            document.title.contains(normalizedQuery, ignoreCase = true) ||
+                document.folderName?.contains(normalizedQuery, ignoreCase = true) == true
+        }
+    }
+    val ready = request.copy(documentIds = selection).hasValidCardinality
+    val singleSelect = request.operation.inputCardinality == ToolInputCardinality.EXACTLY_ONE
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 680.dp)
+                .padding(horizontal = PageHarborSpacing.large)
+                .padding(bottom = PageHarborSpacing.large),
+            verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
+        ) {
+            Text(
+                modifier = Modifier.semantics { heading() },
+                text = stringResource(
+                    if (singleSelect) {
+                        R.string.tool_picker_single_title
+                    } else {
+                        R.string.tool_picker_merge_title
+                    },
+                ),
+                style = MaterialTheme.typography.headlineSmall,
+            )
+            Text(
+                text = stringResource(request.operation.titleResource),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            if (documents.isNotEmpty()) {
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = query,
+                    onValueChange = { query = it },
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.tool_picker_search)) },
+                    leadingIcon = {
+                        Icon(imageVector = Icons.Default.Search, contentDescription = null)
+                    },
+                )
+            }
+            when {
+                documents.isEmpty() -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = PageHarborSpacing.large),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.tool_picker_empty_title),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            text = stringResource(R.string.tool_picker_empty_description),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
+                            FilledTonalButton(onClick = onScan) {
+                                Text(stringResource(R.string.scan_action))
+                            }
+                            Button(onClick = onImport) {
+                                Text(stringResource(R.string.tools_import_title))
+                            }
+                        }
+                    }
+                }
+                visibleDocuments.isEmpty() -> {
+                    Text(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = PageHarborSpacing.extraLarge),
+                        text = stringResource(R.string.tool_picker_no_results),
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                else -> {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false),
+                    ) {
+                        lazyListItems(visibleDocuments, key = LibraryDocumentSummary::id) { document ->
+                            val selected = document.id in selection
+                            ListItem(
+                                modifier = Modifier.clickable(role = Role.Button) {
+                                    selection = if (singleSelect) {
+                                        listOf(document.id)
+                                    } else {
+                                        selection.toggle(document.id)
+                                    }
+                                },
+                                leadingContent = {
+                                    LibraryThumbnail(
+                                        modifier = Modifier.size(48.dp),
+                                        uri = thumbnailUri(document.thumbnailRelativePath),
+                                        title = document.title,
+                                    )
+                                },
+                                headlineContent = {
+                                    Text(
+                                        text = document.title,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                },
+                                supportingContent = {
+                                    Text(stringResource(R.string.fit_limit_pages, document.pageCount))
+                                },
+                                trailingContent = {
+                                    Icon(
+                                        imageVector = if (selected) {
+                                            Icons.Default.CheckCircle
+                                        } else {
+                                            Icons.Default.RadioButtonUnchecked
+                                        },
+                                        contentDescription = if (selected) {
+                                            stringResource(R.string.tool_picker_selected_count, 1)
+                                        } else {
+                                            null
+                                        },
+                                        tint = if (selected) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                    )
+                                },
+                            )
+                            HorizontalDivider()
+                        }
+                    }
+                }
+            }
+            if (!singleSelect && selection.size < 2 && documents.isNotEmpty()) {
+                Text(
+                    text = stringResource(R.string.tool_picker_choose_another),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (selection.isNotEmpty()) {
+                Text(
+                    text = stringResource(R.string.tool_picker_selected_count, selection.size),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small, Alignment.End),
+            ) {
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.tool_picker_cancel))
+                }
+                val actionLabel = stringResource(request.operation.actionResource)
+                val actionAccessibilityLabel = stringResource(
+                    R.string.tool_picker_primary_action,
+                    stringResource(request.operation.titleResource),
+                )
+                Button(
+                    modifier = Modifier.semantics {
+                        contentDescription = actionAccessibilityLabel
+                    },
+                    enabled = ready,
+                    onClick = { onConfirm(selection) },
+                ) {
+                    Text(actionLabel)
+                }
+            }
+        }
+    }
+}
+
+private val DocumentToolOperation.titleResource: Int
+    get() = when (this) {
+        DocumentToolOperation.EXTRACT_TEXT -> R.string.tools_ocr_title
+        DocumentToolOperation.SPLIT_EXTRACT -> R.string.tools_pages_title
+        DocumentToolOperation.MERGE -> R.string.tools_merge_title
+        DocumentToolOperation.FIT_UPLOAD_LIMIT -> R.string.fit_limit_title
+        DocumentToolOperation.SHARE_SAFE_COPY -> R.string.share_safe_title
+    }
+
+private val DocumentToolOperation.actionResource: Int
+    get() = when (this) {
+        DocumentToolOperation.EXTRACT_TEXT -> R.string.tools_ocr_title
+        DocumentToolOperation.SPLIT_EXTRACT -> R.string.tools_pages_title
+        DocumentToolOperation.MERGE -> R.string.tool_picker_continue
+        DocumentToolOperation.FIT_UPLOAD_LIMIT -> R.string.fit_limit_title
+        DocumentToolOperation.SHARE_SAFE_COPY -> R.string.share_safe_title
+    }
+
 @Composable
 private fun ToolsDestination(
     modifier: Modifier,
     interactionEnabled: Boolean,
-    savedDocumentCount: Int,
     query: String,
     onQueryChange: (String) -> Unit,
     scannerSpikeState: ScannerSpikeState,
@@ -1092,22 +1452,14 @@ private fun ToolsDestination(
     onImportFiles: () -> Unit,
     onCancelImport: () -> Unit,
     onViewScanResult: () -> Unit,
-    onFitUploadLimit: () -> Unit,
     onCardCopy: () -> Unit,
-    onShareSafeCopy: () -> Unit,
-    onOpenDocuments: (String) -> Unit,
+    onDocumentTool: (DocumentToolOperation) -> Unit,
 ) {
     val focusManager = LocalFocusManager.current
     val density = LocalDensity.current
     val imeBottom = WindowInsets.ime.getBottom(density)
     var imeWasVisible by remember { mutableStateOf(false) }
     var searchFieldFocused by remember { mutableStateOf(false) }
-    val mergeGuidance = stringResource(R.string.tools_merge_guidance)
-    val pagesGuidance = stringResource(R.string.tools_pages_guidance)
-    val ocrGuidance = stringResource(R.string.tools_ocr_guidance)
-    val fitLimitGuidance = stringResource(R.string.fit_limit_tool_unavailable)
-    val mergeEnabled = interactionEnabled && savedDocumentCount >= 2
-    val documentToolEnabled = interactionEnabled && savedDocumentCount >= 1
     val tools = listOf(
         ToolLauncherItemModel(
             key = "import",
@@ -1134,14 +1486,12 @@ private fun ToolsDestination(
                     R.string.tools_busy_accessibility,
                     stringResource(R.string.tools_merge_title),
                 )
-            } else if (mergeEnabled) {
-                stringResource(R.string.tools_merge_accessibility)
             } else {
-                stringResource(R.string.tools_merge_unavailable_accessibility)
+                stringResource(R.string.tools_merge_accessibility)
             },
             searchTerms = listOf("merge", "combine", "join"),
-            enabled = mergeEnabled,
-            onClick = { onOpenDocuments(mergeGuidance) },
+            enabled = interactionEnabled,
+            onClick = { onDocumentTool(DocumentToolOperation.MERGE) },
         ),
         ToolLauncherItemModel(
             key = "pages",
@@ -1152,14 +1502,12 @@ private fun ToolsDestination(
                     R.string.tools_busy_accessibility,
                     stringResource(R.string.tools_pages_title),
                 )
-            } else if (documentToolEnabled) {
-                stringResource(R.string.tools_pages_accessibility)
             } else {
-                stringResource(R.string.tools_pages_unavailable_accessibility)
+                stringResource(R.string.tools_pages_accessibility)
             },
             searchTerms = listOf("split", "extract", "pages"),
-            enabled = documentToolEnabled,
-            onClick = { onOpenDocuments(pagesGuidance) },
+            enabled = interactionEnabled,
+            onClick = { onDocumentTool(DocumentToolOperation.SPLIT_EXTRACT) },
         ),
         ToolLauncherItemModel(
             key = "share-safe-copy",
@@ -1168,7 +1516,7 @@ private fun ToolsDestination(
             accessibilityLabel = stringResource(R.string.share_safe_tool_accessibility),
             searchTerms = listOf("share", "safe", "redact", "watermark", "purpose", "portal", "email"),
             enabled = interactionEnabled,
-            onClick = onShareSafeCopy,
+            onClick = { onDocumentTool(DocumentToolOperation.SHARE_SAFE_COPY) },
         ),
         ToolLauncherItemModel(
             key = "fit-upload-limit",
@@ -1179,16 +1527,12 @@ private fun ToolsDestination(
                     R.string.tools_busy_accessibility,
                     stringResource(R.string.fit_limit_title),
                 )
-            } else if (hasActiveSession || documentToolEnabled) {
-                stringResource(R.string.fit_limit_tool_accessibility)
             } else {
-                stringResource(R.string.fit_limit_tool_unavailable)
+                stringResource(R.string.fit_limit_tool_accessibility)
             },
             searchTerms = listOf("fit", "upload", "limit", "smaller", "compress", "pdf"),
-            enabled = interactionEnabled && (hasActiveSession || documentToolEnabled),
-            onClick = {
-                if (hasActiveSession) onFitUploadLimit() else onOpenDocuments(fitLimitGuidance)
-            },
+            enabled = interactionEnabled,
+            onClick = { onDocumentTool(DocumentToolOperation.FIT_UPLOAD_LIMIT) },
         ),
         ToolLauncherItemModel(
             key = "card-copy",
@@ -1215,14 +1559,12 @@ private fun ToolsDestination(
                     R.string.tools_busy_accessibility,
                     stringResource(R.string.tools_ocr_title),
                 )
-            } else if (documentToolEnabled) {
-                stringResource(R.string.tools_ocr_accessibility)
             } else {
-                stringResource(R.string.tools_ocr_unavailable_accessibility)
+                stringResource(R.string.tools_ocr_accessibility)
             },
             searchTerms = listOf("ocr", "text", "recognize", "extract text"),
-            enabled = documentToolEnabled,
-            onClick = { onOpenDocuments(ocrGuidance) },
+            enabled = interactionEnabled,
+            onClick = { onDocumentTool(DocumentToolOperation.EXTRACT_TEXT) },
         ),
     )
     val normalizedQuery = query.trim()
@@ -2017,7 +2359,7 @@ private fun MergeBar(
                     }
                     Button(
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = enabled && selectedCount >= 2,
+                        enabled = enabled && selectedCount >= 1,
                         onClick = onMerge,
                     ) {
                         Text(stringResource(R.string.library_merge_action))
@@ -2047,7 +2389,7 @@ private fun MergeBar(
                 TextButton(onClick = onClear) {
                     Text(stringResource(R.string.library_clear_selection))
                 }
-                Button(enabled = enabled && selectedCount >= 2, onClick = onMerge) {
+                Button(enabled = enabled && selectedCount >= 1, onClick = onMerge) {
                     Text(stringResource(R.string.library_merge_action))
                 }
                 FilledTonalButton(
@@ -2414,6 +2756,7 @@ private fun NameDialog(
     onConfirm: (String) -> Unit,
 ) {
     var value by remember(initialValue) { mutableStateOf(initialValue) }
+    val confirmAccessibilityLabel = stringResource(R.string.confirm_action, confirmLabel)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -2445,7 +2788,13 @@ private fun NameDialog(
             }
         },
         confirmButton = {
-            TextButton(enabled = value.isNotBlank(), onClick = { onConfirm(value) }) {
+            TextButton(
+                modifier = Modifier.semantics {
+                    contentDescription = confirmAccessibilityLabel
+                },
+                enabled = value.isNotBlank(),
+                onClick = { onConfirm(value) },
+            ) {
                 Text(confirmLabel)
             }
         },
@@ -2531,7 +2880,12 @@ private sealed interface NamingDialog {
         override val confirmResource = R.string.library_create_action
     }
 
-    data object MergeDocuments : NamingDialog {
+    data class MergeDocuments(val documentIds: List<String>) : NamingDialog {
+        init {
+            require(documentIds.size >= 2)
+            require(documentIds.distinct().size == documentIds.size)
+        }
+
         override val titleResource = R.string.library_merge_title
         override val confirmResource = R.string.library_merge_action
     }
