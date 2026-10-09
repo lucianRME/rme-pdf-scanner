@@ -115,12 +115,13 @@ import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfSaveState
 import org.synapseworks.pageharbor.document.searchablepdf.deleteStaleSearchablePdfs
 import org.synapseworks.pageharbor.document.searchablepdf.isInProgress
 import org.synapseworks.pageharbor.document.searchablepdf.searchablePdfSaveStateForProgress
-import org.synapseworks.pageharbor.document.targetsize.deleteStaleTargetSizePdfs
+import org.synapseworks.pageharbor.document.targetsize.TARGET_SIZE_MAX_STALE_AGE_MILLIS
 import org.synapseworks.pageharbor.document.targetsize.TargetSizeBytes
 import org.synapseworks.pageharbor.document.targetsize.TargetSizeSourceSummary
 import org.synapseworks.pageharbor.document.targetsize.TargetSizeWorkflowInput
 import org.synapseworks.pageharbor.document.targetsize.TargetSizeWorkflowViewModel
 import org.synapseworks.pageharbor.document.targetsize.TargetSizeWorkflowState
+import org.synapseworks.pageharbor.document.targetsize.deleteStaleTargetSizePdfs
 import org.synapseworks.pageharbor.document.targetsize.targetSizeFilename
 import org.synapseworks.pageharbor.document.targetsize.targetSizePdfRequest
 import org.synapseworks.pageharbor.document.targetsize.targetSizeShareUri
@@ -239,6 +240,7 @@ private const val STATE_INBOUND_MIGRATION_RESTORE_EXISTING_TASK =
 class MainActivity : FragmentActivity() {
     private companion object {
         val m7ProcessStartupCleanupClaimed = AtomicBoolean(false)
+        val targetSizeProcessStartupCleanupClaimed = AtomicBoolean(false)
     }
 
     private val session: PageHarborSessionViewModel by viewModels()
@@ -552,6 +554,9 @@ class MainActivity : FragmentActivity() {
         var observedDocumentRevision = session.documentRevision
         val m7CleanupCutoffMillis = System.currentTimeMillis()
         val deleteM7ProcessOrphans = m7ProcessStartupCleanupClaimed.compareAndSet(false, true)
+        val targetSizeCleanupCutoffMillis = System.currentTimeMillis()
+        val deleteTargetSizeProcessOrphans =
+            targetSizeProcessStartupCleanupClaimed.compareAndSet(false, true)
         lifecycleScope.launch {
             session.documentRevisionChanges.collect { revision ->
                 if (revision == observedDocumentRevision) return@collect
@@ -564,7 +569,15 @@ class MainActivity : FragmentActivity() {
             deleteStaleSharedPdfs(cacheDir)
             deleteStaleSearchablePdfs(cacheDir)
             deleteStaleNormalPdfs(cacheDir)
-            deleteStaleTargetSizePdfs(cacheDir)
+            deleteStaleTargetSizePdfs(
+                cacheDirectory = cacheDir,
+                nowMillis = targetSizeCleanupCutoffMillis,
+                minimumAgeMillis = if (deleteTargetSizeProcessOrphans) {
+                    0L
+                } else {
+                    TARGET_SIZE_MAX_STALE_AGE_MILLIS
+                },
+            )
             if (deleteM7ProcessOrphans) {
                 deleteStaleCardCopyFiles(cacheDir, m7CleanupCutoffMillis, minimumAgeMillis = 0L)
                 deleteStaleSecureRedactedPdfs(

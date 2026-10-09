@@ -107,6 +107,25 @@ class TargetSizePdfEngineInstrumentedTest {
     }
 
     @Test
+    fun processStartupCleanupDeletesFreshTargetSizeRunDirectories() {
+        val root = File(context.cacheDir, TARGET_SIZE_DIRECTORY_NAME).apply { mkdirs() }
+        val interruptedRun = File(root, "target-size-interrupted").apply { mkdirs() }
+        File(interruptedRun, "calibration-0-0.jpg").writeText("partial")
+        interruptedRun.setLastModified(20_000L)
+        val unrelated = File(root, "unrelated").apply { mkdirs() }
+        File(unrelated, "keep").writeText("keep")
+
+        deleteStaleTargetSizePdfs(
+            cacheDirectory = context.cacheDir,
+            nowMillis = 20_000L,
+            minimumAgeMillis = 0L,
+        )
+
+        assertFalse(interruptedRun.exists())
+        assertTrue(unrelated.exists())
+    }
+
+    @Test
     fun targetMatrixProducesExactBoundedReopenableSinglePagePdfs() = runBlocking {
         val source = createFixture("invoice", 900, 1_200, FixtureKind.INVOICE)
         val targets = listOf(

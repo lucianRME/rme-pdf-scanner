@@ -909,12 +909,14 @@ private fun File.deleteSafely() {
 fun deleteStaleTargetSizePdfs(
     cacheDirectory: File,
     nowMillis: Long = System.currentTimeMillis(),
+    minimumAgeMillis: Long = TARGET_SIZE_MAX_STALE_AGE_MILLIS,
 ) {
+    require(minimumAgeMillis >= 0L)
     File(cacheDirectory, TARGET_SIZE_DIRECTORY_NAME)
         .listFiles()
         ?.filter { it.isDirectory && it.name.startsWith("target-size-") }
         ?.forEach { directory ->
-            if (nowMillis - directory.lastModified() >= TARGET_SIZE_MAX_STALE_AGE_MILLIS) {
+            if (nowMillis - directory.lastModified() >= minimumAgeMillis) {
                 cleanupWorkingDirectory(directory)
             }
         }
