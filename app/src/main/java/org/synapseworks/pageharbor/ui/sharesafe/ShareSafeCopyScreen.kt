@@ -71,13 +71,17 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.core.graphics.createBitmap
+import androidx.exifinterface.media.ExifInterface
 import java.io.File
 import kotlin.math.max
 import kotlin.math.roundToInt
 import org.synapseworks.pageharbor.R
+import org.synapseworks.pageharbor.document.transform
 import org.synapseworks.pageharbor.document.redaction.RedactionBounds
+import org.synapseworks.pageharbor.document.redaction.RedactionCoordinateMapper
 import org.synapseworks.pageharbor.document.redaction.RedactionRegion
 import org.synapseworks.pageharbor.document.redaction.RedactionRegionId
+import org.synapseworks.pageharbor.document.session.DocumentPageRotation
 import org.synapseworks.pageharbor.document.sharesafe.ShareSafeConfigureStep
 import org.synapseworks.pageharbor.document.sharesafe.ShareSafeCopyWorkflowState
 import org.synapseworks.pageharbor.document.sharesafe.ShareSafeFailure
@@ -380,7 +384,14 @@ private fun RedactionStep(
     )
     Text(stringResource(R.string.share_safe_redact_description))
     state.selectedPagePreviewUri?.let { uri ->
-        RedactionPagePreview(uri, state.redactions, state.selectedRedactionId)
+        RedactionPagePreview(
+            uri = uri,
+            rotation = state.selectedPageRotation,
+            redactions = state.redactions,
+            selected = state.selectedRedactionId,
+            onSelect = onSelect,
+            onUpdate = onUpdate,
+        )
     }
     Row(
         Modifier.fillMaxWidth(),
@@ -423,7 +434,7 @@ private fun RedactionStep(
     }
     val selected = state.redactions.firstOrNull { it.id == state.selectedRedactionId }
     if (selected != null) {
-        RedactionAdjustmentControls(selected.bounds, onUpdate)
+        RedactionAdjustmentControls(selected.bounds, state.selectedPageRotation, onUpdate)
         RmeSecondaryButton(
             onClick = onDelete,
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
@@ -435,7 +446,11 @@ private fun RedactionStep(
 }
 
 @Composable
-private fun RedactionAdjustmentControls(bounds: RedactionBounds, onUpdate: (RedactionBounds) -> Unit) {
+private fun RedactionAdjustmentControls(
+    bounds: RedactionBounds,
+    rotation: DocumentPageRotation,
+    onUpdate: (RedactionBounds) -> Unit,
+) {
     val movements = listOf(
         "←" to (-0.025f to 0f),
         "↑" to (0f to -0.025f),
@@ -445,18 +460,29 @@ private fun RedactionAdjustmentControls(bounds: RedactionBounds, onUpdate: (Reda
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
         movements.forEach { (label, delta) ->
             RmeSecondaryButton(
-                onClick = { shifted(bounds, delta.first, delta.second)?.let(onUpdate) },
+                onClick = {
+                    moveRedactionInDisplaySpace(
+                        sourceBounds = bounds,
+                        rotation = rotation,
+                        deltaX = delta.first,
+                        deltaY = delta.second,
+                    )?.let(onUpdate)
+                },
                 modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
             ) { Text(label) }
         }
     }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
         RmeSecondaryButton(
-            onClick = { resized(bounds, -0.025f)?.let(onUpdate) },
+            onClick = {
+                resizeRedactionInDisplaySpace(bounds, rotation, -0.025f)?.let(onUpdate)
+            },
             modifier = Modifier.heightIn(min = 48.dp),
         ) { Text("−") }
         RmeSecondaryButton(
-            onClick = { resized(bounds, 0.025f)?.let(onUpdate) },
+            onClick = {
+                resizeRedactionInDisplaySpace(bounds, rotation, 0.025f)?.let(onUpdate)
+            },
             modifier = Modifier.heightIn(min = 48.dp),
         ) { Text("+") }
     }
@@ -465,14 +491,18 @@ private fun RedactionAdjustmentControls(bounds: RedactionBounds, onUpdate: (Reda
 @Composable
 private fun RedactionPagePreview(
     uri: Uri,
+    rotation: DocumentPageRotation,
     redactions: List<RedactionRegion>,
     selected: RedactionRegionId?,
+    onSelect: (RedactionRegionId) -> Unit,
+    onUpdate: (RedactionBounds) -> Unit,
 ) {
     val resolver = LocalContext.current.contentResolver
     val preview by rememberManagedDocumentPreview(
-        requestKey = uri,
-        decode = { decodeBoundedPreview(resolver, uri) },
+        requestKey = uri to rotation,
+        decode = { decodeBoundedRedactionPreview(resolver, uri, rotation) },
     )
+    val minimumTargetPx = with(LocalDensity.current) { 48.dp.toPx() }
     Surface(
         Modifier.fillMaxWidth().heightIn(min = 260.dp, max = 520.dp),
         color = MaterialTheme.rmeColors.previewBackground,
@@ -486,23 +516,51 @@ private fun RedactionPagePreview(
                 )
                 is ManagedDocumentPreviewState.Ready -> ZoomableDocumentPreview(
                     bitmap = current.owner.bitmap.asImageBitmap(),
-                    resetKey = uri,
-                    description = stringResource(R.string.share_safe_watermark_preview),
+                    resetKey = uri to rotation,
+                    description = stringResource(R.string.share_safe_redaction_preview),
                     modifier = Modifier.fillMaxSize().aspectRatio(
                         current.owner.bitmap.width.toFloat() / current.owner.bitmap.height,
                         matchHeightConstraintsFirst = true,
                     ),
                 ) {
-                    Canvas(Modifier.fillMaxSize()) {
+                    Canvas(
+                        Modifier.fillMaxSize().shareSafeRedactionDragGestures(
+                            previewKey = uri,
+                            imageWidthPx = current.owner.bitmap.width,
+                            imageHeightPx = current.owner.bitmap.height,
+                            rotation = rotation,
+                            regions = redactions,
+                            selectedId = selected,
+                            minimumTargetPx = minimumTargetPx,
+                            onSelect = onSelect,
+                            onUpdate = onUpdate,
+                        ),
+                    ) {
+                        val geometry = redactionPreviewGeometry(
+                            viewportWidthPx = size.width,
+                            viewportHeightPx = size.height,
+                            imageWidthPx = current.owner.bitmap.width,
+                            imageHeightPx = current.owner.bitmap.height,
+                        )
                         redactions.forEach { region ->
+                            val displayBounds = RedactionCoordinateMapper.rotate(
+                                region.bounds,
+                                rotation,
+                            )
                             drawRect(
                                 color = if (region.id == selected) {
                                     androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.9f)
                                 } else {
                                     androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.72f)
                                 },
-                                topLeft = Offset(region.bounds.left * size.width, region.bounds.top * size.height),
-                                size = Size(region.bounds.width * size.width, region.bounds.height * size.height),
+                                topLeft = Offset(
+                                    geometry.leftPx + displayBounds.left * geometry.widthPx,
+                                    geometry.topPx + displayBounds.top * geometry.heightPx,
+                                ),
+                                size = Size(
+                                    displayBounds.width * geometry.widthPx,
+                                    displayBounds.height * geometry.heightPx,
+                                ),
                             )
                         }
                     }
@@ -1007,24 +1065,24 @@ private fun opacityLabel(value: ShareSafeWatermarkOpacity): String = stringResou
     },
 )
 
-private fun shifted(bounds: RedactionBounds, dx: Float, dy: Float): RedactionBounds? {
-    val safeDx = dx.coerceIn(-bounds.left, 1f - bounds.right)
-    val safeDy = dy.coerceIn(-bounds.top, 1f - bounds.bottom)
-    return RedactionBounds.clamped(
-        bounds.left + safeDx,
-        bounds.top + safeDy,
-        bounds.right + safeDx,
-        bounds.bottom + safeDy,
-    )
+internal fun decodeBoundedRedactionPreview(
+    contentResolver: ContentResolver,
+    uri: Uri,
+    rotation: DocumentPageRotation,
+): Bitmap? {
+    val decoded = decodeBoundedPreview(contentResolver, uri) ?: return null
+    return try {
+        transform(decoded, ExifInterface.ORIENTATION_NORMAL, rotation).also { transformed ->
+            if (transformed !== decoded) decoded.recycle()
+        }
+    } catch (_: Exception) {
+        decoded.recycle()
+        null
+    } catch (_: OutOfMemoryError) {
+        decoded.recycle()
+        null
+    }
 }
-
-private fun resized(bounds: RedactionBounds, delta: Float): RedactionBounds? =
-    RedactionBounds.clamped(
-        bounds.left - delta,
-        bounds.top - delta,
-        bounds.right + delta,
-        bounds.bottom + delta,
-    )
 
 internal fun decodeBoundedPreview(
     contentResolver: ContentResolver,

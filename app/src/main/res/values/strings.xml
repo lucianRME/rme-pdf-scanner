@@ -333,6 +333,7 @@
     <string name="share_safe_opacity_normal">Normal</string>
     <string name="share_safe_opacity_strong">Strong</string>
     <string name="share_safe_watermark_preview">Watermark placement preview</string>
+    <string name="share_safe_redaction_preview">Redaction preview. Drag a blackout region to move it; pinch to zoom.</string>
     <string name="share_safe_size_heading">Fit a size limit</string>
     <string name="share_safe_size_toggle">Limit final PDF size</string>
     <string name="share_safe_size_support">Compression uses only the verified sanitized and watermarked copy.</string>

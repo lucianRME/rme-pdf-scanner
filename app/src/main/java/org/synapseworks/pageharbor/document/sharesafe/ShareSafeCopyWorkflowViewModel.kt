@@ -21,6 +21,7 @@ import org.synapseworks.pageharbor.document.redaction.RedactionRegion
 import org.synapseworks.pageharbor.document.redaction.RedactionRegionId
 import org.synapseworks.pageharbor.document.redaction.RedactionTarget
 import org.synapseworks.pageharbor.document.redaction.RedactionTargetKind
+import org.synapseworks.pageharbor.document.session.DocumentPageRotation
 
 enum class ShareSafeSourceKind { DOCUMENT, CARD_COPY }
 enum class ShareSafeConfigureStep { REDACT, PURPOSE, SIZE, REVIEW }
@@ -47,6 +48,7 @@ sealed interface ShareSafeCopyWorkflowState {
         val step: ShareSafeConfigureStep,
         val selectedPageIndex: Int = 0,
         val selectedPagePreviewUri: Uri? = null,
+        val selectedPageRotation: DocumentPageRotation = DocumentPageRotation.DEGREES_0,
         val redactions: List<RedactionRegion> = emptyList(),
         val selectedRedactionId: RedactionRegionId? = null,
     ) : ShareSafeCopyWorkflowState
@@ -158,6 +160,7 @@ class ShareSafeCopyWorkflowViewModel(
         current.copy(
             selectedPageIndex = safeIndex,
             selectedPagePreviewUri = input.pages[safeIndex].previewUri,
+            selectedPageRotation = input.pages[safeIndex].source.rotation,
             redactions = input.pages[safeIndex].redactions,
             selectedRedactionId = null,
         )
@@ -463,6 +466,8 @@ class ShareSafeCopyWorkflowViewModel(
                 ShareSafeConfigureStep.PURPOSE
             },
             selectedPagePreviewUri = pages.firstOrNull()?.previewUri,
+            selectedPageRotation = pages.firstOrNull()?.source?.rotation
+                ?: DocumentPageRotation.DEGREES_0,
             redactions = pages.firstOrNull()?.redactions.orEmpty(),
         )
     }

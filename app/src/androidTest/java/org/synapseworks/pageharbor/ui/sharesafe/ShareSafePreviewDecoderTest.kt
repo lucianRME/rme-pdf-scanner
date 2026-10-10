@@ -8,6 +8,7 @@ import java.io.File
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.synapseworks.pageharbor.document.session.DocumentPageRotation
 
 class ShareSafePreviewDecoderTest {
     @Test
@@ -26,6 +27,31 @@ class ShareSafePreviewDecoderTest {
             assertNotNull(decoded)
             assertTrue(requireNotNull(decoded).width <= 1_400)
             assertTrue(decoded.height <= 1_400)
+        } finally {
+            decoded?.recycle()
+            source.delete()
+        }
+    }
+
+    @Test
+    fun redactionPreviewAppliesTheAuthoritativePageRotation() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val source = File(context.cacheDir, "share-safe-redaction-rotation.jpg")
+        val bitmap = Bitmap.createBitmap(800, 400, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(Color.WHITE)
+        }
+        source.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+        bitmap.recycle()
+
+        val decoded = decodeBoundedRedactionPreview(
+            context.contentResolver,
+            Uri.fromFile(source),
+            DocumentPageRotation.DEGREES_90,
+        )
+
+        try {
+            assertNotNull(decoded)
+            assertTrue(requireNotNull(decoded).height > decoded.width)
         } finally {
             decoded?.recycle()
             source.delete()
