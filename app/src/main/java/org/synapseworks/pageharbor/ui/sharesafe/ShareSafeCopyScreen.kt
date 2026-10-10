@@ -35,16 +35,13 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -108,6 +105,10 @@ import org.synapseworks.pageharbor.ui.home.ManagedDocumentPreviewState
 import org.synapseworks.pageharbor.ui.home.ZoomableDocumentPreview
 import org.synapseworks.pageharbor.ui.home.rememberManagedDocumentPreview
 import org.synapseworks.pageharbor.ui.theme.PageHarborLayout
+import org.synapseworks.pageharbor.ui.theme.RmeSecondaryButton
+import org.synapseworks.pageharbor.ui.theme.RmePrimaryButton
+import org.synapseworks.pageharbor.ui.theme.RmeTonalChoice
+import org.synapseworks.pageharbor.ui.theme.rmeColors
 import org.synapseworks.pageharbor.ui.theme.PageHarborSpacing
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -318,7 +319,7 @@ private fun ConfigureContent(
                 color = MaterialTheme.colorScheme.surfaceContainer,
                 tonalElevation = 3.dp,
             ) {
-                Button(
+                RmePrimaryButton(
                     onClick = if (state.step == ShareSafeConfigureStep.REVIEW) onPrepare else onNext,
                     modifier = Modifier
                         .padding(PageHarborSpacing.medium)
@@ -387,22 +388,21 @@ private fun RedactionStep(
         horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
     ) {
         state.redactions.forEachIndexed { index, region ->
-            FilterChip(
+            RmeTonalChoice(
                 selected = region.id == state.selectedRedactionId,
                 onClick = { onSelect(region.id) },
-                label = { Text("${index + 1}") },
                 modifier = Modifier.heightIn(min = 48.dp),
-            )
+            ) { Text("${index + 1}") }
         }
     }
-    Button(onClick = onAdd, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+    RmePrimaryButton(onClick = onAdd, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
         Icon(Icons.Default.Add, null)
         Text(stringResource(R.string.share_safe_add_redaction))
     }
     val selected = state.redactions.firstOrNull { it.id == state.selectedRedactionId }
     if (selected != null) {
         RedactionAdjustmentControls(selected.bounds, onUpdate)
-        OutlinedButton(
+        RmeSecondaryButton(
             onClick = onDelete,
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
         ) {
@@ -422,18 +422,18 @@ private fun RedactionAdjustmentControls(bounds: RedactionBounds, onUpdate: (Reda
     )
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
         movements.forEach { (label, delta) ->
-            OutlinedButton(
+            RmeSecondaryButton(
                 onClick = { shifted(bounds, delta.first, delta.second)?.let(onUpdate) },
                 modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
             ) { Text(label) }
         }
     }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-        OutlinedButton(
+        RmeSecondaryButton(
             onClick = { resized(bounds, -0.025f)?.let(onUpdate) },
             modifier = Modifier.heightIn(min = 48.dp),
         ) { Text("−") }
-        OutlinedButton(
+        RmeSecondaryButton(
             onClick = { resized(bounds, 0.025f)?.let(onUpdate) },
             modifier = Modifier.heightIn(min = 48.dp),
         ) { Text("+") }
@@ -453,7 +453,7 @@ private fun RedactionPagePreview(
     )
     Surface(
         Modifier.fillMaxWidth().heightIn(min = 260.dp, max = 520.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        color = MaterialTheme.rmeColors.previewBackground,
         shape = MaterialTheme.shapes.large,
     ) {
         Box(contentAlignment = Alignment.Center) {
@@ -603,19 +603,17 @@ private fun SizeStep(
             horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
         ) {
             presetBytes.forEach { bytes ->
-                FilterChip(
+                RmeTonalChoice(
                     selected = !customSelected && state.targetSize.maximumBytes == bytes,
                     onClick = { customSelected = false; onBytes(bytes) },
-                    label = { Text(formatTargetSize(bytes)) },
                     modifier = Modifier.heightIn(min = 48.dp),
-                )
+                ) { Text(formatTargetSize(bytes)) }
             }
-            FilterChip(
+            RmeTonalChoice(
                 selected = customSelected,
                 onClick = { customSelected = true },
-                label = { Text(stringResource(R.string.fit_limit_custom)) },
                 modifier = Modifier.heightIn(min = 48.dp),
-            )
+            ) { Text(stringResource(R.string.fit_limit_custom)) }
         }
         if (customSelected) {
             OutlinedTextField(
@@ -637,21 +635,20 @@ private fun SizeStep(
                 horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
             ) {
                 TargetSizeCustomUnit.entries.forEach { unit ->
-                    FilterChip(
+                    RmeTonalChoice(
                         selected = unit == customUnit,
                         onClick = {
                             customUnit = unit
                             (TargetSizeCustomLimitParser.parse(customText, unit)
                                 as? TargetSizeCustomValidation.Valid)?.let { onBytes(it.bytes) }
                         },
-                        label = { Text(unit.name) },
                         modifier = Modifier.heightIn(min = 48.dp),
-                    )
+                    ) { Text(unit.name) }
                 }
             }
         }
     }
-    Button(
+    RmePrimaryButton(
         onClick = onNext,
         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
         enabled = !state.targetSize.enabled || !customSelected ||
@@ -734,12 +731,12 @@ private fun PreparedContent(
             color = MaterialTheme.colorScheme.error,
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
-            Button(
+            RmePrimaryButton(
                 onClick = onSave,
                 enabled = !saving,
                 modifier = Modifier.weight(1f).heightIn(min = 48.dp),
             ) { Icon(Icons.Default.Save, null); Text(stringResource(R.string.share_safe_save)) }
-            OutlinedButton(
+            RmeSecondaryButton(
                 onClick = onShare,
                 enabled = !saving,
                 modifier = Modifier.weight(1f).heightIn(min = 48.dp),
@@ -770,7 +767,7 @@ private fun FailedContent(state: ShareSafeCopyWorkflowState.Failed, onRetry: () 
             ),
             style = MaterialTheme.typography.titleMedium,
         )
-        if (state.canRetry) Button(
+        if (state.canRetry) RmePrimaryButton(
             onClick = onRetry,
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
         ) { Text(stringResource(R.string.share_safe_retry)) }
@@ -791,12 +788,11 @@ private fun <T> ChoiceRow(
         horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
     ) {
         values.forEach { value ->
-            FilterChip(
+            RmeTonalChoice(
                 selected = value == selected,
                 onClick = { onSelected(value) },
-                label = { Text(label(value)) },
                 modifier = Modifier.heightIn(min = 48.dp),
-            )
+            ) { Text(label(value)) }
         }
     }
 }
@@ -825,7 +821,7 @@ private fun WatermarkPreview(uri: Uri?, config: ShareSafeWatermarkConfig) {
     Surface(
         Modifier.fillMaxWidth().heightIn(min = 260.dp, max = 420.dp)
             .semantics { contentDescription = description },
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        color = MaterialTheme.rmeColors.previewBackground,
         shape = MaterialTheme.shapes.large,
     ) {
         Box(contentAlignment = Alignment.Center) {
@@ -901,7 +897,7 @@ private fun FinalPdfPreview(prepared: ShareSafePreparedPdf) {
         Surface(
             Modifier.fillMaxWidth().heightIn(min = 320.dp, max = 560.dp)
                 .semantics { contentDescription = description },
-            color = androidx.compose.ui.graphics.Color.White,
+            color = MaterialTheme.rmeColors.previewBackground,
             shape = MaterialTheme.shapes.large,
         ) {
             Box(contentAlignment = Alignment.Center) {

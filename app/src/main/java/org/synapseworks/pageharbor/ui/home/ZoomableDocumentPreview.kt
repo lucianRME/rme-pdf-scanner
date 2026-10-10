@@ -28,6 +28,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import org.synapseworks.pageharbor.ui.theme.PageHarborSpacing
+import org.synapseworks.pageharbor.ui.theme.rmeColors
 
 internal const val DOCUMENT_PREVIEW_MIN_SCALE = 1f
 internal const val DOCUMENT_PREVIEW_MAX_SCALE = 4f
@@ -101,8 +102,8 @@ internal fun ZoomableDocumentPreview(
     Surface(
         modifier = previewModifier,
         shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-        tonalElevation = 1.dp,
+        color = MaterialTheme.rmeColors.previewBackground,
+        tonalElevation = 0.dp,
     ) {
         Box(
             modifier = Modifier

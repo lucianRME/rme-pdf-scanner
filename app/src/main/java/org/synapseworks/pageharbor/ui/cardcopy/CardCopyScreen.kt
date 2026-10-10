@@ -34,18 +34,14 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SwapVert
-import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -108,6 +104,10 @@ import org.synapseworks.pageharbor.document.targetsize.formatDecimalBytes
 import org.synapseworks.pageharbor.ui.home.ManagedDocumentPreviewState
 import org.synapseworks.pageharbor.ui.home.ZoomableDocumentPreview
 import org.synapseworks.pageharbor.ui.home.rememberManagedDocumentPreview
+import org.synapseworks.pageharbor.ui.theme.RmeSecondaryButton
+import org.synapseworks.pageharbor.ui.theme.RmePrimaryButton
+import org.synapseworks.pageharbor.ui.theme.RmeTonalChoice
+import org.synapseworks.pageharbor.ui.theme.rmeColors
 import org.synapseworks.pageharbor.ui.theme.PageHarborLayout
 import org.synapseworks.pageharbor.ui.theme.PageHarborSpacing
 
@@ -220,7 +220,7 @@ private fun AcquireContent(
         if (!frontReady) Notice(stringResource(R.string.card_copy_add_front))
         else if (!backReady) Notice(stringResource(R.string.card_copy_add_back))
         Text(stringResource(R.string.card_copy_processed_locally), color = MaterialTheme.colorScheme.primary)
-        Button(
+        RmePrimaryButton(
             onClick = onContinue,
             enabled = frontReady && backReady,
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
@@ -254,14 +254,14 @@ private fun ReviewContent(
         )
         SideCard(CardCopySide.FRONT, front, onScan, onImport, onRotate, onRemove, onRedact)
         SideCard(CardCopySide.BACK, back, onScan, onImport, onRotate, onRemove, onRedact)
-        FilledTonalButton(
+        RmeSecondaryButton(
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
             onClick = onSwap,
         ) {
             Icon(Icons.Default.SwapVert, contentDescription = null)
             Text(stringResource(R.string.card_copy_swap))
         }
-        Button(
+        RmePrimaryButton(
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
             enabled = front.readySource() != null && back.readySource() != null,
             onClick = onContinue,
@@ -323,12 +323,11 @@ private fun RedactionEditorContent(
                 horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
             ) {
                 state.editor.regions.sortedBy(RedactionRegion::order).forEachIndexed { index, region ->
-                    FilterChip(
+                    RmeTonalChoice(
                         selected = region.id == state.editor.selectedId,
                         onClick = { onSelect(region.id) },
-                        label = { Text(stringResource(R.string.card_copy_redaction_label, index + 1)) },
                         modifier = Modifier.heightIn(min = 48.dp),
-                    )
+                    ) { Text(stringResource(R.string.card_copy_redaction_label, index + 1)) }
                 }
             }
         }
@@ -336,7 +335,7 @@ private fun RedactionEditorContent(
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
         ) {
-            OutlinedButton(
+            RmeSecondaryButton(
                 modifier = Modifier.heightIn(min = 48.dp),
                 onClick = { onAdd(defaultRedactionBounds()) },
             ) { Text(stringResource(R.string.card_copy_add_redaction)) }
@@ -402,7 +401,7 @@ private fun RedactionEditorContent(
                 }
             }
         }
-        Button(
+        RmePrimaryButton(
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
             onClick = onApply,
         ) { Text(stringResource(R.string.card_copy_apply_redactions)) }
@@ -412,7 +411,7 @@ private fun RedactionEditorContent(
 
 @Composable
 private fun RedactionAdjustButton(label: Int, onClick: () -> Unit) {
-    OutlinedButton(
+    RmeSecondaryButton(
         modifier = Modifier.heightIn(min = 48.dp),
         onClick = onClick,
     ) { Text(stringResource(label)) }
@@ -452,7 +451,7 @@ private fun RedactionEditorCanvas(
 
     Surface(
         modifier = modifier.semantics { contentDescription = editorDescription },
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        color = MaterialTheme.rmeColors.previewBackground,
         shape = MaterialTheme.shapes.medium,
     ) {
         Box(contentAlignment = Alignment.Center) {
@@ -751,11 +750,11 @@ private fun SideCard(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
                 ) {
-                    Button(
+                    RmePrimaryButton(
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                         onClick = { onScan(side) },
                     ) { Text(stringResource(R.string.card_copy_scan)) }
-                    FilledTonalButton(
+                    RmeSecondaryButton(
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                         onClick = { onImport(side) },
                     ) { Text(stringResource(R.string.card_copy_import)) }
@@ -767,7 +766,7 @@ private fun SideCard(
                     horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall),
                 ) {
                     Box {
-                        FilledTonalButton(onClick = { replaceExpanded = true }) {
+                        RmeSecondaryButton(onClick = { replaceExpanded = true }) {
                             Text(stringResource(R.string.card_copy_replace))
                         }
                         DropdownMenu(
@@ -806,7 +805,11 @@ private fun SideCard(
                             modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
                             onClick = { onRemove(side) },
                         ) {
-                            Icon(Icons.Default.Delete, stringResource(R.string.card_copy_remove))
+                            Icon(
+                                Icons.Default.Delete,
+                                stringResource(R.string.card_copy_remove),
+                                tint = MaterialTheme.colorScheme.error,
+                            )
                         }
                     }
                 }
@@ -860,7 +863,7 @@ private fun LayoutContent(
                 ChoiceRow(stringResource(R.string.card_copy_alignment), CardCopyAlignment.entries, settings.alignment,
                     { when (it) { CardCopyAlignment.START -> R.string.card_copy_start_alignment; CardCopyAlignment.CENTER -> R.string.card_copy_center_alignment; CardCopyAlignment.END -> R.string.card_copy_end_alignment } }, onAlignment)
                 Text(stringResource(R.string.card_copy_originals_unchanged), color = MaterialTheme.colorScheme.primary)
-                Button(
+                RmePrimaryButton(
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                     onClick = onContinue,
                 ) { Text(stringResource(R.string.card_copy_preview)) }
@@ -903,12 +906,11 @@ private fun <T> ChoiceRow(
             horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
         ) {
             values.forEach { value ->
-                FilterChip(
+                RmeTonalChoice(
                     selected = value == selected,
                     onClick = { onSelected(value) },
-                    label = { Text(stringResource(label(value))) },
                     modifier = Modifier.heightIn(min = 48.dp),
-                )
+                ) { Text(stringResource(label(value))) }
             }
         }
     }
@@ -929,7 +931,7 @@ private fun PreviewContent(
     ) {
         LivePagePreview(front, back, settings, Modifier.fillMaxWidth().heightIn(min = 420.dp, max = 620.dp))
         Text(stringResource(R.string.card_copy_processed_locally), color = MaterialTheme.colorScheme.primary)
-        Button(
+        RmePrimaryButton(
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
             onClick = onPrepare,
         ) { Text(stringResource(R.string.card_copy_prepare)) }
@@ -974,17 +976,17 @@ private fun PreparedContent(
         }
         if (state.shareFailed) Notice(stringResource(R.string.card_copy_share_failed))
         if (state.continueToShareSafe) {
-            Button(
+            RmePrimaryButton(
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                 enabled = !saving,
                 onClick = onContinueShareSafe,
             ) { Text(stringResource(R.string.share_safe_continue)) }
         } else {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
-                Button(
+                RmePrimaryButton(
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp), enabled = !saving, onClick = onSave,
                 ) { Icon(Icons.Default.Save, null); Text(stringResource(R.string.card_copy_save)) }
-                OutlinedButton(
+                RmeSecondaryButton(
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp), enabled = !saving, onClick = onShare,
                 ) { Icon(Icons.Default.Share, null); Text(stringResource(R.string.card_copy_share)) }
             }
@@ -1006,7 +1008,7 @@ private fun FailedContent(reason: CardCopyFailure, onRetry: () -> Unit) {
     ) {
         Text(stringResource(R.string.card_copy_title), style = MaterialTheme.typography.headlineSmall)
         Text(stringResource(failureText(reason)))
-        if (reason != CardCopyFailure.PROCESS_INTERRUPTED) Button(
+        if (reason != CardCopyFailure.PROCESS_INTERRUPTED) RmePrimaryButton(
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), onClick = onRetry,
         ) { Text(stringResource(R.string.card_copy_try_again)) }
     }
@@ -1076,7 +1078,7 @@ private fun LivePagePreview(
                     }
                 }
                 .semantics { contentDescription = previewDescription },
-            color = androidx.compose.ui.graphics.Color.White,
+            color = MaterialTheme.rmeColors.pageSurface,
             shadowElevation = 4.dp,
         ) {
             val frontBitmap = (frontState as? ManagedDocumentPreviewState.Ready)?.owner?.bitmap
@@ -1130,7 +1132,7 @@ private fun PreparedPdfPreview(prepared: CardCopyPreparedPdf, modifier: Modifier
     val previewDescription = stringResource(R.string.card_copy_prepared_preview_description)
     Surface(
         modifier = modifier.semantics { contentDescription = previewDescription },
-        color = androidx.compose.ui.graphics.Color.White,
+        color = MaterialTheme.rmeColors.previewBackground,
         shape = MaterialTheme.shapes.large,
     ) {
         Box(contentAlignment = Alignment.Center) {
@@ -1186,8 +1188,16 @@ private fun renderPdf(file: File): Bitmap? = try {
 
 @Composable
 private fun Notice(text: String) {
-    Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.medium) {
-        Text(text, Modifier.padding(PageHarborSpacing.small))
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.rmeColors.surfaceMedium,
+        shape = MaterialTheme.shapes.medium,
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(PageHarborSpacing.small),
+            color = MaterialTheme.colorScheme.onSurface,
+        )
     }
 }
 

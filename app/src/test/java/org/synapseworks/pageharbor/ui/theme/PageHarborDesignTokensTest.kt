@@ -25,6 +25,10 @@ class PageHarborDesignTokensTest {
         assertEquals(24.dp, PageHarborLayout.mediumScreenHorizontalPadding)
         assertEquals(32.dp, PageHarborLayout.expandedScreenHorizontalPadding)
         assertEquals(48.dp, PageHarborLayout.minimumTouchTarget)
+        assertEquals(48.dp, PageHarborLayout.primaryActionHeight)
+        assertEquals(56.dp, PageHarborLayout.scanFabSize)
+        assertEquals(96.dp, PageHarborLayout.toolTileMinimumHeight)
+        assertEquals(28.dp, PageHarborLayout.toolIconSize)
         assertEquals(20.dp, PageHarborLayout.inlineProgressIndicatorSize)
         assertTrue(
             PageHarborLayout.documentPreviewMinHeight < PageHarborLayout.documentPreviewMaxHeight,

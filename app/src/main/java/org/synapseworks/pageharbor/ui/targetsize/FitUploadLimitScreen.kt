@@ -27,15 +27,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -87,6 +84,10 @@ import org.synapseworks.pageharbor.ui.home.ZoomableDocumentPreview
 import org.synapseworks.pageharbor.ui.home.rememberManagedDocumentPreview
 import org.synapseworks.pageharbor.ui.theme.PageHarborLayout
 import org.synapseworks.pageharbor.ui.theme.PageHarborSpacing
+import org.synapseworks.pageharbor.ui.theme.RmePrimaryButton
+import org.synapseworks.pageharbor.ui.theme.RmeSecondaryButton
+import org.synapseworks.pageharbor.ui.theme.RmeTonalChoice
+import org.synapseworks.pageharbor.ui.theme.rmeColors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -211,19 +212,17 @@ private fun ChooseLimitContent(
             horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
         ) {
             TargetSizePreset.entries.forEach { preset ->
-                FilterChip(
+                RmeTonalChoice(
                     selected = selection == TargetSizeLimitSelection.Preset(preset),
                     onClick = { onPresetSelected(preset) },
-                    label = { Text(formatTargetSize(preset.bytes)) },
                     modifier = Modifier.heightIn(min = 48.dp),
-                )
+                ) { Text(formatTargetSize(preset.bytes)) }
             }
-            FilterChip(
+            RmeTonalChoice(
                 selected = selection is TargetSizeLimitSelection.Custom,
                 onClick = onCustomSelected,
-                label = { Text(stringResource(R.string.fit_limit_custom)) },
                 modifier = Modifier.heightIn(min = 48.dp),
-            )
+            ) { Text(stringResource(R.string.fit_limit_custom)) }
         }
         if (selection is TargetSizeLimitSelection.Custom) {
             CustomLimitInput(selection, onCustomTextChanged, onCustomUnitChanged)
@@ -246,7 +245,7 @@ private fun ChooseLimitContent(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.primary,
         )
-        Button(
+        RmePrimaryButton(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 48.dp),
@@ -281,12 +280,11 @@ private fun CustomLimitInput(
         )
         Row(horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
             TargetSizeCustomUnit.entries.forEach { unit ->
-                FilterChip(
+                RmeTonalChoice(
                     selected = selection.unit == unit,
                     onClick = { onUnitChanged(unit) },
-                    label = { Text(unit.name) },
                     modifier = Modifier.heightIn(min = 48.dp),
-                )
+                ) { Text(unit.name) }
             }
         }
     }
@@ -349,7 +347,7 @@ private fun PreparingContent(state: TargetSizeWorkflowState.Preparing, onCancel:
         )
         Text(stringResource(progressText(state.progress)))
         Text(formatTargetSize(state.targetBytes), style = MaterialTheme.typography.titleMedium)
-        OutlinedButton(
+        RmeSecondaryButton(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 48.dp),
@@ -485,7 +483,7 @@ private fun PreparedDetails(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
         ) {
-            Button(
+            RmePrimaryButton(
                 modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                 enabled = !saving,
                 onClick = onSave,
@@ -493,7 +491,7 @@ private fun PreparedDetails(
                 Icon(Icons.Default.Save, contentDescription = null)
                 Text(stringResource(R.string.fit_limit_save))
             }
-            OutlinedButton(
+            RmeSecondaryButton(
                 modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                 enabled = !saving,
                 onClick = onShare,
@@ -581,7 +579,7 @@ private fun ImpossibleContent(
             stringResource(R.string.fit_limit_estimated),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Button(
+        RmePrimaryButton(
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
             enabled = state.smallestRecommended != null,
             onClick = onUseAlternative,
@@ -593,7 +591,7 @@ private fun ImpossibleContent(
                 ),
             )
         }
-        OutlinedButton(
+        RmeSecondaryButton(
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
             onClick = onChangeLimit,
         ) {
@@ -622,7 +620,7 @@ private fun FailedContent(
         )
         Text(stringResource(failureText(state.reason)))
         if (state.input != null) {
-            Button(
+            RmePrimaryButton(
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                 onClick = onRetry,
             ) { Text(stringResource(R.string.fit_limit_retry)) }
@@ -656,7 +654,7 @@ private fun PreparedPdfPreview(prepared: TargetSizePreparedPdf, modifier: Modifi
                 .fillMaxWidth()
                 .heightIn(min = 260.dp, max = 560.dp)
                 .semantics { contentDescription = description },
-            color = MaterialTheme.colorScheme.surfaceVariant,
+            color = MaterialTheme.rmeColors.previewBackground,
             shape = MaterialTheme.shapes.large,
         ) {
             Box(contentAlignment = Alignment.Center) {
@@ -745,7 +743,8 @@ private fun MetricRow(label: String, value: String) {
 private fun NeutralNotice(text: String) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.secondaryContainer,
+        color = MaterialTheme.rmeColors.surfaceMedium,
+        contentColor = MaterialTheme.rmeColors.warning,
         shape = MaterialTheme.shapes.medium,
     ) {
         Text(text, Modifier.padding(PageHarborSpacing.small))

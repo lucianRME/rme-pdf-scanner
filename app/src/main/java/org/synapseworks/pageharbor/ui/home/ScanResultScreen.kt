@@ -54,7 +54,6 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -71,6 +70,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
@@ -102,6 +102,8 @@ import org.synapseworks.pageharbor.ocr.OcrUiState
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.ui.theme.PageHarborLayout
 import org.synapseworks.pageharbor.ui.theme.PageHarborSpacing
+import org.synapseworks.pageharbor.ui.theme.RmeSecondaryButton
+import org.synapseworks.pageharbor.ui.theme.rmeColors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -507,7 +509,16 @@ private fun DocumentBottomBar(
     onMore: () -> Unit,
 ) {
     val fontScale = LocalDensity.current.fontScale
+    val rmeColors = MaterialTheme.rmeColors
     Surface(
+        modifier = Modifier.drawBehind {
+            drawLine(
+                color = rmeColors.divider,
+                start = androidx.compose.ui.geometry.Offset.Zero,
+                end = androidx.compose.ui.geometry.Offset(size.width, 0f),
+                strokeWidth = 1.dp.toPx(),
+            )
+        },
         tonalElevation = 3.dp,
         color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
@@ -545,7 +556,7 @@ private fun DocumentBottomBar(
                         ),
                     shape = MaterialTheme.shapes.extraLarge,
                     color = if (emphasized) {
-                        MaterialTheme.colorScheme.secondaryContainer
+                        MaterialTheme.colorScheme.primaryContainer
                     } else {
                         androidx.compose.ui.graphics.Color.Transparent
                     },
@@ -560,10 +571,10 @@ private fun DocumentBottomBar(
                             imageVector = action.icon,
                             contentDescription = null,
                             tint = if (action.enabled) {
-                                if (emphasized) MaterialTheme.colorScheme.onSecondaryContainer
-                                else MaterialTheme.colorScheme.onSurfaceVariant
+                                if (emphasized) MaterialTheme.colorScheme.onPrimaryContainer
+                                else MaterialTheme.rmeColors.iconSecondary
                             } else {
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                MaterialTheme.rmeColors.iconDisabled
                             },
                         )
                         if (fontScale < 1.8f) {
@@ -572,9 +583,10 @@ private fun DocumentBottomBar(
                                 maxLines = 1,
                                 style = MaterialTheme.typography.labelMedium,
                                 color = if (action.enabled) {
-                                    MaterialTheme.colorScheme.onSurface
+                                    if (emphasized) MaterialTheme.colorScheme.onPrimaryContainer
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
                                 } else {
-                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                    MaterialTheme.rmeColors.textDisabled
                                 },
                             )
                         }
@@ -600,7 +612,16 @@ private fun DocumentEditBar(
     onMove: (DocumentPage, Int) -> Unit,
     onRemove: (DocumentPage) -> Unit,
 ) {
+    val rmeColors = MaterialTheme.rmeColors
     Surface(
+        modifier = Modifier.drawBehind {
+            drawLine(
+                color = rmeColors.divider,
+                start = androidx.compose.ui.geometry.Offset.Zero,
+                end = androidx.compose.ui.geometry.Offset(size.width, 0f),
+                strokeWidth = 1.dp.toPx(),
+            )
+        },
         tonalElevation = 3.dp,
         color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
@@ -712,16 +733,14 @@ private fun EditorActionButton(
     destructive: Boolean = false,
     onClick: () -> Unit,
 ) {
-    OutlinedButton(
+    RmeSecondaryButton(
         enabled = enabled,
         onClick = onClick,
-        colors = ButtonDefaults.outlinedButtonColors(
-            contentColor = if (destructive) {
-                MaterialTheme.colorScheme.error
-            } else {
-                MaterialTheme.colorScheme.primary
-            },
-        ),
+        contentColor = if (destructive) {
+            MaterialTheme.colorScheme.error
+        } else {
+            MaterialTheme.colorScheme.onSurface
+        },
     ) {
         Icon(
             modifier = Modifier.size(18.dp),
@@ -781,7 +800,7 @@ private fun EmptyDocumentWorkspace(modifier: Modifier, pageCount: Int) {
             .fillMaxWidth()
             .heightIn(min = PageHarborLayout.editorDocumentPreviewMinHeight),
         shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        color = MaterialTheme.rmeColors.previewBackground,
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text(
@@ -1297,7 +1316,7 @@ private fun LibraryPageToolsDialog(
                 ) {
                     Text(stringResource(R.string.library_extract_copy_action))
                 }
-                OutlinedButton(
+                RmeSecondaryButton(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = selectedIds.isNotEmpty() && selectedIds.size < pages.size &&
                         title.isNotBlank() && allPagesPersisted,

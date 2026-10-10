@@ -6,7 +6,10 @@ import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -22,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -79,7 +83,9 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -115,7 +121,6 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
@@ -138,10 +143,13 @@ import org.synapseworks.pageharbor.library.LibrarySearchHit
 import org.synapseworks.pageharbor.library.LibrarySearchState
 import org.synapseworks.pageharbor.library.LibrarySortOrder
 import org.synapseworks.pageharbor.library.LibraryUiState
-import org.synapseworks.pageharbor.library.SmartNameUiState
-import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.ui.theme.PageHarborLayout
 import org.synapseworks.pageharbor.ui.theme.PageHarborSpacing
+import org.synapseworks.pageharbor.ui.theme.RmePrimaryButton
+import org.synapseworks.pageharbor.ui.theme.RmeSecondaryButton
+import org.synapseworks.pageharbor.ui.theme.rmeColors
+import org.synapseworks.pageharbor.library.SmartNameUiState
+import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.ui.theme.PageHarborTheme
 import org.synapseworks.pageharbor.ui.flow.DocumentToolOperation
 import org.synapseworks.pageharbor.ui.flow.ToolInputCardinality
@@ -315,19 +323,23 @@ fun LibraryHomeScreen(
         },
         floatingActionButton = {
             if (destination != LibraryDestination.More) {
+                val rmeColors = MaterialTheme.rmeColors
                 FloatingActionButton(
-                    modifier = Modifier.semantics {
-                        if (!canStartScan) disabled()
-                    },
+                    modifier = Modifier
+                        .size(PageHarborLayout.scanFabSize)
+                        .semantics {
+                            if (!canStartScan) disabled()
+                        },
+                    shape = RoundedCornerShape(18.dp),
                     containerColor = if (canStartScan) {
-                        MaterialTheme.colorScheme.primaryContainer
+                        rmeColors.fabBackground
                     } else {
-                        MaterialTheme.colorScheme.surfaceVariant
+                        rmeColors.disabledBackground
                     },
                     contentColor = if (canStartScan) {
-                        MaterialTheme.colorScheme.onPrimaryContainer
+                        rmeColors.fabForeground
                     } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
+                        rmeColors.iconDisabled
                     },
                     onClick = { if (canStartScan) showAcquisitionChooser = true },
                 ) {
@@ -609,16 +621,30 @@ private fun LibraryNavigationBar(
     onDestinationSelected: (LibraryDestination) -> Unit,
 ) {
     val largeText = LocalDensity.current.fontScale >= 1.8f
-    val navigationLabelStyle = if (largeText) {
-        MaterialTheme.typography.labelMedium.copy(fontSize = 7.sp)
-    } else {
-        MaterialTheme.typography.labelMedium
-    }
-    NavigationBar {
+    val rmeColors = MaterialTheme.rmeColors
+    NavigationBar(
+        containerColor = rmeColors.navigationBackground,
+        tonalElevation = NavigationBarDefaults.Elevation,
+    ) {
         LibraryDestination.entries.forEach { destination ->
+            val label = stringResource(destination.labelResource)
             NavigationBarItem(
+                modifier = if (largeText) {
+                    Modifier.semantics { contentDescription = label }
+                } else {
+                    Modifier
+                },
                 selected = destination == selectedDestination,
                 onClick = { onDestinationSelected(destination) },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = rmeColors.navigationActive,
+                    selectedTextColor = rmeColors.navigationActive,
+                    indicatorColor = rmeColors.navigationIndicator,
+                    unselectedIconColor = rmeColors.navigationInactive,
+                    unselectedTextColor = rmeColors.navigationInactive,
+                    disabledIconColor = rmeColors.iconDisabled,
+                    disabledTextColor = rmeColors.textDisabled,
+                ),
                 icon = {
                     Icon(
                         imageVector = when (destination) {
@@ -630,12 +656,14 @@ private fun LibraryNavigationBar(
                         contentDescription = null,
                     )
                 },
-                label = {
-                    Text(
-                        text = stringResource(destination.labelResource),
-                        maxLines = 1,
-                        style = navigationLabelStyle,
-                    )
+                label = if (largeText) null else {
+                    {
+                        Text(
+                            text = label,
+                            maxLines = 1,
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
                 },
             )
         }
@@ -808,14 +836,14 @@ private fun HomeEmptyState(
             modifier = Modifier.padding(top = PageHarborSpacing.large),
             horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
         ) {
-            Button(enabled = enabled, onClick = onScan) {
+            RmePrimaryButton(enabled = enabled, onClick = onScan) {
                 Icon(Icons.Default.CameraAlt, contentDescription = null)
                 Text(
                     modifier = Modifier.padding(start = PageHarborSpacing.small),
                     text = stringResource(R.string.scan_action),
                 )
             }
-            FilledTonalButton(enabled = enabled, onClick = onImportFiles) {
+            RmeSecondaryButton(enabled = enabled, onClick = onImportFiles) {
                 Icon(Icons.Default.UploadFile, contentDescription = null)
                 Text(
                     modifier = Modifier.padding(start = PageHarborSpacing.small),
@@ -1346,10 +1374,10 @@ private fun ToolDocumentPickerSheet(
                             textAlign = TextAlign.Center,
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
-                            FilledTonalButton(onClick = onScan) {
+                            RmeSecondaryButton(onClick = onScan) {
                                 Text(stringResource(R.string.scan_action))
                             }
-                            Button(onClick = onImport) {
+                            RmePrimaryButton(onClick = onImport) {
                                 Text(stringResource(R.string.tools_import_title))
                             }
                         }
@@ -1905,13 +1933,18 @@ private fun ToolSectionHeading(titleResource: Int) {
 
 @Composable
 private fun ToolLauncherItem(tool: ToolLauncherItemModel) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val rmeColors = MaterialTheme.rmeColors
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 108.dp)
+            .heightIn(min = PageHarborLayout.toolTileMinimumHeight)
             .clickable(
                 enabled = tool.enabled,
                 role = Role.Button,
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
                 onClick = tool.onClick,
             )
             .semantics(mergeDescendants = true) {
@@ -1919,53 +1952,38 @@ private fun ToolLauncherItem(tool: ToolLauncherItemModel) {
                 if (!tool.enabled) disabled()
             },
         shape = MaterialTheme.shapes.large,
-        color = if (tool.enabled) {
-            MaterialTheme.colorScheme.surfaceContainerLow
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant
+        color = when {
+            !tool.enabled -> rmeColors.disabledBackground
+            pressed -> rmeColors.surfaceHigh
+            else -> rmeColors.surfaceLow
         },
-        tonalElevation = if (tool.enabled) 1.dp else 0.dp,
+        tonalElevation = 0.dp,
     ) {
         Column(
-            modifier = Modifier.padding(
-                horizontal = PageHarborSpacing.small,
-                vertical = PageHarborSpacing.small,
-            ),
+            modifier = Modifier.padding(PageHarborSpacing.medium),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
         ) {
-            Surface(
-                modifier = Modifier.size(48.dp),
-                shape = MaterialTheme.shapes.large,
-                color = if (tool.enabled) {
-                    MaterialTheme.colorScheme.primaryContainer
+            Icon(
+                modifier = Modifier.size(PageHarborLayout.toolIconSize),
+                imageVector = tool.icon,
+                contentDescription = null,
+                tint = if (tool.enabled) {
+                    MaterialTheme.colorScheme.primary
                 } else {
-                    MaterialTheme.colorScheme.surfaceContainerHighest
+                    rmeColors.iconDisabled
                 },
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        modifier = Modifier.size(26.dp),
-                        imageVector = tool.icon,
-                        contentDescription = null,
-                        tint = if (tool.enabled) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                        },
-                    )
-                }
-            }
+            )
             Text(
                 text = tool.label,
                 style = MaterialTheme.typography.labelLarge,
                 color = if (tool.enabled) {
                     MaterialTheme.colorScheme.onSurface
                 } else {
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    rmeColors.textDisabled
                 },
                 textAlign = TextAlign.Center,
-                maxLines = 3,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
         }

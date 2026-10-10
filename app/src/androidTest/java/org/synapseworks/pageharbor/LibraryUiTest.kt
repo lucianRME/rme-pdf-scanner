@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.synapseworks.pageharbor.document.session.DocumentPage
@@ -52,6 +53,31 @@ import org.synapseworks.pageharbor.ui.PageHarborApp
 class LibraryUiTest {
     @get:Rule
     val composeTestRule = createComposeRule()
+
+    @Test
+    fun navigationAndToolsRemainAccessibleAtTwoHundredPercent() {
+        composeTestRule.setContent {
+            val deviceDensity = LocalDensity.current
+            CompositionLocalProvider(
+                LocalDensity provides Density(deviceDensity.density, fontScale = 2f),
+            ) {
+                PageHarborApp()
+            }
+        }
+
+        listOf("Home", "Documents", "Tools", "More").forEach { label ->
+            composeTestRule.onNodeWithContentDescription(label).assertIsDisplayed()
+        }
+        composeTestRule.onNodeWithText("Home").assertDoesNotExist()
+        composeTestRule.onNodeWithContentDescription("Scan").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Tools").performClick()
+        composeTestRule.onNodeWithText("Import files").assertIsDisplayed()
+        composeTestRule.onNodeWithText("ID / card copy").assertIsDisplayed()
+
+        val mergeY = composeTestRule.onNodeWithText("Merge").fetchSemanticsNode().boundsInRoot.center.y
+        val fitY = composeTestRule.onNodeWithText("Fit upload limit").fetchSemanticsNode().boundsInRoot.center.y
+        assertTrue(fitY > mergeY)
+    }
 
     @Test
     fun savedDocumentCardShowsMetadataAndOpensRequestedDocument() {

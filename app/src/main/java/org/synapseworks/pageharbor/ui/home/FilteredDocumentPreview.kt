@@ -32,6 +32,7 @@ import org.synapseworks.pageharbor.image.ArgbImage
 import org.synapseworks.pageharbor.image.DocumentFilter
 import org.synapseworks.pageharbor.image.DocumentImageFilterEngine
 import org.synapseworks.pageharbor.ui.theme.PageHarborLayout
+import org.synapseworks.pageharbor.ui.theme.rmeColors
 
 /**
  * Displays a bounded, transient Scan Result preview. The source URI and scanner output are never
@@ -72,7 +73,7 @@ internal fun FilteredDocumentPreview(
                 .height(fittedHeight)
                 .semantics { contentDescription = description },
             shape = MaterialTheme.shapes.large,
-            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            color = MaterialTheme.rmeColors.previewBackground,
         ) {
             Box(
                 modifier = Modifier.fillMaxSize(),

@@ -41,4 +41,9 @@ object PageHarborLayout {
     val scrollableDialogContentMaxHeight = 360.dp
     val inlineProgressIndicatorSize = 20.dp
     val minimumTouchTarget = 48.dp
+    val primaryActionHeight = 48.dp
+    val toolTileMinimumHeight = 96.dp
+    val scanFabSize = 56.dp
+    val normalIconSize = 24.dp
+    val toolIconSize = 28.dp
 }
