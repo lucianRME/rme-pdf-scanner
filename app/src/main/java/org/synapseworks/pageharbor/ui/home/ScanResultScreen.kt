@@ -45,16 +45,12 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -102,7 +98,10 @@ import org.synapseworks.pageharbor.ocr.OcrUiState
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.ui.theme.PageHarborLayout
 import org.synapseworks.pageharbor.ui.theme.PageHarborSpacing
+import org.synapseworks.pageharbor.ui.theme.RmeFilledTextField
+import org.synapseworks.pageharbor.ui.theme.RmeModalBottomSheet
 import org.synapseworks.pageharbor.ui.theme.RmeSecondaryButton
+import org.synapseworks.pageharbor.ui.theme.RmeTonalChoice
 import org.synapseworks.pageharbor.ui.theme.rmeColors
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -822,7 +821,7 @@ private fun DocumentAddSheet(
     onAddPages: () -> Unit,
     onImportFiles: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    RmeModalBottomSheet(onDismissRequest = onDismiss) {
         SheetContentColumn(title = stringResource(R.string.document_add_title)) {
             SheetActionRow(
                 icon = Icons.Default.Add,
@@ -875,10 +874,8 @@ private fun DocumentMoreSheet(
     onDelete: () -> Unit,
     onDiscard: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(
+    RmeModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
     ) {
         SheetContentColumn(title = stringResource(R.string.document_more_title)) {
             SheetActionRow(
@@ -1193,15 +1190,14 @@ private fun FilterSelector(
         ) {
             filterSelectorOptions.forEach { option ->
                 val accessibleLabel = stringResource(option.contentDescriptionRes)
-                FilterChip(
+                RmeTonalChoice(
                     selected = option.filter == selectedFilter,
                     enabled = enabled,
                     onClick = { onFilterSelected(option.filter) },
-                    label = { Text(stringResource(option.labelRes)) },
                     modifier = Modifier.semantics {
                         contentDescription = accessibleLabel
                     },
-                )
+                ) { Text(stringResource(option.labelRes)) }
             }
         }
     }
@@ -1228,7 +1224,7 @@ private fun SaveToLibraryDialog(
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
-                OutlinedTextField(
+                RmeFilledTextField(
                     modifier = Modifier.fillMaxWidth(),
                     value = title,
                     onValueChange = { title = it.take(120) },
@@ -1287,7 +1283,7 @@ private fun LibraryPageToolsDialog(
                 }
                 pages.forEachIndexed { index, page ->
                     val persistentId = page.persistentId
-                    FilterChip(
+                    RmeTonalChoice(
                         selected = persistentId != null && persistentId in selectedIds,
                         enabled = persistentId != null,
                         onClick = {
@@ -1299,10 +1295,9 @@ private fun LibraryPageToolsDialog(
                                 }
                             }
                         },
-                        label = { Text(stringResource(R.string.library_page_number, index + 1)) },
-                    )
+                    ) { Text(stringResource(R.string.library_page_number, index + 1)) }
                 }
-                OutlinedTextField(
+                RmeFilledTextField(
                     modifier = Modifier.fillMaxWidth(),
                     value = title,
                     onValueChange = { title = it.take(120) },
@@ -1353,7 +1348,7 @@ private fun RenameDocumentDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
             ) {
-                OutlinedTextField(
+                RmeFilledTextField(
                     modifier = Modifier.fillMaxWidth(),
                     value = title,
                     onValueChange = { title = it.take(120) },

@@ -73,7 +73,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -81,12 +80,10 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -94,7 +91,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -119,6 +115,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -147,6 +144,10 @@ import org.synapseworks.pageharbor.ui.theme.PageHarborLayout
 import org.synapseworks.pageharbor.ui.theme.PageHarborSpacing
 import org.synapseworks.pageharbor.ui.theme.RmePrimaryButton
 import org.synapseworks.pageharbor.ui.theme.RmeSecondaryButton
+import org.synapseworks.pageharbor.ui.theme.RmeFilledTextField
+import org.synapseworks.pageharbor.ui.theme.RmeModalBottomSheet
+import org.synapseworks.pageharbor.ui.theme.RmeSearchField
+import org.synapseworks.pageharbor.ui.theme.RmeTonalChoice
 import org.synapseworks.pageharbor.ui.theme.rmeColors
 import org.synapseworks.pageharbor.library.SmartNameUiState
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
@@ -1204,9 +1205,8 @@ private fun AcquisitionChooserSheet(
     onCardCopy: () -> Unit,
     onImportFiles: () -> Unit,
 ) {
-    ModalBottomSheet(
+    RmeModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     ) {
         Column(
             modifier = Modifier
@@ -1319,15 +1319,14 @@ private fun ToolDocumentPickerSheet(
     }
     val ready = request.copy(documentIds = selection).hasValidCardinality
     val singleSelect = request.operation.inputCardinality == ToolInputCardinality.EXACTLY_ONE
-    ModalBottomSheet(
+    RmeModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(max = 680.dp)
-                .padding(horizontal = PageHarborSpacing.large)
+                .padding(horizontal = 20.dp)
                 .padding(bottom = PageHarborSpacing.large),
             verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
         ) {
@@ -1340,18 +1339,15 @@ private fun ToolDocumentPickerSheet(
                         R.string.tool_picker_merge_title
                     },
                 ),
-                style = MaterialTheme.typography.headlineSmall,
+                style = MaterialTheme.typography.titleLarge,
             )
             if (documents.isNotEmpty()) {
-                OutlinedTextField(
+                RmeSearchField(
                     modifier = Modifier.fillMaxWidth(),
                     value = query,
                     onValueChange = { query = it },
-                    singleLine = true,
-                    label = { Text(stringResource(R.string.tool_picker_search)) },
-                    leadingIcon = {
-                        Icon(imageVector = Icons.Default.Search, contentDescription = null)
-                    },
+                    placeholder = stringResource(R.string.tool_picker_search),
+                    clearContentDescription = stringResource(R.string.library_search_clear),
                 )
             }
             when {
@@ -1374,10 +1370,10 @@ private fun ToolDocumentPickerSheet(
                             textAlign = TextAlign.Center,
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
-                            RmeSecondaryButton(onClick = onScan) {
+                            RmePrimaryButton(onClick = onScan) {
                                 Text(stringResource(R.string.scan_action))
                             }
-                            RmePrimaryButton(onClick = onImport) {
+                            RmeSecondaryButton(onClick = onImport) {
                                 Text(stringResource(R.string.tools_import_title))
                             }
                         }
@@ -1404,7 +1400,12 @@ private fun ToolDocumentPickerSheet(
                             ListItem(
                                 modifier = Modifier
                                     .padding(vertical = PageHarborSpacing.extraSmall)
-                                    .clickable(role = Role.Button) {
+                                    .semantics {
+                                        this.selected = selected
+                                    }
+                                    .clickable(
+                                        role = if (singleSelect) Role.RadioButton else Role.Checkbox,
+                                    ) {
                                         selection = if (singleSelect) {
                                             listOf(document.id)
                                         } else {
@@ -1413,10 +1414,16 @@ private fun ToolDocumentPickerSheet(
                                     },
                                 colors = ListItemDefaults.colors(
                                     containerColor = if (selected) {
-                                        MaterialTheme.colorScheme.secondaryContainer
+                                        MaterialTheme.rmeColors.selectedBackground
                                     } else {
-                                        MaterialTheme.colorScheme.surfaceContainerLow
+                                        MaterialTheme.rmeColors.surfaceLow
                                     },
+                                    headlineColor = if (selected) {
+                                        MaterialTheme.rmeColors.selectedForeground
+                                    } else MaterialTheme.colorScheme.onSurface,
+                                    supportingColor = if (selected) {
+                                        MaterialTheme.rmeColors.selectedForeground
+                                    } else MaterialTheme.colorScheme.onSurfaceVariant,
                                 ),
                                 leadingContent = {
                                     LibraryThumbnail(
@@ -1499,7 +1506,7 @@ private fun ToolDocumentPickerSheet(
                         R.string.tool_picker_primary_action,
                         stringResource(request.operation.titleResource),
                     )
-                    Button(
+                    RmePrimaryButton(
                         modifier = Modifier.semantics {
                             contentDescription = actionAccessibilityLabel
                         },
@@ -1866,8 +1873,8 @@ private fun MoreDestination(
 private fun MoreActionGroup(actions: List<MoreAction>) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.rmeColors.surfaceLow,
     ) {
         Column {
             actions.forEachIndexed { index, action ->
@@ -1881,14 +1888,14 @@ private fun MoreActionGroup(actions: List<MoreAction>) {
                         .semantics { if (!action.enabled) disabled() }
                         .clickable(enabled = action.enabled, onClick = action.onClick),
                     colors = androidx.compose.material3.ListItemDefaults.colors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                        containerColor = MaterialTheme.rmeColors.surfaceLow,
                     ),
                     leadingContent = {
                         Icon(
                             imageVector = action.icon,
                             contentDescription = null,
                             tint = if (action.enabled) {
-                                MaterialTheme.colorScheme.primary
+                                MaterialTheme.rmeColors.iconSecondary
                             } else {
                                 contentColor
                             },
@@ -1906,7 +1913,9 @@ private fun MoreActionGroup(actions: List<MoreAction>) {
                         )
                     },
                 )
-                if (index < actions.lastIndex) HorizontalDivider()
+                if (index < actions.lastIndex) {
+                    HorizontalDivider(color = MaterialTheme.rmeColors.divider)
+                }
             }
         }
     }
@@ -2042,33 +2051,12 @@ private fun LibrarySearchField(
     onQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    OutlinedTextField(
+    RmeSearchField(
         modifier = modifier,
         value = query,
         onValueChange = onQueryChange,
-        singleLine = true,
-        shape = MaterialTheme.shapes.extraLarge,
-        label = { Text(stringResource(R.string.library_search_label)) },
-        leadingIcon = {
-            Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
-            )
-        },
-        trailingIcon = if (query.isNotEmpty()) {
-            {
-                IconButton(onClick = { onQueryChange("") }) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = stringResource(R.string.library_search_clear),
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-            }
-        } else {
-            null
-        },
+        placeholder = stringResource(R.string.library_search_label),
+        clearContentDescription = stringResource(R.string.library_search_clear),
     )
 }
 
@@ -2190,20 +2178,20 @@ private fun FolderControls(
                 horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
             ) {
                 childFolders.forEach { folder ->
-                    FilterChip(
+                    RmeTonalChoice(
                         selected = false,
                         enabled = enabled,
                         onClick = { onFolderSelected(folder.id) },
-                        label = {
-                            Text(
-                                stringResource(
-                                    R.string.library_folder_with_count,
-                                    folder.name,
-                                    folder.documentCount,
-                                ),
-                            )
-                        },
-                    )
+                        showCheckmark = false,
+                    ) {
+                        Text(
+                            stringResource(
+                                R.string.library_folder_with_count,
+                                folder.name,
+                                folder.documentCount,
+                            ),
+                        )
+                    }
                 }
             }
         }
@@ -2492,14 +2480,16 @@ private fun LibraryDocumentItem(
         )
     }
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics { selected = mergePosition != null },
         enabled = enabled,
         onClick = onOpen,
         colors = CardDefaults.cardColors(
             containerColor = if (mergePosition == null) {
-                MaterialTheme.colorScheme.surfaceContainerLow
+                MaterialTheme.rmeColors.surfaceLow
             } else {
-                MaterialTheme.colorScheme.secondaryContainer
+                MaterialTheme.rmeColors.selectedBackground
             },
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -2566,6 +2556,17 @@ private fun DocumentDetails(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val selected = mergePosition != null
+    val primaryContentColor = if (selected) {
+        MaterialTheme.rmeColors.selectedForeground
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+    val secondaryContentColor = if (selected) {
+        MaterialTheme.rmeColors.selectedForeground
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall),
@@ -2578,6 +2579,7 @@ private fun DocumentDetails(
                 modifier = Modifier.weight(1f),
                 text = document.title,
                 style = MaterialTheme.typography.titleMedium,
+                color = primaryContentColor,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -2596,7 +2598,7 @@ private fun DocumentDetails(
                     tint = if (mergePosition == null) {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     } else {
-                        MaterialTheme.colorScheme.primary
+                        MaterialTheme.rmeColors.selectedForeground
                     },
                 )
             }
@@ -2622,13 +2624,13 @@ private fun DocumentDetails(
                 formattedDate,
             ),
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = secondaryContentColor,
         )
         document.folderName?.let { folder ->
             Text(
                 text = folder,
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = secondaryContentColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -2643,14 +2645,18 @@ private fun DocumentDetails(
                     },
                 ),
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
+                color = if (selected) {
+                    MaterialTheme.rmeColors.selectedForeground
+                } else {
+                    MaterialTheme.colorScheme.primary
+                },
             )
         }
         document.searchSnippet?.let { snippet ->
             Text(
                 text = snippet,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = secondaryContentColor,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -2824,7 +2830,7 @@ private fun NameDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
             ) {
-                OutlinedTextField(
+                RmeFilledTextField(
                     modifier = Modifier.fillMaxWidth(),
                     value = value,
                     onValueChange = { value = it.take(120) },

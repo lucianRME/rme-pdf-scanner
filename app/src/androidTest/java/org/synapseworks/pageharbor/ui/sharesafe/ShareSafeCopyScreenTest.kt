@@ -87,6 +87,8 @@ class ShareSafeCopyScreenTest {
         }
 
         composeRule.onNodeWithText("Purpose").performTextInput("For school registration")
+        composeRule.onNodeWithText("Repeated").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Strong").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Next").assertIsDisplayed().performClick()
         composeRule.runOnIdle {
             assertEquals("For school registration", purpose)

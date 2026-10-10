@@ -705,7 +705,7 @@
     <string name="more_new_phone_title">Move to a new phone</string>
     <string name="more_new_phone_description">Move documents with a verified backup.</string>
     <string name="more_new_phone_empty_description">Available when documents are saved.</string>
-    <string name="more_rme_heading">RME</string>
+    <string name="more_rme_heading">About &amp; support</string>
     <string name="ocr_batch_recognize_selected">Recognize text</string>
     <string name="ocr_batch_title">Recognize selected documents</string>
     <string name="ocr_batch_selected_documents">Selected documents: %1$d</string>

@@ -35,14 +35,12 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.Card
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -63,6 +61,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
@@ -107,6 +106,7 @@ import org.synapseworks.pageharbor.ui.home.rememberManagedDocumentPreview
 import org.synapseworks.pageharbor.ui.theme.PageHarborLayout
 import org.synapseworks.pageharbor.ui.theme.RmeSecondaryButton
 import org.synapseworks.pageharbor.ui.theme.RmePrimaryButton
+import org.synapseworks.pageharbor.ui.theme.RmeFilledTextField
 import org.synapseworks.pageharbor.ui.theme.RmeTonalChoice
 import org.synapseworks.pageharbor.ui.theme.rmeColors
 import org.synapseworks.pageharbor.ui.theme.PageHarborSpacing
@@ -243,13 +243,35 @@ private fun RecipeContent(
 
 @Composable
 private fun RecipeCard(title: Int, description: Int, enabled: Boolean, onClick: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth(), enabled = enabled, onClick = onClick) {
-        Column(
-            Modifier.padding(PageHarborSpacing.medium),
-            verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall),
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        enabled = enabled,
+        onClick = onClick,
+        color = MaterialTheme.rmeColors.surfaceLow,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = MaterialTheme.shapes.medium,
+    ) {
+        Row(
+            Modifier.padding(horizontal = PageHarborSpacing.large, vertical = PageHarborSpacing.medium),
+            horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(stringResource(title), style = MaterialTheme.typography.titleMedium)
-            Text(stringResource(description), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(
+                Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall),
+            ) {
+                Text(stringResource(title), style = MaterialTheme.typography.titleMedium)
+                Text(
+                    stringResource(description),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = null,
+                tint = MaterialTheme.rmeColors.iconSecondary,
+            )
         }
     }
 }
@@ -509,7 +531,7 @@ private fun PurposeStep(
     ToggleRow(stringResource(R.string.share_safe_watermark_toggle), config.enabled, onEnabled)
     if (!config.enabled) return
     val validation = ShareSafePurposeValidator.validate(config.purposeText)
-    OutlinedTextField(
+    RmeFilledTextField(
         value = config.purposeText,
         onValueChange = onPurpose,
         label = { Text(stringResource(R.string.share_safe_purpose_label)) },
@@ -536,7 +558,7 @@ private fun PurposeStep(
     )
     ToggleRow(stringResource(R.string.share_safe_date_toggle), config.includeDate, onDateEnabled)
     if (config.includeDate) {
-        OutlinedTextField(
+        RmeFilledTextField(
             value = config.dateText,
             onValueChange = onDate,
             label = { Text(stringResource(R.string.share_safe_date_label)) },
@@ -616,7 +638,7 @@ private fun SizeStep(
             ) { Text(stringResource(R.string.fit_limit_custom)) }
         }
         if (customSelected) {
-            OutlinedTextField(
+            RmeFilledTextField(
                 value = customText,
                 onValueChange = { value ->
                     customText = value
@@ -718,18 +740,21 @@ private fun PreparedContent(
         when (val save = state.saveStatus) {
             ShareSafeSaveStatus.Idle, ShareSafeSaveStatus.ChoosingDestination -> Unit
             ShareSafeSaveStatus.Saving -> Text(stringResource(R.string.share_safe_saving))
-            is ShareSafeSaveStatus.Saved -> Text(
+            is ShareSafeSaveStatus.Saved -> ShareSafeNotice(
                 stringResource(R.string.share_safe_saved, formatDecimalBytes(save.bytes)),
+                ShareSafeNoticeTone.SUCCESS,
             )
-            is ShareSafeSaveStatus.Failed -> Text(
+            is ShareSafeSaveStatus.Failed -> ShareSafeNotice(
                 stringResource(R.string.share_safe_failed),
-                color = MaterialTheme.colorScheme.error,
+                ShareSafeNoticeTone.ERROR,
             )
         }
-        if (state.shareFailed) Text(
-            stringResource(R.string.share_safe_share_failed),
-            color = MaterialTheme.colorScheme.error,
-        )
+        if (state.shareFailed) {
+            ShareSafeNotice(
+                stringResource(R.string.share_safe_share_failed),
+                ShareSafeNoticeTone.ERROR,
+            )
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
             RmePrimaryButton(
                 onClick = onSave,
@@ -783,16 +808,25 @@ private fun <T> ChoiceRow(
     label: @Composable (T) -> String,
 ) {
     Text(title, style = MaterialTheme.typography.titleMedium)
-    Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
-    ) {
+    val choices: @Composable () -> Unit = {
         values.forEach { value ->
             RmeTonalChoice(
                 selected = value == selected,
                 onClick = { onSelected(value) },
                 modifier = Modifier.heightIn(min = 48.dp),
             ) { Text(label(value)) }
+        }
+    }
+    if (LocalDensity.current.fontScale >= 1.8f) {
+        Column(verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
+            choices()
+        }
+    } else {
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
+        ) {
+            choices()
         }
     }
 }
@@ -807,6 +841,27 @@ private fun ToggleRow(label: String, checked: Boolean, onChecked: (Boolean) -> U
         Text(label, Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onChecked)
     }
+}
+
+@Composable
+private fun ShareSafeNotice(text: String, tone: ShareSafeNoticeTone) {
+    val contentColor = when (tone) {
+        ShareSafeNoticeTone.SUCCESS -> MaterialTheme.rmeColors.success
+        ShareSafeNoticeTone.ERROR -> MaterialTheme.colorScheme.error
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.rmeColors.surfaceMedium,
+        contentColor = contentColor,
+        shape = MaterialTheme.shapes.medium,
+    ) {
+        Text(text, Modifier.padding(PageHarborSpacing.small))
+    }
+}
+
+private enum class ShareSafeNoticeTone {
+    SUCCESS,
+    ERROR,
 }
 
 @Composable

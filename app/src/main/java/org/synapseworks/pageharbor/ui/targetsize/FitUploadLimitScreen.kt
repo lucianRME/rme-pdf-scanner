@@ -33,7 +33,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -49,6 +48,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -86,6 +86,7 @@ import org.synapseworks.pageharbor.ui.theme.PageHarborLayout
 import org.synapseworks.pageharbor.ui.theme.PageHarborSpacing
 import org.synapseworks.pageharbor.ui.theme.RmePrimaryButton
 import org.synapseworks.pageharbor.ui.theme.RmeSecondaryButton
+import org.synapseworks.pageharbor.ui.theme.RmeFilledTextField
 import org.synapseworks.pageharbor.ui.theme.RmeTonalChoice
 import org.synapseworks.pageharbor.ui.theme.rmeColors
 
@@ -228,11 +229,12 @@ private fun ChooseLimitContent(
             CustomLimitInput(selection, onCustomTextChanged, onCustomUnitChanged)
         }
         if (target != null && isObviouslyUnrealisticTarget(target, state.input.summary.pageCount)) {
-            NeutralNotice(
+            FitNotice(
                 stringResource(
                     R.string.fit_limit_unrealistic_warning,
                     state.input.summary.pageCount,
                 ),
+                FitNoticeTone.WARNING,
             )
         }
         Text(
@@ -242,8 +244,8 @@ private fun ChooseLimitContent(
         )
         Text(
             text = stringResource(R.string.fit_limit_original_unchanged),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.primary,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         RmePrimaryButton(
             modifier = Modifier
@@ -266,7 +268,7 @@ private fun CustomLimitInput(
 ) {
     val error = (selection.validation as? TargetSizeCustomValidation.Invalid)?.reason
     Column(verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
-        OutlinedTextField(
+        RmeFilledTextField(
             modifier = Modifier.fillMaxWidth(),
             value = selection.text,
             onValueChange = onTextChanged,
@@ -347,7 +349,7 @@ private fun PreparingContent(state: TargetSizeWorkflowState.Preparing, onCancel:
         )
         Text(stringResource(progressText(state.progress)))
         Text(formatTargetSize(state.targetBytes), style = MaterialTheme.typography.titleMedium)
-        RmeSecondaryButton(
+        TextButton(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 48.dp),
@@ -459,26 +461,29 @@ private fun PreparedDetails(
             }
         }
         if (state.reusedOriginalQuality) {
-            NeutralNotice(
+            FitNotice(
                 stringResource(
                     R.string.fit_limit_already_under,
                     formatTargetSize(state.requestedTargetBytes),
                 ),
+                FitNoticeTone.NEUTRAL,
             )
         } else if (state.prepared.plan.pages.any(TargetSizeQualitySearch::isAtFloor)) {
-            NeutralNotice(stringResource(R.string.fit_limit_quality_warning))
+            FitNotice(stringResource(R.string.fit_limit_quality_warning), FitNoticeTone.WARNING)
         }
         when (state.searchableTextStatus) {
             TargetSizeSearchableTextStatus.PRESERVED ->
                 Text(stringResource(R.string.fit_limit_searchable_preserved))
             TargetSizeSearchableTextStatus.PARTIALLY_PRESERVED ->
-                NeutralNotice(stringResource(R.string.fit_limit_searchable_partial))
+                FitNotice(stringResource(R.string.fit_limit_searchable_partial), FitNoticeTone.WARNING)
             TargetSizeSearchableTextStatus.NOT_PRESERVED ->
-                NeutralNotice(stringResource(R.string.fit_limit_searchable_lost))
+                FitNotice(stringResource(R.string.fit_limit_searchable_lost), FitNoticeTone.WARNING)
             TargetSizeSearchableTextStatus.NOT_PRESENT -> Unit
         }
         SaveStatus(state.saveStatus)
-        if (state.shareFailed) NeutralNotice(stringResource(R.string.fit_limit_share_unavailable))
+        if (state.shareFailed) {
+            FitNotice(stringResource(R.string.fit_limit_share_unavailable), FitNoticeTone.ERROR)
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
@@ -521,17 +526,15 @@ private fun SaveStatus(status: TargetSizeSaveStatus) {
             modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
             text = stringResource(R.string.fit_limit_saving),
         )
-        is TargetSizeSaveStatus.Saved -> Surface(
-            color = MaterialTheme.colorScheme.primaryContainer,
-            shape = MaterialTheme.shapes.medium,
-        ) {
-            Column(Modifier.padding(PageHarborSpacing.small)) {
-                Text(stringResource(R.string.fit_limit_saved), style = MaterialTheme.typography.titleMedium)
-                Text(stringResource(R.string.fit_limit_saved_size, formatDecimalBytes(status.bytes)))
-            }
-        }
-        is TargetSizeSaveStatus.Failed -> NeutralNotice(
-            stringResource(
+        is TargetSizeSaveStatus.Saved -> FitNotice(
+            text = stringResource(
+                R.string.fit_limit_saved_size,
+                formatDecimalBytes(status.bytes),
+            ),
+            tone = FitNoticeTone.SUCCESS,
+        )
+        is TargetSizeSaveStatus.Failed -> FitNotice(
+            text = stringResource(
                 when (status.reason) {
                     TargetSizeDestinationError.PREPARED_RESULT_UNAVAILABLE,
                     TargetSizeDestinationError.WRITE_FAILED,
@@ -542,6 +545,7 @@ private fun SaveStatus(status: TargetSizeSaveStatus) {
                         R.string.fit_limit_save_validation_failed
                 },
             ),
+            tone = FitNoticeTone.ERROR,
         )
     }
 }
@@ -729,26 +733,46 @@ private fun renderPreparedPage(file: File, pageIndex: Int): android.graphics.Bit
 
 @Composable
 private fun MetricRow(label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.Top,
-    ) {
-        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.labelLarge)
+    if (LocalDensity.current.fontScale >= 1.8f) {
+        Column(verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall)) {
+            Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value, style = MaterialTheme.typography.labelLarge)
+        }
+    } else {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top,
+        ) {
+            Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value, style = MaterialTheme.typography.labelLarge)
+        }
     }
 }
 
 @Composable
-private fun NeutralNotice(text: String) {
+private fun FitNotice(text: String, tone: FitNoticeTone) {
+    val contentColor = when (tone) {
+        FitNoticeTone.NEUTRAL -> MaterialTheme.colorScheme.onSurfaceVariant
+        FitNoticeTone.SUCCESS -> MaterialTheme.rmeColors.success
+        FitNoticeTone.WARNING -> MaterialTheme.rmeColors.warning
+        FitNoticeTone.ERROR -> MaterialTheme.colorScheme.error
+    }
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.rmeColors.surfaceMedium,
-        contentColor = MaterialTheme.rmeColors.warning,
+        contentColor = contentColor,
         shape = MaterialTheme.shapes.medium,
     ) {
         Text(text, Modifier.padding(PageHarborSpacing.small))
     }
+}
+
+private enum class FitNoticeTone {
+    NEUTRAL,
+    SUCCESS,
+    WARNING,
+    ERROR,
 }
 
 private fun customErrorResource(error: TargetSizeCustomError): Int = when (error) {

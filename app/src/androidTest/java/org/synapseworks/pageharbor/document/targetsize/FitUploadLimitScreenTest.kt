@@ -216,6 +216,9 @@ class FitUploadLimitScreenTest {
         }
 
         composeRule.onNodeWithText("Fit upload limit").assertIsDisplayed()
+        val statusLabel = composeRule.onNodeWithText("Support status").fetchSemanticsNode().boundsInRoot
+        val statusValue = composeRule.onNodeWithText("Ready to check").fetchSemanticsNode().boundsInRoot
+        assertTrue(statusLabel.bottom <= statusValue.top)
         composeRule.onNodeWithText("Prepare PDF").performScrollTo().assertIsEnabled()
     }
 

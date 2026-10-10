@@ -11,6 +11,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -481,6 +482,21 @@ class HomeScreenTest {
     }
 
     @Test
+    fun selectedDocumentExposesExplicitSelectionSemantics() {
+        composeTestRule.setContent {
+            PageHarborApp(libraryUiState = savedLibraryState(2))
+        }
+
+        composeTestRule.onNodeWithText("Documents").performClick()
+        composeTestRule.onAllNodesWithContentDescription("Select for actions")[0].performClick()
+
+        composeTestRule.onAllNodes(
+            SemanticsMatcher.expectValue(SemanticsProperties.Selected, true) and
+                hasText("Saved document 1"),
+        ).assertCountEquals(1)
+    }
+
+    @Test
     fun cancelledMergeSelectionDoesNotLeakIntoExtractText() {
         composeTestRule.setContent {
             PageHarborApp(libraryUiState = savedLibraryState(2))
@@ -733,12 +749,49 @@ class HomeScreenTest {
             }
         }
 
-        composeTestRule.onNodeWithText("Tools").performClick()
+        composeTestRule.onNodeWithContentDescription("Tools").performClick()
         val extractText = hasContentDescription("Extract text with OCR")
         composeTestRule.onNode(hasScrollAction()).performScrollToNode(extractText)
         composeTestRule.onNode(extractText).assertIsDisplayed().performClick()
         composeTestRule.onNodeWithText("Choose a document").assertIsDisplayed()
         composeTestRule.onNodeWithContentDescription("Scan").assertIsDisplayed()
+    }
+
+    @Test
+    fun internalPickerSearchAndActionsRemainReachableAtTwoHundredPercentFont() {
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 2f)) {
+                Box(modifier = androidx.compose.ui.Modifier.size(width = 320.dp, height = 600.dp)) {
+                    PageHarborApp(libraryUiState = savedLibraryState(2))
+                }
+            }
+        }
+
+        composeTestRule.onNodeWithContentDescription("Tools").performClick()
+        val mergeDocuments = hasContentDescription("Merge documents")
+        composeTestRule.onNode(hasScrollAction()).performScrollToNode(mergeDocuments)
+        composeTestRule.onNode(mergeDocuments).performClick()
+        composeTestRule.onNode(hasSetTextAction()).performTextInput("Saved document 2")
+        composeTestRule.onAllNodesWithText("Saved document 2")[1]
+            .assertIsDisplayed()
+            .performClick()
+        composeTestRule.onNodeWithContentDescription("Continue: Merge").assertIsNotEnabled()
+        composeTestRule.onNodeWithText("Cancel").assertIsDisplayed()
+    }
+
+    @Test
+    fun moreGroupedRowsRemainReachableAtTwoHundredPercentFont() {
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 2f)) {
+                Box(modifier = androidx.compose.ui.Modifier.size(width = 320.dp, height = 600.dp)) {
+                    PageHarborApp(libraryHasDocuments = true)
+                }
+            }
+        }
+
+        composeTestRule.onNodeWithContentDescription("More").performClick()
+        composeTestRule.onNodeWithText("Data & backup").assertIsDisplayed()
+        composeTestRule.onNodeWithText("About RME PDF Scanner").performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -844,7 +897,7 @@ class HomeScreenTest {
             }
         }
 
-        composeTestRule.onNodeWithText("Tools").performClick()
+        composeTestRule.onNodeWithContentDescription("Tools").performClick()
         listOf(
             "Import files",
             "Merge documents",
@@ -884,7 +937,7 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithContentDescription("Scan").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Home").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Home").assertIsDisplayed()
     }
 
     @Test

@@ -7,6 +7,7 @@ import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -31,16 +32,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -106,6 +110,7 @@ import org.synapseworks.pageharbor.ui.home.ZoomableDocumentPreview
 import org.synapseworks.pageharbor.ui.home.rememberManagedDocumentPreview
 import org.synapseworks.pageharbor.ui.theme.RmeSecondaryButton
 import org.synapseworks.pageharbor.ui.theme.RmePrimaryButton
+import org.synapseworks.pageharbor.ui.theme.RmeModalBottomSheet
 import org.synapseworks.pageharbor.ui.theme.RmeTonalChoice
 import org.synapseworks.pageharbor.ui.theme.rmeColors
 import org.synapseworks.pageharbor.ui.theme.PageHarborLayout
@@ -765,29 +770,8 @@ private fun SideCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall),
                 ) {
-                    Box {
-                        RmeSecondaryButton(onClick = { replaceExpanded = true }) {
-                            Text(stringResource(R.string.card_copy_replace))
-                        }
-                        DropdownMenu(
-                            expanded = replaceExpanded,
-                            onDismissRequest = { replaceExpanded = false },
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.card_copy_scan)) },
-                                onClick = {
-                                    replaceExpanded = false
-                                    onScan(side)
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.card_copy_import)) },
-                                onClick = {
-                                    replaceExpanded = false
-                                    onImport(side)
-                                },
-                            )
-                        }
+                    RmeSecondaryButton(onClick = { replaceExpanded = true }) {
+                        Text(stringResource(R.string.card_copy_replace))
                     }
                     if (onRotate != null) {
                         IconButton(
@@ -829,6 +813,57 @@ private fun SideCard(
                             },
                         )
                     }
+                }
+            }
+        }
+    }
+    if (replaceExpanded) {
+        RmeModalBottomSheet(onDismissRequest = { replaceExpanded = false }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = PageHarborSpacing.large),
+            ) {
+                Text(
+                    modifier = Modifier.padding(bottom = PageHarborSpacing.small),
+                    text = stringResource(R.string.card_copy_replace),
+                    style = MaterialTheme.typography.titleLarge,
+                )
+                ListItem(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 64.dp)
+                        .clickable {
+                            replaceExpanded = false
+                            onScan(side)
+                        },
+                    colors = ListItemDefaults.colors(
+                        containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                    ),
+                    leadingContent = { Icon(Icons.Default.CameraAlt, contentDescription = null) },
+                    headlineContent = { Text(stringResource(R.string.card_copy_scan)) },
+                )
+                HorizontalDivider(color = MaterialTheme.rmeColors.divider)
+                ListItem(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 64.dp)
+                        .clickable {
+                            replaceExpanded = false
+                            onImport(side)
+                        },
+                    colors = ListItemDefaults.colors(
+                        containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                    ),
+                    leadingContent = { Icon(Icons.Default.UploadFile, contentDescription = null) },
+                    headlineContent = { Text(stringResource(R.string.card_copy_import)) },
+                )
+                TextButton(
+                    modifier = Modifier.align(Alignment.End),
+                    onClick = { replaceExpanded = false },
+                ) {
+                    Text(stringResource(R.string.tool_picker_cancel))
                 }
             }
         }

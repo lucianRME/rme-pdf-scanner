@@ -151,7 +151,7 @@ class CardCopyScreenTest {
     }
 
     @Test
-    fun reviewPreviewsAreZoomableAndReplacementUsesOneContextualMenu() {
+    fun reviewPreviewsAreZoomableAndReplacementUsesOneConsistentSheet() {
         var scanned: CardCopySide? = null
         val rotations = mutableListOf<Pair<CardCopySide, Boolean>>()
         composeRule.setContent {
