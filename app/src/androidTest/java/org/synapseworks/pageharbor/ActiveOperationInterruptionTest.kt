@@ -58,12 +58,17 @@ class ActiveOperationInterruptionTest {
     fun pausedOcrCompletesOnceAfterBackgroundAndForeground() {
         val gate = ControllableOperationGate()
         val terminalState = CountDownLatch(1)
+        val recognitionCount = AtomicInteger(0)
         val result = ocrResult("ocr-background-token")
 
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.replaceOperationsForTest(
-                    ocrEngine = GatedOcrEngine(gate, result),
+                    ocrEngine = GatedOcrEngine(
+                        gate = gate,
+                        result = result,
+                        onRecognize = { recognitionCount.incrementAndGet() },
+                    ),
                     onOcrTerminalState = terminalState::countDown,
                 )
                 activity.restoreCompletedSessionForTest(
@@ -81,8 +86,9 @@ class ActiveOperationInterruptionTest {
             assertTrue("OCR completion was not delivered", terminalState.await(10, TimeUnit.SECONDS))
             scenario.onActivity { activity ->
                 assertEquals(OcrUiState.Success(result), activity.ocrStateForTest())
-                assertEquals(PageHarborScreen.ScanResult, activity.sessionScreenForTest())
+                assertEquals(PageHarborScreen.OcrResult, activity.sessionScreenForTest())
             }
+            assertEquals(1, recognitionCount.get())
         }
     }
 
@@ -956,8 +962,10 @@ class ActiveOperationInterruptionTest {
     private class GatedOcrEngine(
         private val gate: ControllableOperationGate,
         private val result: OcrResult,
+        private val onRecognize: () -> Unit = {},
     ) : OcrEngine {
         override fun recognize(pages: List<OcrPage>): OcrResult {
+            onRecognize()
             gate.await()
             return result
         }

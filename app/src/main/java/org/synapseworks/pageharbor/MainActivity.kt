@@ -2195,7 +2195,8 @@ class MainActivity : FragmentActivity() {
         }
 
         val documentRevision = session.documentRevision
-        val savedDocumentId = lease.session.libraryDocument?.documentId
+        val savedDocument = lease.session.libraryDocument
+        val savedDocumentId = savedDocument?.documentId
         val persistentPageIds = lease.session.pages.map(DocumentPage::persistentId)
         ocrUiState = OcrUiState.Recognizing
         val operationId = ocrOperationTracker.begin(documentRevision)
@@ -2302,7 +2303,14 @@ class MainActivity : FragmentActivity() {
                     return@launch
                 }
                 ocrUiState = ocrStateAfterResult(result)
-                if (ocrUiState is OcrUiState.Success) session.lastOcrScript = script
+                if (ocrUiState is OcrUiState.Success) {
+                    session.lastOcrScript = script
+                    presentCompletedOcrResult(
+                        savedDocumentId = savedDocumentId,
+                        savedDocumentTitle = savedDocument?.title,
+                        preferredPageId = persistentPageIds.firstOrNull(),
+                    )
+                }
                 ocrSelectedPageIndex = 0
                 ocrTerminalStateObserverForTest?.invoke()
             } catch (_: CancellationException) {
@@ -2312,6 +2320,22 @@ class MainActivity : FragmentActivity() {
             } finally {
                 session.releaseDocumentSessionLease(lease)
             }
+        }
+    }
+
+    private fun presentCompletedOcrResult(
+        savedDocumentId: String?,
+        savedDocumentTitle: String?,
+        preferredPageId: String?,
+    ) {
+        if (savedDocumentId != null && savedDocumentTitle != null) {
+            ocrReview.open(
+                documentId = savedDocumentId,
+                title = savedDocumentTitle,
+                preferredPageId = preferredPageId,
+            )
+        } else {
+            session.screen = PageHarborScreen.OcrResult
         }
     }
 
@@ -3528,6 +3552,8 @@ class MainActivity : FragmentActivity() {
 
     internal fun recognizeTextForTest() = recognizeText()
 
+    internal fun recognizeTextForTest(script: OcrScript) = recognizeText(script)
+
     internal fun saveSearchablePdfForTest() = saveSearchablePdf()
 
     internal fun chooseNormalPdfDestinationForTest() = choosePdfDestination()
@@ -3550,6 +3576,11 @@ class MainActivity : FragmentActivity() {
     internal fun searchablePdfStateForTest(): SearchablePdfSaveState = session.searchablePdfSaveState
 
     internal fun ocrStateForTest(): OcrUiState = session.ocrUiState
+
+    internal fun ocrReviewStateForTest():
+        org.synapseworks.pageharbor.ocr.review.OcrReviewUiState = ocrReview.state.value
+
+    internal fun closeOcrReviewForTest() = ocrReview.close()
 
     internal fun normalPdfStateForTest(): PdfSaveState = session.pdfSaveState
 
