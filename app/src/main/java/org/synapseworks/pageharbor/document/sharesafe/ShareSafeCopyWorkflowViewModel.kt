@@ -381,7 +381,11 @@ class ShareSafeCopyWorkflowViewModel(
         val failed = state as? ShareSafeCopyWorkflowState.Failed ?: return
         val configuration = lastConfiguration
         if (!failed.canRetry || configuration == null || documentInput == null) return
-        state = configuration
+        state = if (failed.reason == ShareSafeFailure.TARGET_NOT_REACHABLE) {
+            configuration.copy(step = ShareSafeConfigureStep.SIZE)
+        } else {
+            configuration
+        }
     }
 
     fun back() {

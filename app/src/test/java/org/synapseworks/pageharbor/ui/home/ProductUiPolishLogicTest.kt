@@ -51,6 +51,43 @@ class ProductUiPolishLogicTest {
     }
 
     @Test
+    fun verySmallFittedAxisDoesNotPanOffViewportWhileZoomed() {
+        val content = fittedDocumentPreviewContentSize(
+            viewportWidth = 400,
+            viewportHeight = 800,
+            imageWidth = 1_000,
+            imageHeight = 100,
+        )
+
+        val transformed = updateDocumentPreviewTransform(
+            current = DocumentPreviewTransform(),
+            zoomChange = 4f,
+            panX = 10_000f,
+            panY = 10_000f,
+            viewportWidth = 400,
+            viewportHeight = 800,
+            contentWidth = content.width,
+            contentHeight = content.height,
+        )
+
+        assertEquals(4f, transformed.scale)
+        assertEquals(600f, transformed.offsetX)
+        assertEquals(0f, transformed.offsetY)
+    }
+
+    @Test
+    fun fittedPreviewScaleIsIndependentFromBitmapPixelDimensions() {
+        assertEquals(
+            DocumentPreviewContentSize(width = 400f, height = 40f),
+            fittedDocumentPreviewContentSize(400, 800, 1_000, 100),
+        )
+        assertEquals(
+            DocumentPreviewContentSize(width = 400f, height = 40f),
+            fittedDocumentPreviewContentSize(400, 800, 100, 10),
+        )
+    }
+
+    @Test
     fun doubleTapTogglesBetweenFitAndInspectionZoom() {
         val zoomed = toggleDocumentPreviewZoom(DocumentPreviewTransform())
         assertEquals(2f, zoomed.scale)

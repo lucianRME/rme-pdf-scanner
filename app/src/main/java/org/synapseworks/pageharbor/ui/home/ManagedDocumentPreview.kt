@@ -88,23 +88,30 @@ internal class PreviewBitmapOwnerSlot {
 private val previewRecycleHandler = Handler(Looper.getMainLooper())
 
 /**
- * Compose may retain the previous image in a recorded graphics layer until the next frame even
- * after the owner leaves composition. Recycle after that frame has been drawn so a pending layer
- * can never observe an already-recycled bitmap.
+ * Compose may retain the previous image in nested recorded graphics layers beyond the first frame
+ * after the owner leaves composition. Wait for two complete frames before recycling so both the
+ * preview transform layer and its parent can retire their display lists first.
  */
 internal fun recyclePreviewBitmap(bitmap: Bitmap) {
     if (bitmap.isRecycled) return
-    val recycleAfterNextFrame = {
-        Choreographer.getInstance().postFrameCallback {
-            previewRecycleHandler.post {
-                if (!bitmap.isRecycled) bitmap.recycle()
+    val recycleAfterRetainedLayersAreDrawn = {
+        fun afterFrames(remaining: Int) {
+            Choreographer.getInstance().postFrameCallback {
+                if (remaining > 1) {
+                    afterFrames(remaining - 1)
+                } else {
+                    previewRecycleHandler.post {
+                        if (!bitmap.isRecycled) bitmap.recycle()
+                    }
+                }
             }
         }
+        afterFrames(2)
     }
     if (Looper.myLooper() == Looper.getMainLooper()) {
-        recycleAfterNextFrame()
+        recycleAfterRetainedLayersAreDrawn()
     } else {
-        previewRecycleHandler.post(recycleAfterNextFrame)
+        previewRecycleHandler.post(recycleAfterRetainedLayersAreDrawn)
     }
 }
 

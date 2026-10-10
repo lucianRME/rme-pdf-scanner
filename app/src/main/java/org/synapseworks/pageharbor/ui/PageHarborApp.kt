@@ -96,6 +96,7 @@ import org.synapseworks.pageharbor.ui.targetsize.FitUploadLimitScreen
 import org.synapseworks.pageharbor.ui.cardcopy.CardCopyScreen
 import org.synapseworks.pageharbor.ui.sharesafe.ShareSafeCopyScreen
 import org.synapseworks.pageharbor.ui.flow.DocumentToolOperation
+import org.synapseworks.pageharbor.ui.flow.ToolInputCardinality
 import org.synapseworks.pageharbor.ui.flow.ToolInvocationContext
 import org.synapseworks.pageharbor.ui.flow.ToolInvocationSource
 
@@ -289,6 +290,9 @@ fun PageHarborApp(
         var pendingToolInvocation by rememberSaveable {
             mutableStateOf<ToolInvocationContext?>(null)
         }
+        var pendingToolImport by rememberSaveable {
+            mutableStateOf<ToolInvocationContext?>(null)
+        }
         var pageToolsRequestId by rememberSaveable { mutableLongStateOf(0L) }
         var backupEncryption by remember { mutableStateOf(BackupEncryptionUiState()) }
         val scanCancelledMessage = stringResource(R.string.home_scan_cancelled)
@@ -345,6 +349,43 @@ fun PageHarborApp(
             onScreenChange(target)
         }
 
+        fun continueDocumentTool(
+            invocation: ToolInvocationContext,
+            documentId: String?,
+        ) {
+            when (invocation.operation) {
+                DocumentToolOperation.EXTRACT_TEXT -> {
+                    val existingOcr = documentId?.let { id ->
+                        libraryUiState.recentDocuments
+                            .firstOrNull { it.id == id }
+                            ?.ocrStatus
+                            ?.let { it != LibraryOcrStatus.NOT_INDEXED }
+                    } ?: false
+                    if (existingOcr) {
+                        onOpenOcrReview()
+                    } else if (onRecognizeTextWithLanguage != null) {
+                        ocrOperationPrompt = OcrOperationPrompt.RECOGNIZE_TEXT
+                    } else {
+                        onRecognizeText()
+                    }
+                }
+                DocumentToolOperation.SPLIT_EXTRACT -> pageToolsRequestId += 1L
+                DocumentToolOperation.FIT_UPLOAD_LIMIT -> {
+                    if (invocation.source == ToolInvocationSource.TOOLS_SCREEN) {
+                        navigateTo(PageHarborScreen.Home)
+                    }
+                    onOpenFitUploadLimit()
+                }
+                DocumentToolOperation.SHARE_SAFE_COPY -> {
+                    if (invocation.source == ToolInvocationSource.TOOLS_SCREEN) {
+                        navigateTo(PageHarborScreen.Home)
+                    }
+                    onOpenShareSafeCopy()
+                }
+                DocumentToolOperation.MERGE -> Unit
+            }
+        }
+
         fun handleTopLevelBack() {
             when (exitController.onBack()) {
                 DoubleBackExitController.Result.ShowHint -> coroutineScope.launch {
@@ -385,36 +426,7 @@ fun PageHarborApp(
                 return@LaunchedEffect
             }
             pendingToolInvocation = null
-            when (invocation.operation) {
-                DocumentToolOperation.EXTRACT_TEXT -> {
-                    val existingOcr = libraryUiState.recentDocuments
-                        .firstOrNull { it.id == documentId }
-                        ?.ocrStatus
-                        ?.let { it != LibraryOcrStatus.NOT_INDEXED }
-                        ?: false
-                    if (existingOcr) {
-                        onOpenOcrReview()
-                    } else if (onRecognizeTextWithLanguage != null) {
-                        ocrOperationPrompt = OcrOperationPrompt.RECOGNIZE_TEXT
-                    } else {
-                        onRecognizeText()
-                    }
-                }
-                DocumentToolOperation.SPLIT_EXTRACT -> pageToolsRequestId += 1L
-                DocumentToolOperation.FIT_UPLOAD_LIMIT -> {
-                    if (invocation.source == ToolInvocationSource.TOOLS_SCREEN) {
-                        navigateTo(PageHarborScreen.Home)
-                    }
-                    onOpenFitUploadLimit()
-                }
-                DocumentToolOperation.SHARE_SAFE_COPY -> {
-                    if (invocation.source == ToolInvocationSource.TOOLS_SCREEN) {
-                        navigateTo(PageHarborScreen.Home)
-                    }
-                    onOpenShareSafeCopy()
-                }
-                DocumentToolOperation.MERGE -> Unit
-            }
+            continueDocumentTool(invocation, documentId)
         }
 
         LaunchedEffect(
@@ -822,6 +834,10 @@ fun PageHarborApp(
             onCancelImport = onCancelImport,
             onViewScanResult = { navigateTo(PageHarborScreen.ScanResult) },
             onCardCopy = onOpenCardCopy,
+            onImportDocumentTool = { invocation ->
+                pendingToolImport = invocation
+                onImportFiles()
+            },
             onInvokeDocumentTool = { invocation ->
                 val ready = invocation.requireReady()
                 pendingToolInvocation = ready
@@ -923,6 +939,14 @@ fun PageHarborApp(
             val message = when (importUiState) {
                 is DocumentImportUiState.Completed -> {
                     navigateTo(PageHarborScreen.ScanResult)
+                    pendingToolImport?.let { invocation ->
+                        pendingToolImport = null
+                        if (documentPages.isNotEmpty() &&
+                            invocation.operation.inputCardinality == ToolInputCardinality.EXACTLY_ONE
+                        ) {
+                            continueDocumentTool(invocation, documentId = null)
+                        }
+                    }
                     when {
                         importUiState.skippedItems > 0 -> context.getString(
                             R.string.import_completed_partial,
@@ -938,18 +962,24 @@ fun PageHarborApp(
                     }
                 }
 
-                DocumentImportUiState.Cancelled -> importCancelledMessage
-                is DocumentImportUiState.Error -> when (importUiState.reason) {
-                    DocumentImportError.BUSY -> importBusyMessage
-                    DocumentImportError.EMPTY_INPUT -> importUnreadableMessage
-                    DocumentImportError.UNSUPPORTED_TYPE -> importUnsupportedMessage
-                    DocumentImportError.UNREADABLE_SOURCE -> importUnreadableMessage
-                    DocumentImportError.INVALID_IMAGE -> importInvalidImageMessage
-                    DocumentImportError.PDF_UNREADABLE -> importPdfUnreadableMessage
-                    DocumentImportError.PAGE_LIMIT_EXCEEDED -> importLimitMessage
-                    DocumentImportError.SOURCE_TOO_LARGE -> importTooLargeMessage
-                    DocumentImportError.TEMPORARY_FILE_FAILED -> importTemporaryFileMessage
-                    DocumentImportError.INTERRUPTED -> importInterruptedMessage
+                DocumentImportUiState.Cancelled -> {
+                    pendingToolImport = null
+                    importCancelledMessage
+                }
+                is DocumentImportUiState.Error -> {
+                    pendingToolImport = null
+                    when (importUiState.reason) {
+                        DocumentImportError.BUSY -> importBusyMessage
+                        DocumentImportError.EMPTY_INPUT -> importUnreadableMessage
+                        DocumentImportError.UNSUPPORTED_TYPE -> importUnsupportedMessage
+                        DocumentImportError.UNREADABLE_SOURCE -> importUnreadableMessage
+                        DocumentImportError.INVALID_IMAGE -> importInvalidImageMessage
+                        DocumentImportError.PDF_UNREADABLE -> importPdfUnreadableMessage
+                        DocumentImportError.PAGE_LIMIT_EXCEEDED -> importLimitMessage
+                        DocumentImportError.SOURCE_TOO_LARGE -> importTooLargeMessage
+                        DocumentImportError.TEMPORARY_FILE_FAILED -> importTemporaryFileMessage
+                        DocumentImportError.INTERRUPTED -> importInterruptedMessage
+                    }
                 }
 
                 DocumentImportUiState.Idle,

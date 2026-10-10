@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -59,6 +60,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -299,6 +301,24 @@ private fun ConfigureContent(
     onNext: () -> Unit,
     onPrepare: () -> Unit,
 ) {
+    val presetBytes = listOf(
+        TargetSizeBytes.KB_200,
+        TargetSizeBytes.KB_500,
+        TargetSizeBytes.MB_1,
+        TargetSizeBytes.MB_2,
+    )
+    var customSelected by rememberSaveable(state.recipe) {
+        mutableStateOf(state.targetSize.maximumBytes !in presetBytes)
+    }
+    var customText by rememberSaveable(state.recipe) { mutableStateOf("") }
+    var customUnit by rememberSaveable(state.recipe) { mutableStateOf(TargetSizeCustomUnit.MB) }
+    val customValidation = TargetSizeCustomLimitParser.parse(customText, customUnit)
+    val primaryEnabled = when (state.step) {
+        ShareSafeConfigureStep.PURPOSE -> state.watermark.isValid
+        ShareSafeConfigureStep.SIZE -> !state.targetSize.enabled || !customSelected ||
+            customValidation is TargetSizeCustomValidation.Valid
+        else -> true
+    }
     Column(
         Modifier
             .widthIn(max = PageHarborLayout.homeContentMaxWidth)
@@ -331,38 +351,36 @@ private fun ConfigureContent(
                     onOpacity = onOpacity,
                 )
                 ShareSafeConfigureStep.SIZE -> SizeStep(
-                    state,
-                    onTargetEnabled,
-                    onTargetBytes,
-                    onNext,
+                    state = state,
+                    presetBytes = presetBytes,
+                    customSelected = customSelected,
+                    customText = customText,
+                    customUnit = customUnit,
+                    customValidation = customValidation,
+                    onEnabled = onTargetEnabled,
+                    onBytes = onTargetBytes,
+                    onCustomSelected = { customSelected = it },
+                    onCustomText = { customText = it },
+                    onCustomUnit = { customUnit = it },
                 )
                 ShareSafeConfigureStep.REVIEW -> ReviewStep(state)
             }
         }
-        if (state.step != ShareSafeConfigureStep.SIZE) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.surfaceContainer,
-                tonalElevation = 3.dp,
+        ShareSafeStickyActionRegion {
+            RmePrimaryButton(
+                onClick = if (state.step == ShareSafeConfigureStep.REVIEW) onPrepare else onNext,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                enabled = primaryEnabled,
             ) {
-                RmePrimaryButton(
-                    onClick = if (state.step == ShareSafeConfigureStep.REVIEW) onPrepare else onNext,
-                    modifier = Modifier
-                        .padding(PageHarborSpacing.medium)
-                        .fillMaxWidth()
-                        .heightIn(min = 48.dp),
-                    enabled = state.step != ShareSafeConfigureStep.PURPOSE || state.watermark.isValid,
-                ) {
-                    Text(
-                        stringResource(
-                            if (state.step == ShareSafeConfigureStep.REVIEW) {
-                                R.string.share_safe_prepare
-                            } else {
-                                R.string.share_safe_next
-                            },
-                        ),
-                    )
-                }
+                Text(
+                    stringResource(
+                        if (state.step == ShareSafeConfigureStep.REVIEW) {
+                            R.string.share_safe_prepare
+                        } else {
+                            R.string.share_safe_next
+                        },
+                    ),
+                )
             }
         }
     }
@@ -503,6 +521,7 @@ private fun RedactionPagePreview(
         decode = { decodeBoundedRedactionPreview(resolver, uri, rotation) },
     )
     val minimumTargetPx = with(LocalDensity.current) { 48.dp.toPx() }
+    val selectedOutlineColor = MaterialTheme.colorScheme.primary
     Surface(
         Modifier.fillMaxWidth().heightIn(min = 260.dp, max = 520.dp),
         color = MaterialTheme.rmeColors.previewBackground,
@@ -547,21 +566,27 @@ private fun RedactionPagePreview(
                                 region.bounds,
                                 rotation,
                             )
-                            drawRect(
-                                color = if (region.id == selected) {
-                                    androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.9f)
-                                } else {
-                                    androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.72f)
-                                },
-                                topLeft = Offset(
-                                    geometry.leftPx + displayBounds.left * geometry.widthPx,
-                                    geometry.topPx + displayBounds.top * geometry.heightPx,
-                                ),
-                                size = Size(
-                                    displayBounds.width * geometry.widthPx,
-                                    displayBounds.height * geometry.heightPx,
-                                ),
+                            val topLeft = Offset(
+                                geometry.leftPx + displayBounds.left * geometry.widthPx,
+                                geometry.topPx + displayBounds.top * geometry.heightPx,
                             )
+                            val regionSize = Size(
+                                displayBounds.width * geometry.widthPx,
+                                displayBounds.height * geometry.heightPx,
+                            )
+                            drawRect(
+                                color = androidx.compose.ui.graphics.Color.Black,
+                                topLeft = topLeft,
+                                size = regionSize,
+                            )
+                            if (region.id == selected) {
+                                drawRect(
+                                    color = selectedOutlineColor,
+                                    topLeft = topLeft,
+                                    size = regionSize,
+                                    style = Stroke(width = 2.dp.toPx()),
+                                )
+                            }
                         }
                     }
                 }
@@ -654,22 +679,17 @@ private fun PurposeStep(
 @Composable
 private fun SizeStep(
     state: ShareSafeCopyWorkflowState.Configure,
+    presetBytes: List<Long>,
+    customSelected: Boolean,
+    customText: String,
+    customUnit: TargetSizeCustomUnit,
+    customValidation: TargetSizeCustomValidation,
     onEnabled: (Boolean) -> Unit,
     onBytes: (Long) -> Unit,
-    onNext: () -> Unit,
+    onCustomSelected: (Boolean) -> Unit,
+    onCustomText: (String) -> Unit,
+    onCustomUnit: (TargetSizeCustomUnit) -> Unit,
 ) {
-    val presetBytes = listOf(
-        TargetSizeBytes.KB_200,
-        TargetSizeBytes.KB_500,
-        TargetSizeBytes.MB_1,
-        TargetSizeBytes.MB_2,
-    )
-    var customSelected by rememberSaveable(state.recipe) {
-        mutableStateOf(state.targetSize.maximumBytes !in presetBytes)
-    }
-    var customText by rememberSaveable(state.recipe) { mutableStateOf("") }
-    var customUnit by rememberSaveable(state.recipe) { mutableStateOf(TargetSizeCustomUnit.MB) }
-    val customValidation = TargetSizeCustomLimitParser.parse(customText, customUnit)
     Text(
         stringResource(R.string.share_safe_size_heading),
         style = MaterialTheme.typography.titleLarge,
@@ -685,13 +705,13 @@ private fun SizeStep(
             presetBytes.forEach { bytes ->
                 RmeTonalChoice(
                     selected = !customSelected && state.targetSize.maximumBytes == bytes,
-                    onClick = { customSelected = false; onBytes(bytes) },
+                    onClick = { onCustomSelected(false); onBytes(bytes) },
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) { Text(formatTargetSize(bytes)) }
             }
             RmeTonalChoice(
                 selected = customSelected,
-                onClick = { customSelected = true },
+                onClick = { onCustomSelected(true) },
                 modifier = Modifier.heightIn(min = 48.dp),
             ) { Text(stringResource(R.string.fit_limit_custom)) }
         }
@@ -699,7 +719,7 @@ private fun SizeStep(
             RmeFilledTextField(
                 value = customText,
                 onValueChange = { value ->
-                    customText = value
+                    onCustomText(value)
                     (TargetSizeCustomLimitParser.parse(value, customUnit)
                         as? TargetSizeCustomValidation.Valid)?.let { onBytes(it.bytes) }
                 },
@@ -718,7 +738,7 @@ private fun SizeStep(
                     RmeTonalChoice(
                         selected = unit == customUnit,
                         onClick = {
-                            customUnit = unit
+                            onCustomUnit(unit)
                             (TargetSizeCustomLimitParser.parse(customText, unit)
                                 as? TargetSizeCustomValidation.Valid)?.let { onBytes(it.bytes) }
                         },
@@ -728,12 +748,6 @@ private fun SizeStep(
             }
         }
     }
-    RmePrimaryButton(
-        onClick = onNext,
-        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-        enabled = !state.targetSize.enabled || !customSelected ||
-            customValidation is TargetSizeCustomValidation.Valid,
-    ) { Text(stringResource(R.string.share_safe_next)) }
 }
 
 @Composable
@@ -783,53 +797,104 @@ private fun PreparedContent(
 ) {
     val saving = state.saveStatus == ShareSafeSaveStatus.Saving
     Column(
-        Modifier.widthIn(max = PageHarborLayout.homeContentMaxWidth).fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .padding(PageHarborLayout.compactScreenHorizontalPadding),
-        verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium),
+        Modifier.widthIn(max = PageHarborLayout.homeContentMaxWidth).fillMaxSize(),
     ) {
-        FinalPdfPreview(state.prepared)
-        Text(stringResource(R.string.share_safe_ready), style = MaterialTheme.typography.titleLarge)
-        Text(stringResource(
-            R.string.share_safe_result_size,
-            formatDecimalBytes(state.prepared.bytes),
-            state.prepared.pageCount,
-        ))
-        when (val save = state.saveStatus) {
-            ShareSafeSaveStatus.Idle, ShareSafeSaveStatus.ChoosingDestination -> Unit
-            ShareSafeSaveStatus.Saving -> Text(stringResource(R.string.share_safe_saving))
-            is ShareSafeSaveStatus.Saved -> ShareSafeNotice(
-                stringResource(R.string.share_safe_saved, formatDecimalBytes(save.bytes)),
-                ShareSafeNoticeTone.SUCCESS,
-            )
-            is ShareSafeSaveStatus.Failed -> ShareSafeNotice(
-                stringResource(R.string.share_safe_failed),
-                ShareSafeNoticeTone.ERROR,
-            )
+        Column(
+            Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
+                .padding(PageHarborLayout.compactScreenHorizontalPadding),
+            verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium),
+        ) {
+            FinalPdfPreview(state.prepared)
+            Text(stringResource(R.string.share_safe_ready), style = MaterialTheme.typography.titleLarge)
+            Text(stringResource(
+                R.string.share_safe_result_size,
+                formatDecimalBytes(state.prepared.bytes),
+                state.prepared.pageCount,
+            ))
+            when (val save = state.saveStatus) {
+                ShareSafeSaveStatus.Idle, ShareSafeSaveStatus.ChoosingDestination -> Unit
+                ShareSafeSaveStatus.Saving -> Text(stringResource(R.string.share_safe_saving))
+                is ShareSafeSaveStatus.Saved -> ShareSafeNotice(
+                    stringResource(R.string.share_safe_saved, formatDecimalBytes(save.bytes)),
+                    ShareSafeNoticeTone.SUCCESS,
+                )
+                is ShareSafeSaveStatus.Failed -> ShareSafeNotice(
+                    stringResource(R.string.share_safe_failed),
+                    ShareSafeNoticeTone.ERROR,
+                )
+            }
+            if (state.shareFailed) {
+                ShareSafeNotice(
+                    stringResource(R.string.share_safe_share_failed),
+                    ShareSafeNoticeTone.ERROR,
+                )
+            }
         }
-        if (state.shareFailed) {
-            ShareSafeNotice(
-                stringResource(R.string.share_safe_share_failed),
-                ShareSafeNoticeTone.ERROR,
-            )
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
-            RmePrimaryButton(
-                onClick = onSave,
+        ShareSafeStickyActionRegion {
+            val stacked = LocalDensity.current.fontScale >= 1.8f
+            if (stacked) {
+                Column(verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
+                    ShareSafeResultActions(onSave, onShare, saving, stacked = true)
+                }
+            } else {
+                ShareSafeResultActions(onSave, onShare, saving, stacked = false)
+            }
+            TextButton(
+                onClick = onChange,
                 enabled = !saving,
-                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-            ) { Icon(Icons.Default.Save, null); Text(stringResource(R.string.share_safe_save)) }
-            RmeSecondaryButton(
-                onClick = onShare,
-                enabled = !saving,
-                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-            ) { Icon(Icons.Default.Share, null); Text(stringResource(R.string.share_safe_share)) }
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            ) { Text(stringResource(R.string.share_safe_change_settings)) }
         }
-        TextButton(
-            onClick = onChange,
+    }
+}
+
+@Composable
+private fun ShareSafeResultActions(
+    onSave: () -> Unit,
+    onShare: () -> Unit,
+    saving: Boolean,
+    stacked: Boolean,
+) {
+    val save: @Composable (Modifier) -> Unit = { modifier ->
+        RmePrimaryButton(
+            onClick = onSave,
             enabled = !saving,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-        ) { Text(stringResource(R.string.share_safe_change_settings)) }
+            modifier = modifier.heightIn(min = 48.dp),
+        ) { Icon(Icons.Default.Save, null); Text(stringResource(R.string.share_safe_save)) }
+    }
+    val share: @Composable (Modifier) -> Unit = { modifier ->
+        RmeSecondaryButton(
+            onClick = onShare,
+            enabled = !saving,
+            modifier = modifier.heightIn(min = 48.dp),
+        ) { Icon(Icons.Default.Share, null); Text(stringResource(R.string.share_safe_share)) }
+    }
+    if (stacked) {
+        save(Modifier.fillMaxWidth())
+        share(Modifier.fillMaxWidth())
+    } else {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
+        ) {
+            save(Modifier.weight(1f))
+            share(Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun ShareSafeStickyActionRegion(content: @Composable ColumnScope.() -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        tonalElevation = 3.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(PageHarborSpacing.medium),
+            verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
+            content = content,
+        )
     }
 }
 
@@ -842,10 +907,10 @@ private fun FailedContent(state: ShareSafeCopyWorkflowState.Failed, onRetry: () 
     ) {
         Text(
             stringResource(
-                if (state.reason == ShareSafeFailure.PROCESS_INTERRUPTED) {
-                    R.string.share_safe_interrupted
-                } else {
-                    R.string.share_safe_failed
+                when (state.reason) {
+                    ShareSafeFailure.PROCESS_INTERRUPTED -> R.string.share_safe_interrupted
+                    ShareSafeFailure.TARGET_NOT_REACHABLE -> R.string.share_safe_target_not_reachable
+                    else -> R.string.share_safe_failed
                 },
             ),
             style = MaterialTheme.typography.titleMedium,
@@ -853,7 +918,15 @@ private fun FailedContent(state: ShareSafeCopyWorkflowState.Failed, onRetry: () 
         if (state.canRetry) RmePrimaryButton(
             onClick = onRetry,
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-        ) { Text(stringResource(R.string.share_safe_retry)) }
+        ) {
+            Text(stringResource(
+                if (state.reason == ShareSafeFailure.TARGET_NOT_REACHABLE) {
+                    R.string.share_safe_change_target
+                } else {
+                    R.string.share_safe_retry
+                },
+            ))
+        }
     }
 }
 

@@ -18,11 +18,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntSize
@@ -39,6 +41,33 @@ internal data class DocumentPreviewTransform(
     val offsetY: Float = 0f,
 )
 
+internal data class DocumentPreviewContentSize(
+    val width: Float,
+    val height: Float,
+)
+
+internal fun fittedDocumentPreviewContentSize(
+    viewportWidth: Int,
+    viewportHeight: Int,
+    imageWidth: Int,
+    imageHeight: Int,
+    totalPaddingPx: Float = 0f,
+): DocumentPreviewContentSize {
+    if (viewportWidth <= 0 || viewportHeight <= 0 || imageWidth <= 0 || imageHeight <= 0) {
+        return DocumentPreviewContentSize(0f, 0f)
+    }
+    val availableWidth = (viewportWidth - totalPaddingPx).coerceAtLeast(1f)
+    val availableHeight = (viewportHeight - totalPaddingPx).coerceAtLeast(1f)
+    val fitScale = minOf(
+        availableWidth / imageWidth.toFloat(),
+        availableHeight / imageHeight.toFloat(),
+    )
+    return DocumentPreviewContentSize(
+        width = imageWidth * fitScale,
+        height = imageHeight * fitScale,
+    )
+}
+
 internal fun updateDocumentPreviewTransform(
     current: DocumentPreviewTransform,
     zoomChange: Float,
@@ -46,12 +75,16 @@ internal fun updateDocumentPreviewTransform(
     panY: Float,
     viewportWidth: Int,
     viewportHeight: Int,
+    contentWidth: Float = viewportWidth.toFloat(),
+    contentHeight: Float = viewportHeight.toFloat(),
 ): DocumentPreviewTransform {
     val scale = (current.scale * zoomChange)
         .coerceIn(DOCUMENT_PREVIEW_MIN_SCALE, DOCUMENT_PREVIEW_MAX_SCALE)
     if (scale == DOCUMENT_PREVIEW_MIN_SCALE) return DocumentPreviewTransform()
-    val maximumX = viewportWidth.coerceAtLeast(0) * (scale - 1f) / 2f
-    val maximumY = viewportHeight.coerceAtLeast(0) * (scale - 1f) / 2f
+    val maximumX = ((contentWidth.coerceAtLeast(0f) * scale - viewportWidth) / 2f)
+        .coerceAtLeast(0f)
+    val maximumY = ((contentHeight.coerceAtLeast(0f) * scale - viewportHeight) / 2f)
+        .coerceAtLeast(0f)
     return DocumentPreviewTransform(
         scale = scale,
         offsetX = (current.offsetX + panX).coerceIn(-maximumX, maximumX),
@@ -82,8 +115,17 @@ internal fun ZoomableDocumentPreview(
 ) {
     var transform by remember(resetKey) { mutableStateOf(DocumentPreviewTransform()) }
     var viewport by remember(resetKey) { mutableStateOf(IntSize.Zero) }
+    val previewPadding = PageHarborSpacing.small
+    val totalPaddingPx = with(LocalDensity.current) { previewPadding.toPx() * 2f }
     LaunchedEffect(resetKey) { transform = DocumentPreviewTransform() }
     val transformableState = rememberTransformableState { zoomChange, panChange, _ ->
+        val content = fittedDocumentPreviewContentSize(
+            viewportWidth = viewport.width,
+            viewportHeight = viewport.height,
+            imageWidth = bitmap.width,
+            imageHeight = bitmap.height,
+            totalPaddingPx = totalPaddingPx,
+        )
         transform = updateDocumentPreviewTransform(
             current = transform,
             zoomChange = zoomChange,
@@ -91,6 +133,8 @@ internal fun ZoomableDocumentPreview(
             panY = panChange.y,
             viewportWidth = viewport.width,
             viewportHeight = viewport.height,
+            contentWidth = content.width,
+            contentHeight = content.height,
         )
     }
 
@@ -109,29 +153,35 @@ internal fun ZoomableDocumentPreview(
             modifier = Modifier
                 .fillMaxSize()
                 .onSizeChanged { viewport = it }
+                .clipToBounds()
+                .transformable(transformableState)
                 .pointerInput(resetKey) {
                     detectTapGestures(onDoubleTap = {
                         transform = toggleDocumentPreviewZoom(transform)
                     })
-                }
-                .transformable(transformableState)
-                .graphicsLayer {
-                    scaleX = transform.scale
-                    scaleY = transform.scale
-                    translationX = transform.offsetX
-                    translationY = transform.offsetY
-                    clip = true
-                }
-                .padding(PageHarborSpacing.small),
+                },
             contentAlignment = Alignment.Center,
         ) {
-            Image(
-                modifier = Modifier.fillMaxSize(),
-                bitmap = bitmap,
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-            )
-            overlay()
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = transform.scale
+                        scaleY = transform.scale
+                        translationX = transform.offsetX
+                        translationY = transform.offsetY
+                    }
+                    .padding(previewPadding),
+                contentAlignment = Alignment.Center,
+            ) {
+                Image(
+                    modifier = Modifier.fillMaxSize(),
+                    bitmap = bitmap,
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                )
+                overlay()
+            }
         }
     }
 }

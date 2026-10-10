@@ -706,6 +706,65 @@ class HomeScreenTest {
     }
 
     @Test
+    fun toolsShareSafeImportContinuesDirectlyIntoShareSafe() {
+        var openCount by mutableStateOf(0)
+        var importState by mutableStateOf<DocumentImportUiState>(DocumentImportUiState.Idle)
+        var pages by mutableStateOf(emptyList<DocumentPage>())
+        var screen by mutableStateOf(org.synapseworks.pageharbor.ui.PageHarborScreen.Home)
+        composeTestRule.setContent {
+            PageHarborApp(
+                screen = screen,
+                autoNavigateToScanResult = false,
+                importUiState = importState,
+                documentPages = pages,
+                onScreenChange = { screen = it },
+                onImportFiles = { importState = DocumentImportUiState.Selecting },
+                onOpenShareSafeCopy = { openCount += 1 },
+            )
+        }
+
+        composeTestRule.onNodeWithText("Tools").performClick()
+        composeTestRule.onNodeWithContentDescription(
+            "Share-safe copy. Create a local copy with optional redaction, purpose watermark and file-size limit.",
+        ).performClick()
+        composeTestRule.onNodeWithText("Choose a document").assertIsDisplayed()
+        composeTestRule.onAllNodesWithText("Import files")[1].performClick()
+        composeTestRule.runOnIdle {
+            assertEquals(DocumentImportUiState.Selecting, importState)
+            pages = listOf(documentPage(1L))
+            importState = DocumentImportUiState.Completed(1, 0, appended = false)
+        }
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { openCount == 1 }
+        composeTestRule.runOnIdle {
+            assertEquals(org.synapseworks.pageharbor.ui.PageHarborScreen.Home, screen)
+        }
+    }
+
+    @Test
+    fun cancellingShareSafeImportReturnsToPickerWithoutStartingTool() {
+        var openCount by mutableStateOf(0)
+        var importState by mutableStateOf<DocumentImportUiState>(DocumentImportUiState.Idle)
+        composeTestRule.setContent {
+            PageHarborApp(
+                importUiState = importState,
+                onImportFiles = { importState = DocumentImportUiState.Selecting },
+                onOpenShareSafeCopy = { openCount += 1 },
+            )
+        }
+
+        composeTestRule.onNodeWithText("Tools").performClick()
+        composeTestRule.onNodeWithContentDescription(
+            "Share-safe copy. Create a local copy with optional redaction, purpose watermark and file-size limit.",
+        ).performClick()
+        composeTestRule.onAllNodesWithText("Import files")[1].performClick()
+        composeTestRule.runOnIdle { importState = DocumentImportUiState.Cancelled }
+
+        composeTestRule.onNodeWithText("Choose a document").assertIsDisplayed()
+        composeTestRule.runOnIdle { assertEquals(0, openCount) }
+    }
+
+    @Test
     fun documentActionsExposeFitUploadLimitAsTheSameWorkflowEntryPoint() {
         var openCount = 0
         composeTestRule.setContent {

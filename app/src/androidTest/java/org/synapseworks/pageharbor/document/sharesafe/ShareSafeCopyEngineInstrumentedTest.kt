@@ -35,8 +35,11 @@ import org.synapseworks.pageharbor.document.redaction.RedactionRegionId
 import org.synapseworks.pageharbor.document.redaction.RedactionTarget
 import org.synapseworks.pageharbor.document.redaction.RedactionTargetKind
 import org.synapseworks.pageharbor.document.redaction.RedactedPdfVerificationResult
+import org.synapseworks.pageharbor.document.redaction.SecureRedactedPdfEngine
 import org.synapseworks.pageharbor.document.redaction.SecureRedactedOcrProvenance
 import org.synapseworks.pageharbor.document.redaction.SecureRedactedPdfPage
+import org.synapseworks.pageharbor.document.redaction.SecureRedactedPdfRequest
+import org.synapseworks.pageharbor.document.redaction.SecureRedactedPdfResult
 import org.synapseworks.pageharbor.document.redaction.secureRedactionSha256
 import org.synapseworks.pageharbor.document.cardcopy.CardCopyAcquisition
 import org.synapseworks.pageharbor.document.cardcopy.CardCopyPdfComposer
@@ -242,6 +245,85 @@ class ShareSafeCopyEngineInstrumentedTest {
         } finally {
             engine.discard(prepared)
         }
+    }
+
+    @Test
+    fun alreadyFitsTargetIsSuccessfulWithoutRecompression() = runBlocking {
+        val source = fixture("tiny-white-page.jpg", 64, 64, "")
+        val sourceHash = requireNotNull(secureRedactionSha256(source::inputStream))
+        val generation = 17L
+        val pages = List(12) { index ->
+            SecureRedactedPdfPage(
+                pageId = "tiny-page-$index",
+                openSource = source::inputStream,
+                imageMetadata = DocumentImageMetadata(source.length(), 64, 64),
+                expectedSourceSha256 = sourceHash,
+                regions = emptyList(),
+            )
+        }
+        val sanitizedResult = SecureRedactedPdfEngine(context).prepare(
+            SecureRedactedPdfRequest(pages = pages, requireAtLeastOneRedaction = false),
+        )
+        assertTrue("sanitized result=$sanitizedResult", sanitizedResult is SecureRedactedPdfResult.Success)
+        val sanitized = (sanitizedResult as SecureRedactedPdfResult.Success).prepared
+        val artifact = requireNotNull(sanitized.toShareSafeAttestation(generation))
+        assertTrue("fixture must already fit target: bytes=${artifact.evidence.bytes}", artifact.evidence.bytes < 100_000L)
+
+        val result = ShareSafeTargetSizeAdapter(context).compress(
+            source = artifact,
+            targetBytes = 100_000L,
+            expectedGeneration = generation,
+        )
+
+        assertTrue("already-fits result=$result", result is ShareSafeTargetSizeResult.Success)
+        val success = result as ShareSafeTargetSizeResult.Success
+        assertEquals(ShareSafeTargetSizeResult.Outcome.ALREADY_FITS, success.outcome)
+        assertTrue(success.artifact.evidence.bytes <= 100_000L)
+        success.artifact.ownedDirectory.deleteRecursively()
+        Unit
+    }
+
+    @Test
+    fun largerThanTargetIsCompressedAndReverified() = runBlocking {
+        val source = noisyFixture("large-photo.jpg", 1_000, 1_400)
+        val sourceHash = requireNotNull(secureRedactionSha256(source::inputStream))
+        val generation = 18L
+        val sanitizedResult = SecureRedactedPdfEngine(context).prepare(
+            SecureRedactedPdfRequest(
+                pages = listOf(
+                    SecureRedactedPdfPage(
+                        pageId = "large-photo",
+                        openSource = source::inputStream,
+                        imageMetadata = DocumentImageMetadata(source.length(), 1_000, 1_400),
+                        expectedSourceSha256 = sourceHash,
+                        regions = emptyList(),
+                    ),
+                ),
+                requireAtLeastOneRedaction = false,
+            ),
+        )
+        assertTrue("sanitized result=$sanitizedResult", sanitizedResult is SecureRedactedPdfResult.Success)
+        val sanitized = (sanitizedResult as SecureRedactedPdfResult.Success).prepared
+        val artifact = requireNotNull(sanitized.toShareSafeAttestation(generation))
+        assertTrue(
+            "fixture must require compression: bytes=${artifact.evidence.bytes}",
+            artifact.evidence.bytes > TargetSizeBytes.KB_500,
+        )
+
+        val result = ShareSafeTargetSizeAdapter(context).compress(
+            source = artifact,
+            targetBytes = TargetSizeBytes.KB_500,
+            expectedGeneration = generation,
+        )
+
+        assertTrue("compression result=$result", result is ShareSafeTargetSizeResult.Success)
+        val success = result as ShareSafeTargetSizeResult.Success
+        assertEquals(ShareSafeTargetSizeResult.Outcome.COMPRESSED_TO_TARGET, success.outcome)
+        assertTrue(success.artifact.evidence.bytes <= TargetSizeBytes.KB_500)
+        assertTrue(success.artifact.file.isFile)
+        success.artifact.ownedDirectory.deleteRecursively()
+        artifact.ownedDirectory.deleteRecursively()
+        Unit
     }
 
     @Test
@@ -465,6 +547,29 @@ class ShareSafeCopyEngineInstrumentedTest {
         }
     }
 
+    private fun noisyFixture(name: String, width: Int, height: Int): File =
+        File(root, name).also { file ->
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            val pixels = IntArray(width * height)
+            var seed = 0x13579BDF
+            pixels.indices.forEach { index ->
+                seed = seed * 1_664_525 + 1_013_904_223
+                pixels[index] = Color.rgb(
+                    (seed ushr 16) and 0xff,
+                    (seed ushr 8) and 0xff,
+                    seed and 0xff,
+                )
+            }
+            try {
+                bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
+                file.outputStream().use { output ->
+                    assertTrue(bitmap.compress(Bitmap.CompressFormat.JPEG, 100, output))
+                }
+            } finally {
+                bitmap.recycle()
+            }
+        }
+
     private suspend fun composeCardWithFourRedactions(suffix: String): CardCopyPreparedPdf {
         fun source(side: CardCopySide, color: Int): CardCopySource {
             val directory = File(root, "$suffix-${side.name.lowercase()}").apply { mkdirs() }
@@ -541,7 +646,10 @@ class ShareSafeCopyEngineInstrumentedTest {
                         bitmap.eraseColor(Color.WHITE)
                         page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                         val redaction = bitmap.getPixel(bitmap.width / 4, bitmap.height / 7)
+                        assertEquals(255, Color.alpha(redaction))
                         assertTrue(Color.red(redaction) < 32)
+                        assertTrue(Color.green(redaction) < 32)
+                        assertTrue(Color.blue(redaction) < 32)
                         var nonWhiteOutsideRedaction = 0
                         for (y in bitmap.height / 3 until bitmap.height * 2 / 3 step 3) {
                             for (x in bitmap.width / 5 until bitmap.width * 4 / 5 step 3) {

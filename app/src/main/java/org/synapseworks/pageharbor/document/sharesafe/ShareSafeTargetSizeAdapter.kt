@@ -39,8 +39,14 @@ import org.synapseworks.pageharbor.document.targetsize.TargetSizePdfRequest
 import org.synapseworks.pageharbor.document.targetsize.TargetSizePdfResult
 
 internal sealed interface ShareSafeTargetSizeResult {
+    enum class Outcome {
+        ALREADY_FITS,
+        COMPRESSED_TO_TARGET,
+    }
+
     data class Success(
         val artifact: ShareSafeAttestedArtifact,
+        val outcome: Outcome,
         val elapsedMillis: Long,
         val peakTemporaryBytes: Long,
         val estimatedPeakBitmapBytes: Long,
@@ -76,6 +82,15 @@ internal class ShareSafeTargetSizeAdapter(context: Context) {
         if (!source.revalidate(verifier, expectedGeneration)) {
             return@withContext ShareSafeTargetSizeResult.Failure(
                 ShareSafeFailure.ATTESTATION_FAILED,
+            )
+        }
+        if (source.evidence.bytes <= targetBytes) {
+            return@withContext ShareSafeTargetSizeResult.Success(
+                artifact = source.copy(targetBytes = targetBytes),
+                outcome = ShareSafeTargetSizeResult.Outcome.ALREADY_FITS,
+                elapsedMillis = 0L,
+                peakTemporaryBytes = source.evidence.bytes,
+                estimatedPeakBitmapBytes = 0L,
             )
         }
         val working = createWorkingDirectory()
@@ -163,6 +178,7 @@ internal class ShareSafeTargetSizeAdapter(context: Context) {
                     watermarkConfigDigest = source.watermarkConfigDigest,
                     targetBytes = targetBytes,
                 ),
+                outcome = ShareSafeTargetSizeResult.Outcome.COMPRESSED_TO_TARGET,
                 elapsedMillis = SystemClock.elapsedRealtime() - started,
                 peakTemporaryBytes = max(
                     peakTemporaryBytes,

@@ -361,6 +361,8 @@
     <string name="share_safe_saved">Saved and verified · %1$s</string>
     <string name="share_safe_share_failed">The final copy could not be verified for sharing. Prepare it again.</string>
     <string name="share_safe_failed">The share-safe copy could not be prepared or verified.</string>
+    <string name="share_safe_target_not_reachable">Can’t reach this size without reducing readability.</string>
+    <string name="share_safe_change_target">Change target</string>
     <string name="share_safe_interrupted">Preparation was interrupted. Open the source and prepare it again.</string>
     <string name="share_safe_retry">Try again</string>
     <string name="share_safe_close">Close Share-safe copy</string>

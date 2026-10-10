@@ -127,6 +127,34 @@ class ShareSafeCopyWorkflowViewModelInstrumentedTest {
         assertFalse(finalFile.exists())
     }
 
+    @Test
+    fun alreadyFitsPrepareCanReturnToSettingsAndPrepareAgain() = runBlocking {
+        val viewModel = ShareSafeCopyWorkflowViewModel(application, SavedStateHandle())
+        viewModel.open(input())
+        viewModel.selectRecipe(ShareSafeRecipe.UPLOAD_TO_PORTAL)
+        repeat(3) { viewModel.nextStep() }
+
+        viewModel.prepare()
+        waitUntil { viewModel.state is ShareSafeCopyWorkflowState.Prepared }
+        val first = (viewModel.state as ShareSafeCopyWorkflowState.Prepared).prepared
+        assertTrue(first.bytes <= TargetSizeBytes.MB_1)
+
+        viewModel.back()
+        val restored = viewModel.state as ShareSafeCopyWorkflowState.Configure
+        assertEquals(ShareSafeConfigureStep.REVIEW, restored.step)
+        assertFalse(first.artifact.file.exists())
+
+        viewModel.setTargetSizeEnabled(false)
+        viewModel.prepare()
+        waitUntil { viewModel.state is ShareSafeCopyWorkflowState.Prepared }
+        val second = (viewModel.state as ShareSafeCopyWorkflowState.Prepared).prepared
+        assertFalse(second.targetSize.enabled)
+        assertTrue(second.artifact.file.isFile)
+
+        viewModel.close()
+        assertFalse(second.artifact.file.exists())
+    }
+
     private fun input(): ShareSafeDocumentInput {
         val hash = requireNotNull(secureRedactionSha256(source::inputStream))
         return ShareSafeDocumentInput(

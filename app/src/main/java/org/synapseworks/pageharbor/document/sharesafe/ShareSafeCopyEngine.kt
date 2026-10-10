@@ -150,11 +150,15 @@ internal class ShareSafeCopyEngine(context: Context) {
                     is ShareSafeTargetSizeResult.Success -> {
                         val previous = current
                         current = result.artifact
-                        discardArtifact(previous)
+                        if (result.outcome == ShareSafeTargetSizeResult.Outcome.COMPRESSED_TO_TARGET) {
+                            discardArtifact(previous)
+                        }
                         compressionMillis = result.elapsedMillis
                         peakTemporaryBytes = maxOf(peakTemporaryBytes, result.peakTemporaryBytes)
                         peakBitmapBytes = maxOf(peakBitmapBytes, result.estimatedPeakBitmapBytes)
-                        searchableTextStatus = ShareSafeSearchableTextStatus.NOT_PRESENT
+                        if (result.outcome == ShareSafeTargetSizeResult.Outcome.COMPRESSED_TO_TARGET) {
+                            searchableTextStatus = ShareSafeSearchableTextStatus.NOT_PRESENT
+                        }
                     }
                     is ShareSafeTargetSizeResult.Failure -> {
                         discardArtifact(current)

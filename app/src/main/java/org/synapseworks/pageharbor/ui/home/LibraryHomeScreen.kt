@@ -195,6 +195,7 @@ fun LibraryHomeScreen(
     onCancelImport: () -> Unit,
     onViewScanResult: () -> Unit,
     onCardCopy: () -> Unit = {},
+    onImportDocumentTool: (ToolInvocationContext) -> Unit = {},
     onInvokeDocumentTool: (ToolInvocationContext) -> Unit = {},
     onPrivacyInfo: () -> Unit,
     onDismissPrivacyInfo: () -> Unit,
@@ -480,7 +481,7 @@ fun LibraryHomeScreen(
                 showAcquisitionChooser = true
             },
             onImport = {
-                onImportFiles()
+                onImportDocumentTool(request)
             },
             onConfirm = { documentIds ->
                 val invocation = request.copy(documentIds = documentIds).requireReady()
