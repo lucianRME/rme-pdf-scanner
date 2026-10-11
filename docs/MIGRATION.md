@@ -1,6 +1,6 @@
 # Moving Documents From Another Scanner
 
-Status: v1.5 interoperability guide. RME uses ordinary Android file and sharing interfaces; it does
+Status: v1.7 interoperability guide. RME uses ordinary Android file and sharing interfaces; it does
 not integrate with another scanner's private database or account.
 
 ## Supported interoperability model

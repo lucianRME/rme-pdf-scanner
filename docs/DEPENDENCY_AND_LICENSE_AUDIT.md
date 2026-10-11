@@ -1,6 +1,6 @@
 # Dependency and License Audit
 
-Status: updated for `v1.5.0` preparation, 22 September 2026.
+Status: updated for `v1.7.0`, 11 October 2026.
 
 ## Method
 
@@ -10,17 +10,19 @@ The release runtime graph was resolved with:
 ./gradlew :app:dependencies --configuration releaseRuntimeClasspath
 ```
 
-Direct runtime declarations in v1.5 are listed below; the resolved graph also includes the Kotlin
+Direct runtime declarations in v1.7 are listed below; the resolved graph also includes the Kotlin
 standard library `2.2.20` supplied by the Kotlin Android plugin:
 
 - AndroidX Core KTX `1.17.0`, Lifecycle Runtime KTX `2.9.4`, and Activity Compose `1.11.0`.
 - Compose BOM `2025.09.01`, Compose UI/UI Graphics/UI Tooling Preview, Material 3, and the extended
   Material icon set.
-- Google Play services ML Kit Document Scanner `16.0.0` and ML Kit Text Recognition `16.0.1`.
+- Google Play services ML Kit Document Scanner `16.0.0`, bundled Latin ML Kit Text Recognition
+  `16.0.1`, optional Chinese/Japanese/Korean/Devanagari recognition modules `16.0.1`, and Google Play
+  services Base `18.11.0` for optional-module installation state.
 - PdfBox-Android `2.0.27.0` for local PDF parsing and searchable-PDF generation.
 - Room Runtime/KTX `2.8.5`.
 - Google Play In-App Review `2.0.2`.
-- AndroidX Biometric `1.1.0`, added in v1.5 for Android system-authentication app-lock prompts. It
+- AndroidX Biometric `1.1.0`, used for Android system-authentication app-lock prompts. It
   is Apache-2.0, does not provide RME with biometric templates, and introduces no analytics,
   telemetry, cloud service, or network behavior.
 
@@ -50,11 +52,9 @@ KSP `2.2.20-2.0.4`, Room Compiler `2.8.5`, AndroidX test libraries, and Compose 
   graph. No direct commercial fee or source-availability obligation was found, but Google terms are
   a separate acceptance and policy prerequisite for the release owner.
 
-## Notices and future distribution
+## Notices and distribution
 
 The current repository-level notice is [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md). No
-reviewed dependency requires a particular in-app license UI. Before an independently distributed
-APK/AAB or Play submission, the owner must make sure the delivery channel accompanies the binary
-with the required Apache/OFL/Bouncy notices and complete a final legal review of the proprietary
-Google terms. That owner-controlled distribution decision is tracked in the internal-testing
-checklist.
+reviewed dependency requires a particular in-app license UI. The owner must ensure each distribution
+channel accompanies the binary with the required Apache/OFL/Bouncy notices and remains compliant
+with the applicable proprietary Google terms.

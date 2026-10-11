@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-10-11
+
+### Added
+
+- Share-Safe copies with destructive blackout redaction, purpose/date watermarking, optional
+  file-size targets, and final preview before save or share.
+- Fit Upload Limit with common and custom targets, readability-aware processing, and preservation
+  of already-fitting documents.
+- Two-sided ID/card copy with A4/Letter layouts and zoom/pan review.
+- Improved migration from standard PDFs and images exported by other scanner apps.
+
+### Improved
+
+- OCR review, correction, re-recognition, batch processing, page-aware search, and searchable-PDF
+  workflows.
+- Document review, navigation and tool flows, accessibility and large-text behavior, and the
+  Graphite Teal interface.
+
+### Fixed
+
+- Import and tool continuation, first-run OCR result presentation, Share-Safe preparation and
+  already-fits handling, redaction direct manipulation, and related reliability issues.
+
 ## [1.4.0]
 
 ### Added

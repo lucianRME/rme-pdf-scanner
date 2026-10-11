@@ -1,6 +1,6 @@
 # Release Signing and Android App Bundles
 
-RME: PDF & Document Scanner continues the existing `org.synapseworks.pageharbor` Google Play application. The `PAGEHARBOR_RELEASE_*` environment variables and `pageharbor.release.*` local properties below remain unchanged, as do the signing configuration and keys. The product rename does not change version metadata; a future upload must follow the existing version-code and release process.
+RME: PDF & Document Scanner continues the existing `org.synapseworks.pageharbor` Google Play application. The `PAGEHARBOR_RELEASE_*` environment variables and `pageharbor.release.*` local properties below remain unchanged, as do the signing configuration and keys. Every upload must follow the existing version-code and release process.
 
 `bundleRelease` always creates a local release bundle. Without credentials it is an unsigned verification artifact and must not be uploaded to Google Play.
 
@@ -31,7 +31,7 @@ When all four values are available, verify them and create the upload-signed bun
 ./gradlew bundleReleaseForPlay
 ```
 
-`bundleReleaseForPlay` and `assembleReleaseForPlay` fail before building when credentials are absent or incomplete. They do not substitute a debug key. Google Play App Signing enrollment, upload-key creation, and publishing are future owner-controlled steps and are outside this repository workflow.
+`bundleReleaseForPlay` and `assembleReleaseForPlay` fail before building when credentials are absent or incomplete. They do not substitute a debug key. Google Play App Signing, upload-key custody, and publishing remain owner-controlled steps outside the normal repository workflow.
 
 ## Verification checklist
 

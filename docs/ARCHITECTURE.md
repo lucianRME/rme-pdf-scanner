@@ -48,7 +48,8 @@ Short-lived session leases keep owned page sources alive while OCR or export cod
 
 ## Persistent local library
 
-Room version 1 stores normalized document, page, folder, and FTS4 search records. Page bytes and
+Room version 4 stores normalized document, page, nested-folder, source-asset, provenance, migration,
+and FTS4 search records. Page bytes and
 bounded thumbnails live below `files/document-library/<document-id>/revisions`. A save writes a full
 new revision first, switches the database transaction to that revision, reopens it as the active
 `DocumentSession`, releases its session lease, and only then removes older revisions. Interrupted
@@ -57,8 +58,10 @@ migration from v1.3 because earlier releases had no library database; the schema
 future version change can carry an explicit migration test.
 
 Search indexes normalized titles and only OCR text created by an explicit recognition/save action.
-Deleting a document removes its Room/FTS records and app-owned directory. Deleting a one-level folder
-moves its documents to no folder. Backups and device transfer exclude both the database and page files.
+Deleting a document removes its Room/FTS records and app-owned directory. Deleting a folder keeps
+its documents and moves them out of that folder. Android's automatic backup and device-transfer
+mechanisms exclude the database and page files; user-initiated portable backup and restore use the
+documented versioned backup format.
 
 ## Dependency and privacy boundaries
 
@@ -68,7 +71,7 @@ moves its documents to no folder. Backups and device transfer exclude both the d
 - OCR text remains local and is never logged; it is persistent only in an explicitly saved document's
   local search index.
 - SAF and the Android share sheet keep destinations under user control.
-- RME declares no `INTERNET` or broad-storage permission and adds no account, analytics, advertising, telemetry, backend, or cloud-provider SDK.
+- RME declares neither the `INTERNET` nor `ACCESS_NETWORK_STATE` permission and declares no broad-storage permission. It adds no account, analytics, advertising, telemetry, backend, or cloud-provider SDK.
 
 ## Validation
 
