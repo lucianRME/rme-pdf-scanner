@@ -17,7 +17,7 @@ import tempfile
 import time
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlparse
 from urllib.request import Request, urlopen
 
 
@@ -327,8 +327,8 @@ def sync_sourceforge(tag: str, prepared: list[Path]) -> list[str]:
 
     encoded_tag = quote(tag, safe="")
     return [
-        "https://sourceforge.net/projects/"
-        f"{quote(project, safe='')}/files/{encoded_tag}/{quote(path.name, safe='')}/download"
+        "https://downloads.sourceforge.net/project/"
+        f"{quote(project, safe='')}/{encoded_tag}/{quote(path.name, safe='')}"
         for path in prepared
     ]
 
@@ -338,10 +338,9 @@ def verify_public_downloads(urls: list[str], prepared: list[Path]) -> None:
     with tempfile.TemporaryDirectory(prefix="rme-sourceforge-public-") as temporary:
         destination_dir = Path(temporary)
         for url in urls:
-            name = url.split("/")[-2]
-            from urllib.parse import unquote
-
-            name = unquote(name)
+            name = unquote(Path(urlparse(url).path).name)
+            if name not in by_name:
+                raise SyncError(f"Unexpected public download filename: {name!r}")
             destination = destination_dir / name
             last_error: Exception | None = None
             for attempt in range(12):

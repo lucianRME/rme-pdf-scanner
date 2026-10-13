@@ -70,6 +70,10 @@ The successful run summary reports each public SourceForge download URL. The v1.
 
 `https://sourceforge.net/projects/rme-pdf-scanner/files/v1.7.0/`
 
+Artifact links use SourceForge's public download host, for example:
+
+`https://downloads.sourceforge.net/project/rme-pdf-scanner/v1.7.0/rme-pdf-scanner-v1.7.0.apk`
+
 ## Idempotency and overwrite protection
 
 Before uploading, the workflow authenticates over SSH, lists the existing project folders, downloads the complete target version folder with rsync, and compares SHA-256 hashes locally.
