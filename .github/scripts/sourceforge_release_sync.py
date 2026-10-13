@@ -17,7 +17,7 @@ import tempfile
 import time
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, unquote, urlparse
+from urllib.parse import quote, unquote, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 
@@ -25,6 +25,21 @@ SOURCEFORGE_HOST = "frs.sourceforge.net"
 SOURCEFORGE_ED25519_FINGERPRINT = "SHA256:209BDmH3jsRyO9UeGPPgLWPSegKmYCBIya0nR/AWWCY"
 STABLE_TAG = re.compile(r"v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
 SAFE_REMOTE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+@= -]*")
+SOURCEFORGE_RELEASE_API_ATTEMPTS = 6
+SOURCEFORGE_RELEASE_API_DELAY_SECONDS = 10
+SOURCEFORGE_DEFAULT_VERIFY_ATTEMPTS = 12
+SOURCEFORGE_DEFAULT_VERIFY_DELAY_SECONDS = 10
+# These are the explicit platform identifiers documented by SourceForge that do
+# not overlap its Android user-agent detection. The API has no Android-specific
+# identifier; "others" is intentionally excluded so an APK is never displaced
+# by source code for Android users.
+SOURCE_ARCHIVE_DEFAULT_PLATFORMS = ("windows", "mac", "linux", "bsd", "solaris")
+BEST_RELEASE_USER_AGENTS = {
+    "Android": "Mozilla/5.0 (Linux; Android 16)",
+    "Windows": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    "macOS": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+    "Linux": "Mozilla/5.0 (X11; Linux x86_64)",
+}
 
 
 class SyncError(RuntimeError):
@@ -60,20 +75,53 @@ def request_bytes(
     url: str,
     token: str | None = None,
     accept: str = "application/vnd.github+json",
+    *,
+    method: str | None = None,
+    data: bytes | None = None,
+    content_type: str | None = None,
+    user_agent: str = "rme-sourceforge-release-sync",
 ) -> bytes:
     headers = {
         "Accept": accept,
-        "User-Agent": "rme-sourceforge-release-sync",
+        "User-Agent": user_agent,
     }
+    if content_type:
+        headers["Content-Type"] = content_type
     if url.startswith("https://api.github.com/"):
         headers["X-GitHub-Api-Version"] = "2022-11-28"
     if token:
         headers["Authorization"] = f"Bearer {token}"
     try:
-        with urlopen(Request(url, headers=headers), timeout=60) as response:
+        request = Request(url, data=data, headers=headers, method=method)
+        with urlopen(request, timeout=60) as response:
             return response.read()
     except (HTTPError, URLError) as error:
         raise SyncError(f"Request failed for {url}: {error}") from error
+
+
+def request_json(
+    url: str,
+    *,
+    method: str | None = None,
+    data: bytes | None = None,
+    content_type: str | None = None,
+    user_agent: str = "rme-sourceforge-release-sync",
+) -> dict[str, Any]:
+    raw = request_bytes(
+        url,
+        accept="application/json",
+        method=method,
+        data=data,
+        content_type=content_type,
+        user_agent=user_agent,
+    )
+    try:
+        payload = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+        raise SyncError(f"Invalid JSON response from {url}") from error
+    if not isinstance(payload, dict):
+        raise SyncError(f"Unexpected JSON response from {url}")
+    return payload
 
 
 def load_release(repository: str, tag: str, token: str | None) -> dict[str, Any]:
@@ -361,7 +409,170 @@ def verify_public_downloads(urls: list[str], prepared: list[Path]) -> None:
             print(f"Verified public download: {url}")
 
 
-def write_summary(tag: str, urls: list[str]) -> None:
+def select_default_downloads(tag: str, prepared: list[Path]) -> tuple[Path, Path | None]:
+    source_name = f"rme-pdf-scanner-{tag}-source.tar.gz"
+    source_matches = [path for path in prepared if path.name == source_name]
+    if len(source_matches) != 1:
+        raise SyncError(f"Expected exactly one source archive named {source_name}")
+
+    apk_matches = [path for path in prepared if path.suffix.lower() == ".apk"]
+    if len(apk_matches) > 1:
+        raise SyncError(
+            "More than one APK is attached; refusing to guess which APK is the "
+            "official Android default"
+        )
+    return source_matches[0], apk_matches[0] if apk_matches else None
+
+
+def require_release_api_key() -> str:
+    api_key = os.environ.get("SOURCEFORGE_RELEASE_API_KEY", "").strip()
+    if not api_key:
+        raise SyncError(
+            "SourceForge Release API authorization is not configured. Add the GitHub "
+            "Actions secret SOURCEFORGE_RELEASE_API_KEY."
+        )
+    if any(character.isspace() for character in api_key):
+        raise SyncError("SOURCEFORGE_RELEASE_API_KEY has an invalid format")
+    return api_key
+
+
+def sourceforge_file_api_url(project: str, tag: str, name: str) -> str:
+    return (
+        "https://sourceforge.net/projects/"
+        f"{quote(project, safe='')}/files/{quote(tag, safe='')}/{quote(name, safe='')}"
+    )
+
+
+def parse_api_defaults(payload: dict[str, Any]) -> set[str]:
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        raise SyncError("SourceForge Release API returned no result")
+    x_sf = result.get("x_sf")
+    if not isinstance(x_sf, dict):
+        raise SyncError("SourceForge Release API returned no default metadata")
+    defaults = x_sf.get("default", "")
+    if isinstance(defaults, str):
+        return {item for item in defaults.split(",") if item}
+    if isinstance(defaults, list) and all(isinstance(item, str) for item in defaults):
+        return set(defaults)
+    raise SyncError("SourceForge Release API returned invalid default metadata")
+
+
+def update_sourceforge_defaults(
+    project: str,
+    tag: str,
+    source_archive: Path,
+    api_key: str,
+    *,
+    attempts: int = SOURCEFORGE_RELEASE_API_ATTEMPTS,
+    delay_seconds: int = SOURCEFORGE_RELEASE_API_DELAY_SECONDS,
+) -> None:
+    url = sourceforge_file_api_url(project, tag, source_archive.name)
+    expected = set(SOURCE_ARCHIVE_DEFAULT_PLATFORMS)
+    form_fields = [("default", platform) for platform in SOURCE_ARCHIVE_DEFAULT_PLATFORMS]
+    form_fields.append(("api_key", api_key))
+    body = urlencode(form_fields).encode("utf-8")
+    last_error: Exception | None = None
+
+    for attempt in range(attempts):
+        try:
+            payload = request_json(
+                url,
+                method="PUT",
+                data=body,
+                content_type="application/x-www-form-urlencoded",
+            )
+            if payload.get("error"):
+                raise SyncError(
+                    "SourceForge Release API rejected the default-download update; "
+                    "check the API key and project permissions"
+                )
+            actual = parse_api_defaults(payload)
+            if actual == expected:
+                print(
+                    "Confirmed SourceForge source defaults: "
+                    + ", ".join(SOURCE_ARCHIVE_DEFAULT_PLATFORMS)
+                )
+                return
+            last_error = SyncError("SourceForge did not return the requested defaults")
+        except SyncError as error:
+            last_error = error
+        if attempt < attempts - 1:
+            time.sleep(delay_seconds)
+
+    raise SyncError(
+        "SourceForge Release API default-download update failed after bounded retries: "
+        f"{last_error}"
+    )
+
+
+def best_release(project: str, user_agent: str) -> dict[str, Any]:
+    url = (
+        "https://sourceforge.net/projects/"
+        f"{quote(project, safe='')}/best_release.json"
+    )
+    payload = request_json(url, user_agent=user_agent)
+    release = payload.get("release")
+    if not isinstance(release, dict):
+        raise SyncError("SourceForge best_release.json returned no release")
+    return release
+
+
+def verify_default_downloads(
+    project: str,
+    tag: str,
+    source_archive: Path,
+    apk: Path | None,
+    *,
+    attempts: int = SOURCEFORGE_DEFAULT_VERIFY_ATTEMPTS,
+    delay_seconds: int = SOURCEFORGE_DEFAULT_VERIFY_DELAY_SECONDS,
+) -> None:
+    expected: dict[str, Path] = {
+        "Windows": source_archive,
+        "macOS": source_archive,
+        "Linux": source_archive,
+    }
+    if apk:
+        expected["Android"] = apk
+    else:
+        print("No APK is attached; Android default metadata was left unchanged")
+
+    last_failures: list[str] = []
+    for attempt in range(attempts):
+        failures: list[str] = []
+        for platform, expected_file in expected.items():
+            try:
+                release = best_release(project, BEST_RELEASE_USER_AGENTS[platform])
+                expected_name = f"/{tag}/{expected_file.name}"
+                if release.get("filename") != expected_name:
+                    failures.append(platform)
+                    continue
+                if release.get("sha256sum") != sha256(expected_file):
+                    failures.append(f"{platform} checksum")
+            except SyncError:
+                failures.append(f"{platform} request")
+        if not failures:
+            for platform, expected_file in expected.items():
+                print(f"Verified {platform} default download: {expected_file.name}")
+            if apk:
+                print(
+                    "SourceForge has no Android Release API platform identifier; "
+                    "the APK selection was verified through Android user-agent detection"
+                )
+            return
+        last_failures = failures
+        if attempt < attempts - 1:
+            time.sleep(delay_seconds)
+
+    raise SyncError(
+        "SourceForge default-download verification failed after bounded retries for: "
+        + ", ".join(last_failures)
+    )
+
+
+def write_summary(
+    tag: str, urls: list[str], source_archive: Path, apk: Path | None
+) -> None:
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if not summary:
         return
@@ -369,6 +580,31 @@ def write_summary(tag: str, urls: list[str]) -> None:
         output.write(f"## SourceForge synchronization: {tag}\n\n")
         for url in urls:
             output.write(f"- {url}\n")
+        output.write("\n### Default downloads\n\n")
+        output.write(
+            f"- Windows, macOS, Linux, BSD, Solaris: `{source_archive.name}`\n"
+        )
+        if apk:
+            output.write(
+                f"- Android (user-agent selection; no API identifier): `{apk.name}`\n"
+            )
+        else:
+            output.write("- Android: unchanged because the release has no APK\n")
+
+
+def synchronize_prepared_release(
+    tag: str, release: dict[str, Any], prepared: list[Path]
+) -> None:
+    source_archive, apk = select_default_downloads(tag, prepared)
+    api_key = require_release_api_key()
+    project = os.environ.get("SOURCEFORGE_PROJECT", "rme-pdf-scanner").strip()
+
+    urls = sync_sourceforge(tag, prepared)
+    verify_public_downloads(urls, prepared)
+    update_sourceforge_defaults(project, tag, source_archive, api_key)
+    verify_default_downloads(project, tag, source_archive, apk)
+    write_summary(tag, urls, source_archive, apk)
+    print(f"Synchronized {release['html_url']} to SourceForge")
 
 
 def parse_args() -> argparse.Namespace:
@@ -393,10 +629,7 @@ def main() -> int:
         )
         if args.prepare_only:
             return 0
-        urls = sync_sourceforge(args.tag, prepared)
-        verify_public_downloads(urls, prepared)
-        write_summary(args.tag, urls)
-        print(f"Synchronized {release['html_url']} to SourceForge")
+        synchronize_prepared_release(args.tag, release, prepared)
         return 0
 
     with tempfile.TemporaryDirectory(prefix="rme-sourceforge-release-") as temporary:
@@ -406,10 +639,7 @@ def main() -> int:
         )
         if args.prepare_only:
             return 0
-        urls = sync_sourceforge(args.tag, prepared)
-        verify_public_downloads(urls, prepared)
-        write_summary(args.tag, urls)
-        print(f"Synchronized {release['html_url']} to SourceForge")
+        synchronize_prepared_release(args.tag, release, prepared)
     return 0
 
 

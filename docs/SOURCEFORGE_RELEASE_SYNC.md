@@ -34,23 +34,27 @@ The workflow intentionally cannot publish until a SourceForge project member aut
 
 2. Sign in to SourceForge as the account that manages `rme-pdf-scanner`. Add the contents of `rme_sourceforge_actions.pub` under **Account Settings → SSH Settings**. Confirm that the account is a project member with **release technician** or administrator permission for `rme-pdf-scanner`.
 
-3. In GitHub, open **lucianRME/rme-pdf-scanner → Settings → Secrets and variables → Actions** and create these repository secrets:
+3. In SourceForge **Account Settings**, generate a dedicated **Releases API Key**. Treat it as a password. This key is used only over HTTPS after uploaded files have passed remote and public checksum verification.
+
+4. In GitHub, open **lucianRME/rme-pdf-scanner → Settings → Secrets and variables → Actions** and create these repository secrets:
 
    - `SOURCEFORGE_USERNAME`: the SourceForge account username, currently expected to be `lucianrme`;
-   - `SOURCEFORGE_SSH_PRIVATE_KEY`: the complete contents of `rme_sourceforge_actions`, including its `BEGIN` and `END` lines.
+   - `SOURCEFORGE_SSH_PRIVATE_KEY`: the complete contents of `rme_sourceforge_actions`, including its `BEGIN` and `END` lines;
+   - `SOURCEFORGE_RELEASE_API_KEY`: the SourceForge Releases API key.
 
    The same setup can be completed with GitHub CLI without printing the private key:
 
    ```sh
    gh secret set SOURCEFORGE_USERNAME --repo lucianRME/rme-pdf-scanner --body "lucianrme"
    gh secret set SOURCEFORGE_SSH_PRIVATE_KEY --repo lucianRME/rme-pdf-scanner < ./rme_sourceforge_actions
+   gh secret set SOURCEFORGE_RELEASE_API_KEY --repo lucianRME/rme-pdf-scanner
    ```
 
-Never commit either key, paste the private key into an issue or workflow log, or store a SourceForge password in GitHub.
+The final command prompts securely for the API key. Never pass it with `--body`, where it could enter shell history. Never commit either key, paste a key into an issue or workflow log, or store a SourceForge password in GitHub.
 
 ## Initial v1.7.0 synchronization
 
-After both secrets are present, run the existing-release path:
+After all three secrets are present, run the existing-release path:
 
 ```sh
 gh workflow run sourceforge-release-sync.yml \
@@ -87,6 +91,23 @@ Before uploading, the workflow authenticates over SSH, lists the existing projec
 
 This makes manual reruns and duplicate `release.published` deliveries safe. The workflow uses a repository-wide concurrency group so two SourceForge synchronizations cannot run concurrently.
 
+## Default download policy
+
+Only after SSH upload verification and public SHA-256 verification succeed, the workflow calls SourceForge's [official Release API](https://sourceforge.net/p/forge/documentation/Using%20the%20Release%20API/) over HTTPS. The source archive is set as the default for the documented `windows`, `mac`, `linux`, `bsd`, and `solaris` platform identifiers. Repeating the same PUT is idempotent.
+
+SourceForge documents an `others` identifier but does not document an Android identifier. RME does not assign `others` to the source archive because that could displace the APK for an Android user. The workflow never guesses an undocumented `android` value. When exactly one APK is attached, SourceForge's normal APK detection is retained and verified with an Android User-Agent. With no APK, Android metadata is left unchanged. With multiple APKs, the workflow fails before upload rather than guessing which APK is official.
+
+Release notes and `SHA256SUMS.txt` are never marked as defaults.
+
+After updating metadata, the workflow polls `best_release.json` with bounded retries to allow for SourceForge caching. It verifies the source archive name and SHA-256 for Windows, macOS, and Linux User-Agents, and the APK name and SHA-256 for an Android User-Agent. Authentication failures, permission failures, unexpected metadata, and verification timeouts fail the job without printing the API key.
+
+The API key can be rotated without changing the workflow:
+
+1. Generate a replacement under SourceForge **Account Settings → Releases API Key**.
+2. Replace the `SOURCEFORGE_RELEASE_API_KEY` GitHub Actions secret using the prompt-based `gh secret set` command above.
+3. Revoke or regenerate the previous key in SourceForge.
+4. Manually dispatch a known stable release and confirm all defaults through `best_release.json`.
+
 ## Transport security
 
 Transfers use rsync over SSH to:
@@ -99,7 +120,7 @@ Strict host-key checking is enabled. The workflow accepts only the ED25519 key w
 
 If SourceForge rotates that key, the workflow fails closed. Verify the new fingerprint against [SourceForge's SSH host-key documentation](https://sourceforge.net/p/forge/documentation/SSH%20Key%20Fingerprints/) before updating the workflow.
 
-Rotate or revoke the dedicated key immediately if it may have been exposed. Removing either GitHub secret also stops future publication.
+Rotate or revoke either dedicated key immediately if it may have been exposed. Removing any required GitHub secret stops future publication before new files are uploaded.
 
 ## Local preparation check
 

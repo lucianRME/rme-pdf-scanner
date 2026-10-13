@@ -29,7 +29,7 @@ jobs:
 
     steps:
       - name: Check out release repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node.js 24
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -41,4 +41,5 @@ jobs:
           SOURCEFORGE_PROJECT: rme-pdf-scanner
           SOURCEFORGE_USERNAME: ${{ secrets.SOURCEFORGE_USERNAME }}
           SOURCEFORGE_SSH_PRIVATE_KEY: ${{ secrets.SOURCEFORGE_SSH_PRIVATE_KEY }}
+          SOURCEFORGE_RELEASE_API_KEY: ${{ secrets.SOURCEFORGE_RELEASE_API_KEY }}
         run: python3 .github/scripts/sourceforge_release_sync.py --tag "$RELEASE_TAG"
