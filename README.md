@@ -6,6 +6,18 @@ Privacy-first, local-first, open-source Android document scanning with multiling
 
 **No ads. No account. No RME analytics or tracking. No proprietary RME backend.** Documents can stay in an app-private local library, and RME itself requests neither the `INTERNET` nor `ACCESS_NETWORK_STATE` permission.
 
+## Screenshots
+
+<p align="center">
+  <img src="assets/play-store/screenshots/phone/01-scan-save-done.png" width="30%" alt="RME PDF Scanner home screen: Scan, Save, Done">
+  <img src="assets/play-store/screenshots/phone/02-document-library.png" width="30%" alt="RME PDF Scanner local document library">
+  <img src="assets/play-store/screenshots/phone/03-pdf-export.png" width="30%" alt="RME PDF Scanner PDF export actions">
+</p>
+<p align="center">
+  <img src="assets/play-store/screenshots/phone/04-pdf-tools.png" width="30%" alt="RME PDF Scanner PDF tools">
+  <img src="assets/play-store/screenshots/phone/05-private-by-design.png" width="30%" alt="RME PDF Scanner privacy and backup tools">
+</p>
+
 ## What you can do
 
 - **Scan and import:** Scan multi-page paper documents; import PDF, JPEG, PNG, or WebP files through Android's system picker; or receive supported files through Android sharing.

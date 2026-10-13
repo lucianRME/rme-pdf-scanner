@@ -17,7 +17,7 @@ The product formerly called PageHarbor now uses **RME: PDF & Document Scanner** 
 
 `strings.xml` provides the full and short names. Home uses the short resource; About actions/headings, supporting copy, and privacy dialogs use the new brand. The manifest already references `@string/app_name`, and the launcher activity inherits that label. No localized app-name overrides, shortcuts, branded notification channels, or splash text exist. Export/share titles and default filenames are already neutral. Launcher/adaptive/monochrome icon artwork and system splash resources contain no product-name text and are unchanged.
 
-Editable SVG titles, descriptions, and wordmarks now use the short name; existing mark geometry, colors, and filenames remain. Wordmark font sizes were adjusted to fit. See [store asset follow-up](../assets/play-store/README.md) for raster assets that intentionally remain historical exports.
+Editable SVG titles, descriptions, and wordmarks now use the short name; existing mark geometry, colors, and filenames remain. Wordmark font sizes were adjusted to fit. The current marketing screenshots and retained versioned historical sets are documented in the [store asset index](../assets/play-store/README.md).
 
 ## Remaining old-name occurrences
 
@@ -31,7 +31,7 @@ The case-insensitive repository review used `page[ _-]?harbou?r` to cover PageHa
 | Intentionally retained technical identifier | `pageharbor-android` source/support URLs and `pageharbor-*.svg` asset filenames | Preserve repository identity and existing asset paths. SVG displayed text has changed. |
 | Historical documentation | Released CHANGELOG entries; existing ADRs; OCR, scanner, smart-output, and searchable-PDF investigation records; beta/performance results; prior device observation in lifecycle validation | Preserve the name under which the original decisions, releases, or measurements were recorded. Historical record notices explain the current name. |
 | Historical documentation | Former-name references in README, branding guidance, ADR-012, and this audit | Explain continuity between the former product and the renamed application. |
-| Should still be changed before publication | Nine historical PNG exports listed in the store asset follow-up | Old text is baked into screenshots/feature graphic. These are not Android runtime assets; recapture screenshots and export the updated SVG before uploading. |
+| Resolved after this historical audit | Current v1.7.0 marketing screenshots are stored under `assets/play-store/screenshots/phone/`; versioned v1.1.0 and v1.2.0 captures remain historical | Marketing screenshots are not Android runtime assets. |
 
 No accidental old product-name copy remains in application UI strings or current editable SVG text. The source/support URLs intentionally keep the repository name.
 

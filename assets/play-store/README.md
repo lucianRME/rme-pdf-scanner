@@ -1,25 +1,17 @@
 # RME: PDF & Document Scanner store assets
 
-The editable SVG graphics now use **RME PDF Scanner** and preserve the existing icon design. Asset filenames retain the original technical naming so existing paths continue to work. The launcher icon and `app-icon-512.png` contain no product-name text and are unchanged.
+The official launcher artwork and existing feature-graphic files are unchanged by the v1.7.0 screenshot update.
 
 ## Current release screenshots
 
-Use the [1.2.0 screenshot sets](1.2.0/screenshots/README.md) for the renamed listing: six images each for phone, 7-inch tablet and 10-inch tablet. These supersede the screenshot items below. The feature-graphic PNG still needs a fresh export from the updated SVG.
+Use the five finalized v1.7.0 phone marketing images in [`screenshots/phone/`](screenshots/phone/). These are the current public screenshot set used by the repository README and external listings.
 
-## Historical PNGs: refresh before publication
+## Historical screenshots
 
-These nine existing exports contain visible PageHarbor branding. They are retained as historical captures, are not packaged in the Android application, and must not be used for the renamed listing without replacement:
+The versioned [`1.1.0`](1.1.0/screenshots/raw/) and [`1.2.0`](1.2.0/screenshots/) screenshot sets are retained as release history. They are not current marketing assets and are not packaged in the Android application.
 
-- `feature-graphic-1024x500.png`: export the updated sibling SVG at 1024 × 500.
-- `phone-screenshots/01-home.png`: recapture Home.
-- `phone-screenshots/03-ocr-result.png`: recapture with a neutral sample document; the former brand occurs in sample content.
-- `phone-screenshots/05-privacy.png`: recapture the privacy dialog.
-- `tablet-7-inch-screenshots/01-home.png`: recapture Home.
-- `tablet-7-inch-screenshots/03-ocr-result.png`: recapture with a neutral sample document.
-- `tablet-10-inch-screenshots/01-home.png`: recapture Home.
-- `tablet-10-inch-screenshots/03-ocr-result.png`: recapture with a neutral sample document.
-- `1.1.0/screenshots/raw/02-home.png`: recapture Home for the renamed release.
+Obsolete unversioned phone and tablet screenshot exports were removed when the v1.7.0 set was added. Git history and the versioned release directories preserve the earlier assets.
 
-Local text recognition found no former-name text in the other nine PNGs. Review the complete screenshot set for the release being published.
+The current screenshots are repository marketing assets. They do not replace Android runtime resources.
 
-The Google Play title/descriptions, uploaded screenshots/feature graphic, externally hosted privacy policy, and GitHub social preview need an owner-managed publication update. Keep the same Google Play application and GitHub repository. This repository change does not publish any external updates. See [migration audit](../../docs/BRANDING_MIGRATION.md).
+External store/listing publication remains owner-managed. Keep the same Google Play application and GitHub repository. See the historical [branding migration audit](../../docs/BRANDING_MIGRATION.md).
