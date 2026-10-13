@@ -35,10 +35,10 @@ SOURCEFORGE_DEFAULT_VERIFY_DELAY_SECONDS = 10
 # by source code for Android users.
 SOURCE_ARCHIVE_DEFAULT_PLATFORMS = ("windows", "mac", "linux", "bsd", "solaris")
 BEST_RELEASE_USER_AGENTS = {
-    "Android": "Mozilla/5.0 (Linux; Android 16)",
-    "Windows": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-    "macOS": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
-    "Linux": "Mozilla/5.0 (X11; Linux x86_64)",
+    "Android": "rme-sourceforge-release-sync/1.0 (Linux; Android 16)",
+    "Windows": "rme-sourceforge-release-sync/1.0 (Windows NT 10.0; Win64; x64)",
+    "macOS": "rme-sourceforge-release-sync/1.0 (Macintosh; Intel Mac OS X 10_15_7)",
+    "Linux": "rme-sourceforge-release-sync/1.0 (X11; Linux x86_64)",
 }
 
 
@@ -527,8 +527,11 @@ def best_release(project: str, user_agent: str) -> dict[str, Any]:
             ]
         )
     except subprocess.CalledProcessError as error:
+        detail = (error.stderr or "").strip()
+        suffix = f": {detail}" if detail else ""
         raise SyncError(
-            f"SourceForge best_release.json request failed with curl exit {error.returncode}"
+            "SourceForge best_release.json request failed with curl exit "
+            f"{error.returncode}{suffix}"
         ) from error
     try:
         payload = json.loads(response.stdout)

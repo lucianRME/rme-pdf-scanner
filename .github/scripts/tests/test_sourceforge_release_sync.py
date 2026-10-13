@@ -143,6 +143,7 @@ class SourceForgeReleaseSyncTest(unittest.TestCase):
         self.assertEqual(command[0], "curl")
         self.assertIn("--fail", command)
         self.assertIn("--user-agent", command)
+        self.assertIn("rme-sourceforge-release-sync/1.0", " ".join(command))
         self.assertNotIn("api_key", " ".join(command))
 
     def test_no_apk_leaves_android_selection_unchecked_and_unchanged(self) -> None:
