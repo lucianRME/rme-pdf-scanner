@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -121,6 +122,28 @@ class SourceForgeReleaseSyncTest(unittest.TestCase):
                 )
 
         self.assertEqual(check.call_count, 4)
+
+    def test_best_release_uses_curl_and_parses_json(self) -> None:
+        selected = {
+            "release": {
+                "filename": "/v1.7.0/rme-pdf-scanner-v1.7.0.apk",
+                "sha256sum": "abc123",
+            }
+        }
+        completed = sync.subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=json.dumps(selected), stderr=""
+        )
+        with patch.object(sync, "run", return_value=completed) as request:
+            release = sync.best_release(
+                "rme-pdf-scanner", sync.BEST_RELEASE_USER_AGENTS["Android"]
+            )
+
+        self.assertEqual(release, selected["release"])
+        command = request.call_args.args[0]
+        self.assertEqual(command[0], "curl")
+        self.assertIn("--fail", command)
+        self.assertIn("--user-agent", command)
+        self.assertNotIn("api_key", " ".join(command))
 
     def test_no_apk_leaves_android_selection_unchecked_and_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -511,7 +511,29 @@ def best_release(project: str, user_agent: str) -> dict[str, Any]:
         "https://sourceforge.net/projects/"
         f"{quote(project, safe='')}/best_release.json"
     )
-    payload = request_json(url, user_agent=user_agent)
+    try:
+        response = run(
+            [
+                "curl",
+                "--fail",
+                "--silent",
+                "--show-error",
+                "--location",
+                "--max-time",
+                "60",
+                "--user-agent",
+                user_agent,
+                url,
+            ]
+        )
+    except subprocess.CalledProcessError as error:
+        raise SyncError(
+            f"SourceForge best_release.json request failed with curl exit {error.returncode}"
+        ) from error
+    try:
+        payload = json.loads(response.stdout)
+    except json.JSONDecodeError as error:
+        raise SyncError("SourceForge best_release.json returned invalid JSON") from error
     release = payload.get("release")
     if not isinstance(release, dict):
         raise SyncError("SourceForge best_release.json returned no release")
