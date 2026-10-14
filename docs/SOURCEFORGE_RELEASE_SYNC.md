@@ -99,7 +99,30 @@ SourceForge documents an `others` identifier but does not document an Android id
 
 Release notes and `SHA256SUMS.txt` are never marked as defaults.
 
-After updating metadata, the workflow polls `best_release.json` with bounded retries to allow for SourceForge caching. It verifies the source archive name and SHA-256 for Windows, macOS, and Linux User-Agents, and the APK name and SHA-256 for an Android User-Agent. Authentication failures, permission failures, unexpected metadata, and verification timeouts fail the job without printing the API key.
+After updating metadata, the workflow polls `best_release.json` to allow for SourceForge caching. It verifies the source archive name and SHA-256 for Windows, macOS, and Linux User-Agents, and the APK name and SHA-256 for an Android User-Agent. A successful verification returns immediately without sleeping.
+
+Metadata polling has a monotonic eight-minute deadline. Retry delays start at 5 seconds, double to 10, 20, and 40 seconds, and are then capped at 60 seconds. A request timeout is also limited by the time remaining before the deadline, so retries cannot continue indefinitely. The workflow retries only conditions that can reasonably result from propagation or a temporary service problem:
+
+- missing filename or SHA-256 metadata;
+- a default that still points to an older version;
+- a well-formed but not-yet-current SHA-256 value;
+- HTTP 408, 429, or 5xx responses; and
+- temporary network or request timeout failures.
+
+The workflow fails immediately for malformed API responses, authentication or authorization failures, permanently unavailable endpoints, or an unexpected file selected from the current release. A checksum that remains incorrect at the deadline also fails verification. The final error identifies each affected platform, whether its filename was correct, whether its checksum was missing or incorrect, the attempt count, elapsed time, and that the release files had already passed upload and public-download verification.
+
+The GitHub Actions job timeout is 30 minutes. This leaves bounded headroom for artifact preparation, SSH synchronization, public-download verification, the Release API update, and the eight-minute metadata deadline without allowing an unbounded job.
+
+If a run fails only because transient SourceForge metadata did not converge before the deadline, rerun the same workflow for the same published tag:
+
+```sh
+gh workflow run sourceforge-release-sync.yml \
+  --repo lucianRME/rme-pdf-scanner \
+  --ref main \
+  -f tag=vMAJOR.MINOR.PATCH
+```
+
+Reruns are safe: identical remote files are retained, different bytes are rejected, and metadata retries do not re-enter the upload phase. Do not delete the SourceForge version folder or republish the GitHub release merely to retry metadata verification.
 
 The API key can be rotated without changing the workflow:
 

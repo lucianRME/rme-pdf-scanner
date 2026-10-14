@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -15,7 +16,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Any
+from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, unquote, urlencode, urlparse
 from urllib.request import Request, urlopen
@@ -27,8 +28,9 @@ STABLE_TAG = re.compile(r"v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]
 SAFE_REMOTE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+@= -]*")
 SOURCEFORGE_RELEASE_API_ATTEMPTS = 6
 SOURCEFORGE_RELEASE_API_DELAY_SECONDS = 10
-SOURCEFORGE_DEFAULT_VERIFY_ATTEMPTS = 12
-SOURCEFORGE_DEFAULT_VERIFY_DELAY_SECONDS = 10
+SOURCEFORGE_DEFAULT_VERIFY_MAX_WAIT_SECONDS = 8 * 60
+SOURCEFORGE_DEFAULT_VERIFY_INITIAL_DELAY_SECONDS = 5
+SOURCEFORGE_DEFAULT_VERIFY_MAX_DELAY_SECONDS = 60
 # These are the explicit platform identifiers documented by SourceForge that do
 # not overlap its Android user-agent detection. The API has no Android-specific
 # identifier; "others" is intentionally excluded so an APK is never displaced
@@ -44,6 +46,10 @@ BEST_RELEASE_USER_AGENTS = {
 
 class SyncError(RuntimeError):
     """A safe, actionable synchronization failure."""
+
+
+class TransientSourceForgeError(SyncError):
+    """A temporary SourceForge condition that is safe to retry."""
 
 
 def run(
@@ -506,7 +512,9 @@ def update_sourceforge_defaults(
     )
 
 
-def best_release(project: str, user_agent: str) -> dict[str, Any]:
+def best_release(
+    project: str, user_agent: str, *, timeout_seconds: int = 60
+) -> dict[str, Any]:
     url = (
         "https://sourceforge.net/projects/"
         f"{quote(project, safe='')}/best_release.json"
@@ -520,21 +528,46 @@ def best_release(project: str, user_agent: str) -> dict[str, Any]:
                 "--show-error",
                 "--location",
                 "--max-time",
-                "60",
+                str(timeout_seconds),
                 "--user-agent",
                 user_agent,
+                "--write-out",
+                "\n%{http_code}",
                 url,
             ]
         )
     except subprocess.CalledProcessError as error:
+        output = error.stdout or ""
+        status = output.rsplit("\n", 1)[-1].strip()
+        if status.isdigit():
+            status_code = int(status)
+            if status_code in {408, 429} or 500 <= status_code <= 599:
+                raise TransientSourceForgeError(
+                    f"SourceForge best_release.json temporarily returned HTTP {status_code}"
+                ) from error
+            if status_code >= 400:
+                raise SyncError(
+                    f"SourceForge best_release.json returned HTTP {status_code}"
+                ) from error
         detail = (error.stderr or "").strip()
         suffix = f": {detail}" if detail else ""
-        raise SyncError(
-            "SourceForge best_release.json request failed with curl exit "
+        raise TransientSourceForgeError(
+            "SourceForge best_release.json request temporarily failed with curl exit "
             f"{error.returncode}{suffix}"
         ) from error
+
+    body, separator, status = response.stdout.rpartition("\n")
+    if not separator or not status.isdigit():
+        raise SyncError("SourceForge best_release.json returned invalid HTTP metadata")
+    status_code = int(status)
+    if status_code != 200:
+        if status_code in {408, 429} or 500 <= status_code <= 599:
+            raise TransientSourceForgeError(
+                f"SourceForge best_release.json temporarily returned HTTP {status_code}"
+            )
+        raise SyncError(f"SourceForge best_release.json returned HTTP {status_code}")
     try:
-        payload = json.loads(response.stdout)
+        payload = json.loads(body)
     except json.JSONDecodeError as error:
         raise SyncError("SourceForge best_release.json returned invalid JSON") from error
     release = payload.get("release")
@@ -543,15 +576,69 @@ def best_release(project: str, user_agent: str) -> dict[str, Any]:
     return release
 
 
+def inspect_default_metadata(
+    platform: str, tag: str, expected_file: Path, release: dict[str, Any]
+) -> str | None:
+    expected_name = f"/{tag}/{expected_file.name}"
+    actual_name = release.get("filename")
+    if actual_name is None or actual_name == "":
+        return "filename metadata missing; SHA-256 metadata not checked"
+    if not isinstance(actual_name, str):
+        raise SyncError(
+            f"SourceForge returned invalid filename metadata for {platform}"
+        )
+    if actual_name != expected_name:
+        if not actual_name.startswith(f"/{tag}/") and re.fullmatch(
+            r"/v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\."
+            r"(?:0|[1-9][0-9]*)/[^/]+",
+            actual_name,
+        ):
+            return (
+                f"old filename selection {actual_name!r}; expected {expected_name!r}; "
+                "SHA-256 metadata not checked"
+            )
+        raise SyncError(
+            f"SourceForge selected an unexpected file for {platform}: "
+            f"{actual_name!r}; expected {expected_name!r}"
+        )
+
+    actual_checksum = release.get("sha256sum")
+    if actual_checksum is None or actual_checksum == "":
+        return "filename selection correct; SHA-256 metadata missing"
+    if not isinstance(actual_checksum, str) or not re.fullmatch(
+        r"[0-9a-fA-F]{64}", actual_checksum
+    ):
+        raise SyncError(
+            f"SourceForge returned invalid SHA-256 metadata for {platform}"
+        )
+    expected_checksum = sha256(expected_file)
+    if actual_checksum.lower() != expected_checksum:
+        return (
+            "filename selection correct; SHA-256 metadata incorrect "
+            f"(expected {expected_checksum}, received {actual_checksum.lower()})"
+        )
+    return None
+
+
 def verify_default_downloads(
     project: str,
     tag: str,
     source_archive: Path,
     apk: Path | None,
     *,
-    attempts: int = SOURCEFORGE_DEFAULT_VERIFY_ATTEMPTS,
-    delay_seconds: int = SOURCEFORGE_DEFAULT_VERIFY_DELAY_SECONDS,
+    max_wait_seconds: float = SOURCEFORGE_DEFAULT_VERIFY_MAX_WAIT_SECONDS,
+    initial_delay_seconds: float = SOURCEFORGE_DEFAULT_VERIFY_INITIAL_DELAY_SECONDS,
+    max_delay_seconds: float = SOURCEFORGE_DEFAULT_VERIFY_MAX_DELAY_SECONDS,
+    monotonic: Callable[[], float] | None = None,
+    sleep: Callable[[float], None] | None = None,
 ) -> None:
+    if max_wait_seconds <= 0:
+        raise ValueError("max_wait_seconds must be positive")
+    if initial_delay_seconds <= 0 or max_delay_seconds <= 0:
+        raise ValueError("retry delays must be positive")
+    monotonic = monotonic or time.monotonic
+    sleep = sleep or time.sleep
+
     expected: dict[str, Path] = {
         "Windows": source_archive,
         "macOS": source_archive,
@@ -562,20 +649,41 @@ def verify_default_downloads(
     else:
         print("No APK is attached; Android default metadata was left unchanged")
 
-    last_failures: list[str] = []
-    for attempt in range(attempts):
-        failures: list[str] = []
+    started = monotonic()
+    deadline = started + max_wait_seconds
+    delay_seconds = min(initial_delay_seconds, max_delay_seconds)
+    attempt = 0
+    last_failures: dict[str, str] = {}
+
+    while True:
+        if attempt and monotonic() >= deadline:
+            break
+        attempt += 1
+        failures: dict[str, str] = {}
         for platform, expected_file in expected.items():
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                failures[platform] = "verification deadline reached before request"
+                continue
             try:
-                release = best_release(project, BEST_RELEASE_USER_AGENTS[platform])
-                expected_name = f"/{tag}/{expected_file.name}"
-                if release.get("filename") != expected_name:
-                    failures.append(platform)
-                    continue
-                if release.get("sha256sum") != sha256(expected_file):
-                    failures.append(f"{platform} checksum")
-            except SyncError:
-                failures.append(f"{platform} request")
+                release = best_release(
+                    project,
+                    BEST_RELEASE_USER_AGENTS[platform],
+                    timeout_seconds=max(1, min(60, math.ceil(remaining))),
+                )
+                failure = inspect_default_metadata(
+                    platform, tag, expected_file, release
+                )
+                if failure:
+                    failures[platform] = failure
+            except TransientSourceForgeError as error:
+                failures[platform] = f"temporary request failure: {error}"
+            except SyncError as error:
+                raise SyncError(
+                    "SourceForge default-download verification failed for "
+                    f"{platform}: {error}. Release files were already uploaded "
+                    "and publicly verified successfully."
+                ) from error
         if not failures:
             for platform, expected_file in expected.items():
                 print(f"Verified {platform} default download: {expected_file.name}")
@@ -584,14 +692,36 @@ def verify_default_downloads(
                     "SourceForge has no Android Release API platform identifier; "
                     "the APK selection was verified through Android user-agent detection"
                 )
+            print("SourceForge default-download metadata verified.")
             return
         last_failures = failures
-        if attempt < attempts - 1:
-            time.sleep(delay_seconds)
 
+        now = monotonic()
+        elapsed = max(0.0, now - started)
+        remaining = deadline - now
+        if remaining <= 0:
+            break
+        wait_seconds = min(delay_seconds, remaining)
+        details = "; ".join(
+            f"{platform}: {failure}" for platform, failure in failures.items()
+        )
+        print(
+            "Waiting for SourceForge default-download metadata "
+            f"(attempt {attempt}, elapsed {elapsed:.0f}s, next retry in "
+            f"{wait_seconds:.0f}s): {details}"
+        )
+        sleep(wait_seconds)
+        delay_seconds = min(delay_seconds * 2, max_delay_seconds)
+
+    elapsed = max(0.0, monotonic() - started)
+    details = "; ".join(
+        f"{platform}: {failure}" for platform, failure in last_failures.items()
+    )
+    attempt_label = "attempt" if attempt == 1 else "attempts"
     raise SyncError(
-        "SourceForge default-download verification failed after bounded retries for: "
-        + ", ".join(last_failures)
+        "SourceForge default-download verification deadline exceeded after "
+        f"{attempt} {attempt_label} and {elapsed:.0f}s. {details}. Release files were "
+        "already uploaded and publicly verified successfully."
     )
 
 
@@ -626,6 +756,7 @@ def synchronize_prepared_release(
 
     urls = sync_sourceforge(tag, prepared)
     verify_public_downloads(urls, prepared)
+    print("SourceForge files uploaded and verified successfully.")
     update_sourceforge_defaults(project, tag, source_archive, api_key)
     verify_default_downloads(project, tag, source_archive, apk)
     write_summary(tag, urls, source_archive, apk)
