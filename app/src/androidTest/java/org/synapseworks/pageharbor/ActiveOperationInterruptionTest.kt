@@ -9,8 +9,10 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -41,6 +43,9 @@ import org.synapseworks.pageharbor.document.session.DocumentSession
 import org.synapseworks.pageharbor.document.session.DocumentSourceCategory
 import org.synapseworks.pageharbor.document.session.OwnedTemporaryFile
 import org.synapseworks.pageharbor.image.DocumentFilter
+import org.synapseworks.pageharbor.library.LibraryFileStore
+import org.synapseworks.pageharbor.library.LibraryRepository
+import org.synapseworks.pageharbor.library.LibraryResult
 import org.synapseworks.pageharbor.ocr.OcrEngine
 import org.synapseworks.pageharbor.ocr.OcrPage
 import org.synapseworks.pageharbor.ocr.OcrPageResult
@@ -742,6 +747,63 @@ class ActiveOperationInterruptionTest {
                 assertFalse("Owned searchable-PDF source was not deleted after lease release", source.exists())
             }
         } finally {
+            source.delete()
+        }
+    }
+
+    @Test
+    fun libraryDeletionWaitsForCancelledPdfExportLeaseBeforeRemovingSources() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val source = File(context.cacheDir, "library-delete-lease-${System.nanoTime()}.jpg")
+            .apply { writeBytes(byteArrayOf(1, 2, 3, 4)) }
+        val repository = LibraryRepository(context)
+        val saved = when (val result = repository.saveSession(ownedSession(source), "Lease deletion")) {
+            is LibraryResult.Success -> result.value
+            is LibraryResult.Failure -> error("Could not prepare library deletion test: ${result.reason}")
+        }
+        val opened = when (val result = repository.openDocument(saved.id)) {
+            is LibraryResult.Success -> result.value
+            is LibraryResult.Failure -> error("Could not open library deletion test: ${result.reason}")
+        }
+        val documentDirectory = File(
+            File(context.filesDir, LibraryFileStore.LIBRARY_DIRECTORY),
+            saved.id,
+        )
+        val exportEntered = CountDownLatch(1)
+        val allowExportToExit = CountDownLatch(1)
+        val leaseReleased = CountDownLatch(1)
+
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    activity.observeDocumentSessionLeaseReleaseForTest(leaseReleased::countDown)
+                    activity.replaceNormalOperationsForTest(
+                        writeNormalPdf = { _, _ ->
+                            exportEntered.countDown()
+                            assertTrue(allowExportToExit.await(10, TimeUnit.SECONDS))
+                            PdfExportResult.Success
+                        },
+                        onNormalPdfDestinationRequested = {},
+                    )
+                    activity.installDocumentSessionForTest(opened.session)
+                    activity.chooseNormalPdfDestinationForTest()
+                    activity.deliverNormalPdfDestinationForTest(testDestinationUri("leased-delete.pdf"))
+                }
+                assertTrue("PDF export never acquired its session lease", exportEntered.await(10, TimeUnit.SECONDS))
+
+                scenario.onActivity { it.deleteLibraryDocumentForTest(saved.id) }
+                assertTrue("Library sources were removed while still leased", documentDirectory.isDirectory)
+
+                allowExportToExit.countDown()
+                assertTrue("Cancelled PDF export did not release its lease", leaseReleased.await(10, TimeUnit.SECONDS))
+                withTimeout(10_000) {
+                    while (repository.openDocument(saved.id) !is LibraryResult.Failure) delay(25)
+                }
+                assertFalse(documentDirectory.exists())
+            }
+        } finally {
+            allowExportToExit.countDown()
+            repository.deleteDocument(saved.id)
             source.delete()
         }
     }

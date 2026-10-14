@@ -95,6 +95,13 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val nextSmartNameRequestId = AtomicLong(0L)
     private val smartNameRequestIds = mutableMapOf<String, Long>()
 
+    init {
+        // A quarantine is itself the durable deletion journal; reconcile it on every app start.
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.recoverPendingDocumentDeletions()
+        }
+    }
+
     private val documents = combine(selectedFolderId, sortOrder) { folderId, sort ->
         folderId to sort
     }.flatMapLatest { (folderId, sort) -> repository.observeDocuments(folderId, sort) }
@@ -304,6 +311,13 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     fun deleteDocument(documentId: String) = launchAction(
         LibraryActionSuccess.DELETED,
     ) { repository.deleteDocument(documentId) }
+
+    fun deleteDocument(documentId: String, awaitReaders: suspend () -> Unit) = launchAction(
+        LibraryActionSuccess.DELETED,
+    ) {
+        awaitReaders()
+        repository.deleteDocument(documentId)
+    }
 
     fun createFolder(name: String, parentFolderId: String? = selectedFolderId.value) = launchAction(
         LibraryActionSuccess.FOLDER_CREATED,

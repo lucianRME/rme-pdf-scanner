@@ -140,6 +140,7 @@ import org.synapseworks.pageharbor.library.LibrarySearchHit
 import org.synapseworks.pageharbor.library.LibrarySearchState
 import org.synapseworks.pageharbor.library.LibrarySortOrder
 import org.synapseworks.pageharbor.library.LibraryUiState
+import org.synapseworks.pageharbor.library.LibraryWarning
 import org.synapseworks.pageharbor.ui.theme.PageHarborLayout
 import org.synapseworks.pageharbor.ui.theme.PageHarborSpacing
 import org.synapseworks.pageharbor.ui.theme.RmePrimaryButton
@@ -2968,27 +2969,34 @@ private sealed interface NamingDialog {
 }
 
 @Composable
-internal fun libraryActionMessage(state: LibraryActionState): String? = when (state) {
+internal fun libraryActionMessage(state: LibraryActionState): String? =
+    libraryActionMessageResource(state)?.let { stringResource(it) }
+
+internal fun libraryActionMessageResource(state: LibraryActionState): Int? = when (state) {
     LibraryActionState.Idle,
     LibraryActionState.Working,
     -> null
-    is LibraryActionState.Succeeded -> stringResource(
-        when (state.action) {
-            LibraryActionSuccess.SAVED -> R.string.library_saved
-            LibraryActionSuccess.RENAMED -> R.string.library_renamed
-            LibraryActionSuccess.MOVED -> R.string.library_moved
-            LibraryActionSuccess.DELETED -> R.string.library_deleted
-            LibraryActionSuccess.FOLDER_CREATED -> R.string.library_folder_created
-            LibraryActionSuccess.FOLDER_RENAMED -> R.string.library_folder_renamed
-            LibraryActionSuccess.FOLDER_MOVED -> R.string.library_moved
-            LibraryActionSuccess.FOLDER_DELETED -> R.string.library_folder_deleted
-            LibraryActionSuccess.MERGED -> R.string.library_merged
-            LibraryActionSuccess.EXTRACTED -> R.string.library_extracted
-            LibraryActionSuccess.SPLIT -> R.string.library_split
-            LibraryActionSuccess.OCR_INDEXED -> R.string.library_ocr_indexed
-        },
-    )
-    is LibraryActionState.Failed -> stringResource(
+    is LibraryActionState.Succeeded ->
+        when {
+            state.action == LibraryActionSuccess.DELETED &&
+                state.warning == LibraryWarning.DELETION_CLEANUP_PENDING ->
+                R.string.library_delete_cleanup_pending
+            else -> when (state.action) {
+                LibraryActionSuccess.SAVED -> R.string.library_saved
+                LibraryActionSuccess.RENAMED -> R.string.library_renamed
+                LibraryActionSuccess.MOVED -> R.string.library_moved
+                LibraryActionSuccess.DELETED -> R.string.library_deleted
+                LibraryActionSuccess.FOLDER_CREATED -> R.string.library_folder_created
+                LibraryActionSuccess.FOLDER_RENAMED -> R.string.library_folder_renamed
+                LibraryActionSuccess.FOLDER_MOVED -> R.string.library_moved
+                LibraryActionSuccess.FOLDER_DELETED -> R.string.library_folder_deleted
+                LibraryActionSuccess.MERGED -> R.string.library_merged
+                LibraryActionSuccess.EXTRACTED -> R.string.library_extracted
+                LibraryActionSuccess.SPLIT -> R.string.library_split
+                LibraryActionSuccess.OCR_INDEXED -> R.string.library_ocr_indexed
+            }
+        }
+    is LibraryActionState.Failed ->
         when (state.error) {
             LibraryError.EMPTY_DOCUMENT -> R.string.library_error_empty
             LibraryError.PAGE_LIMIT_EXCEEDED -> R.string.import_error_page_limit
@@ -3001,11 +3009,12 @@ internal fun libraryActionMessage(state: LibraryActionState): String? = when (st
             LibraryError.SOURCE_TOO_LARGE -> R.string.document_source_too_large
             LibraryError.STORAGE_UNAVAILABLE -> R.string.library_error_storage
             LibraryError.DATABASE_UNAVAILABLE -> R.string.library_error_database
+            LibraryError.DELETION_RECOVERY_PENDING -> R.string.library_error_deletion_recovery_pending
+            LibraryError.DELETION_STATE_UNCERTAIN -> R.string.library_error_deletion_state_uncertain
             LibraryError.CORRUPTED_RECORD -> R.string.library_error_corrupted
             LibraryError.SAVE_REQUIRED -> R.string.library_error_save_required
             LibraryError.OPERATION_INTERRUPTED -> R.string.library_error_interrupted
-        },
-    )
+        }
 }
 
 @Preview(name = "Library phone", widthDp = 360, heightDp = 800, showBackground = true)

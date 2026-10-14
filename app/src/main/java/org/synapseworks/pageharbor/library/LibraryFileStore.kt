@@ -8,6 +8,12 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
+import java.nio.file.Files
+import java.nio.file.FileVisitResult
+import java.nio.file.LinkOption
+import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
+import java.nio.file.attribute.BasicFileAttributes
 import java.security.MessageDigest
 import java.util.UUID
 import kotlin.math.max
@@ -79,7 +85,25 @@ internal data class PreparedLibraryRevision(
     val warning: LibraryWarning?,
 )
 
-internal class LibraryFileStore(
+internal data class PendingDocumentDeletion(
+    val documentId: String,
+    val directory: File,
+)
+
+internal sealed interface DocumentDeletionPreparation {
+    data object NoPrivateFiles : DocumentDeletionPreparation
+    data class Quarantined(val pending: PendingDocumentDeletion) : DocumentDeletionPreparation
+    data class AlreadyQuarantined(val pending: PendingDocumentDeletion) : DocumentDeletionPreparation
+    data object QuarantineFailed : DocumentDeletionPreparation
+    data object StateUncertain : DocumentDeletionPreparation
+}
+
+internal sealed interface DocumentDirectoryScan<out T> {
+    data class Available<T>(val entries: List<T>) : DocumentDirectoryScan<T>
+    data object Unavailable : DocumentDirectoryScan<Nothing>
+}
+
+internal open class LibraryFileStore(
     context: Context,
     val root: File = File(context.applicationContext.filesDir, LIBRARY_DIRECTORY),
 ) {
@@ -256,9 +280,167 @@ internal class LibraryFileStore(
         revisionDirectory.deleteRecursivelySafely(root)
     }
 
+    /** Best-effort cleanup for already-unreferenced staging and migration assets. */
     fun deleteDocument(documentId: String) {
         if (!isSafeIdentifier(documentId)) return
         File(root, documentId).deleteRecursivelySafely(root)
+    }
+
+    /**
+     * Atomically removes a document directory from its live location before Room is changed.
+     * The quarantine directory is also the durable pending-deletion record: recovery can either
+     * restore it when the database row still exists or retry physical deletion after the row is
+     * gone.
+     */
+    open fun quarantineDocument(documentId: String): DocumentDeletionPreparation {
+        if (!isSafeIdentifier(documentId)) return DocumentDeletionPreparation.StateUncertain
+        return try {
+            val canonicalRoot = root.canonicalFile
+            val source = File(canonicalRoot, documentId)
+            val pendingRoot = File(canonicalRoot, PENDING_DELETIONS_DIRECTORY)
+            if (pendingRoot.canonicalFile.parentFile != canonicalRoot) {
+                return DocumentDeletionPreparation.StateUncertain
+            }
+            val pendingDirectory = File(pendingRoot, documentId)
+            val sourceState = source.pathState()
+            val pendingState = pendingDirectory.pathState()
+            if (sourceState == FilePathState.UNKNOWN || pendingState == FilePathState.UNKNOWN) {
+                return DocumentDeletionPreparation.StateUncertain
+            }
+            if (pendingState == FilePathState.PRESENT) {
+                val pending = PendingDocumentDeletion(documentId, pendingDirectory)
+                if (!isValidPendingDeletion(pending) ||
+                    !Files.isDirectory(pendingDirectory.toPath(), LinkOption.NOFOLLOW_LINKS) ||
+                    sourceState == FilePathState.PRESENT
+                ) {
+                    return DocumentDeletionPreparation.StateUncertain
+                }
+                return DocumentDeletionPreparation.AlreadyQuarantined(pending)
+            }
+            if (sourceState == FilePathState.ABSENT) {
+                return DocumentDeletionPreparation.NoPrivateFiles
+            }
+            if (source.canonicalFile.parentFile != canonicalRoot ||
+                !Files.isDirectory(source.toPath(), LinkOption.NOFOLLOW_LINKS)
+            ) {
+                return DocumentDeletionPreparation.StateUncertain
+            }
+            if ((!pendingRoot.isDirectory && !pendingRoot.mkdirs()) ||
+                !Files.isDirectory(pendingRoot.toPath(), LinkOption.NOFOLLOW_LINKS)
+            ) {
+                return DocumentDeletionPreparation.QuarantineFailed
+            }
+            // Both paths are direct children of the same app-private filesystem root. Android's
+            // File.renameTo delegates to a same-filesystem rename, so success is atomic.
+            if (!source.renameTo(pendingDirectory)) {
+                return DocumentDeletionPreparation.QuarantineFailed
+            }
+            DocumentDeletionPreparation.Quarantined(
+                PendingDocumentDeletion(documentId, pendingDirectory),
+            )
+        } catch (_: IOException) {
+            DocumentDeletionPreparation.StateUncertain
+        } catch (_: SecurityException) {
+            DocumentDeletionPreparation.StateUncertain
+        }
+    }
+
+    open fun restoreQuarantinedDocument(pending: PendingDocumentDeletion): Boolean {
+        if (!isValidPendingDeletion(pending)) return false
+        return try {
+            val destination = File(root.canonicalFile, pending.documentId)
+            if (Files.exists(destination.toPath(), LinkOption.NOFOLLOW_LINKS)) return false
+            if (!pending.directory.renameTo(destination)) return false
+            Files.exists(destination.toPath(), LinkOption.NOFOLLOW_LINKS) &&
+                Files.notExists(pending.directory.toPath(), LinkOption.NOFOLLOW_LINKS)
+        } catch (_: IOException) {
+            false
+        } catch (_: SecurityException) {
+            false
+        }
+    }
+
+    open fun completeDocumentDeletion(pending: PendingDocumentDeletion): Boolean {
+        if (!isValidPendingDeletion(pending)) return false
+        return pending.directory.deleteRecursivelyChecked(root)
+    }
+
+    open fun pendingDocumentDeletions(): DocumentDirectoryScan<PendingDocumentDeletion> {
+        return try {
+            val canonicalRoot = root.canonicalFile
+            val pendingRoot = File(canonicalRoot, PENDING_DELETIONS_DIRECTORY)
+            if (pendingRoot.canonicalFile.parentFile != canonicalRoot) {
+                return DocumentDirectoryScan.Unavailable
+            }
+            when (pendingRoot.pathState()) {
+                FilePathState.ABSENT -> return DocumentDirectoryScan.Available(emptyList())
+                FilePathState.UNKNOWN -> return DocumentDirectoryScan.Unavailable
+                FilePathState.PRESENT -> Unit
+            }
+            if (!Files.isDirectory(pendingRoot.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+                return DocumentDirectoryScan.Unavailable
+            }
+            val children = pendingRoot.listFiles() ?: return DocumentDirectoryScan.Unavailable
+            DocumentDirectoryScan.Available(
+                children
+                .filter { candidate ->
+                    isSafeIdentifier(candidate.name) &&
+                        Files.isDirectory(candidate.toPath(), LinkOption.NOFOLLOW_LINKS)
+                }
+                .map { candidate -> PendingDocumentDeletion(candidate.name, candidate) },
+            )
+        } catch (_: IOException) {
+            DocumentDirectoryScan.Unavailable
+        } catch (_: SecurityException) {
+            DocumentDirectoryScan.Unavailable
+        }
+    }
+
+    /**
+     * Returns only direct children with the established document/revisions shape. Ownership is
+     * deliberately decided by the repository using Room and durable operation journals.
+     */
+    open fun legacyDocumentDirectoryCandidates(): DocumentDirectoryScan<String> {
+        return try {
+            val canonicalRoot = root.canonicalFile
+            when (canonicalRoot.pathState()) {
+                FilePathState.ABSENT -> return DocumentDirectoryScan.Available(emptyList())
+                FilePathState.UNKNOWN -> return DocumentDirectoryScan.Unavailable
+                FilePathState.PRESENT -> Unit
+            }
+            if (!Files.isDirectory(canonicalRoot.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+                return DocumentDirectoryScan.Unavailable
+            }
+            val children = canonicalRoot.listFiles() ?: return DocumentDirectoryScan.Unavailable
+            DocumentDirectoryScan.Available(
+                children.filter { candidate ->
+                    isSafeIdentifier(candidate.name) &&
+                        Files.isDirectory(candidate.toPath(), LinkOption.NOFOLLOW_LINKS) &&
+                        Files.isDirectory(
+                            File(candidate, REVISIONS_DIRECTORY).toPath(),
+                            LinkOption.NOFOLLOW_LINKS,
+                        )
+                }.map(File::getName),
+            )
+        } catch (_: IOException) {
+            DocumentDirectoryScan.Unavailable
+        } catch (_: SecurityException) {
+            DocumentDirectoryScan.Unavailable
+        }
+    }
+
+    private fun isValidPendingDeletion(pending: PendingDocumentDeletion): Boolean {
+        if (!isSafeIdentifier(pending.documentId)) return false
+        return try {
+            val canonicalRoot = root.canonicalFile
+            val pendingRoot = File(canonicalRoot, PENDING_DELETIONS_DIRECTORY).canonicalFile
+            pending.directory.canonicalFile.parentFile == pendingRoot &&
+                pending.directory.name == pending.documentId
+        } catch (_: IOException) {
+            false
+        } catch (_: SecurityException) {
+            false
+        }
     }
 
     private fun relativePath(file: File): String =
@@ -412,6 +594,7 @@ internal class LibraryFileStore(
     companion object {
         const val LIBRARY_DIRECTORY = "document-library"
         private const val REVISIONS_DIRECTORY = "revisions"
+        private const val PENDING_DELETIONS_DIRECTORY = ".pending-deletions"
         private const val THUMBNAIL_FILENAME = "thumbnail.jpg"
         private const val THUMBNAIL_MAX_EDGE = 480
         private const val THUMBNAIL_JPEG_QUALITY = 84
@@ -438,14 +621,46 @@ private fun isSafeIdentifier(value: String): Boolean =
     value.isNotBlank() && value.length <= 80 && value.all { it.isLetterOrDigit() || it == '-' }
 
 private fun File.deleteRecursivelySafely(root: File) {
-    try {
-        val canonicalRoot = root.canonicalFile
-        val target = canonicalFile
-        if (target == canonicalRoot || !target.toPath().startsWith(canonicalRoot.toPath())) return
-        deleteRecursively()
-    } catch (_: IOException) {
-        // Private library cleanup is best-effort and never logs document paths.
-    } catch (_: SecurityException) {
-        // Private library cleanup is best-effort and never logs document paths.
+    deleteRecursivelyChecked(root)
+}
+
+private fun File.deleteRecursivelyChecked(root: File): Boolean = try {
+    val canonicalRoot = root.canonicalFile
+    val target = canonicalFile
+    if (target == canonicalRoot || !target.toPath().startsWith(canonicalRoot.toPath())) {
+        false
+    } else {
+        Files.walkFileTree(
+            target.toPath(),
+            object : SimpleFileVisitor<Path>() {
+                override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
+                    Files.deleteIfExists(file)
+                    return FileVisitResult.CONTINUE
+                }
+
+                override fun postVisitDirectory(directory: Path, failure: IOException?): FileVisitResult {
+                    if (failure != null) throw failure
+                    Files.deleteIfExists(directory)
+                    return FileVisitResult.CONTINUE
+                }
+            },
+        )
+        Files.notExists(target.toPath(), LinkOption.NOFOLLOW_LINKS)
     }
+} catch (_: IOException) {
+    false
+} catch (_: SecurityException) {
+    false
+}
+
+private enum class FilePathState {
+    PRESENT,
+    ABSENT,
+    UNKNOWN,
+}
+
+private fun File.pathState(): FilePathState = when {
+    Files.exists(toPath(), LinkOption.NOFOLLOW_LINKS) -> FilePathState.PRESENT
+    Files.notExists(toPath(), LinkOption.NOFOLLOW_LINKS) -> FilePathState.ABSENT
+    else -> FilePathState.UNKNOWN
 }

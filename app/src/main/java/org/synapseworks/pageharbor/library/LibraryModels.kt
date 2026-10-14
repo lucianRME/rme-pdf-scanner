@@ -426,6 +426,8 @@ sealed interface LibraryResult<out T> {
 
 enum class LibraryWarning {
     THUMBNAIL_UNAVAILABLE,
+    /** Removed from Room and the live library; quarantined private bytes await cleanup retry. */
+    DELETION_CLEANUP_PENDING,
 }
 
 enum class LibraryError {
@@ -440,6 +442,8 @@ enum class LibraryError {
     SOURCE_TOO_LARGE,
     STORAGE_UNAVAILABLE,
     DATABASE_UNAVAILABLE,
+    DELETION_RECOVERY_PENDING,
+    DELETION_STATE_UNCERTAIN,
     CORRUPTED_RECORD,
     SAVE_REQUIRED,
     OPERATION_INTERRUPTED,

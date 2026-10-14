@@ -233,6 +233,9 @@ abstract class LibraryDao {
     @Query("SELECT * FROM library_documents WHERE document_id = :documentId LIMIT 1")
     abstract suspend fun documentAnyState(documentId: String): LibraryDocumentEntity?
 
+    @Query("SELECT document_id FROM library_documents")
+    protected abstract suspend fun allDocumentIdsAnyState(): List<String>
+
     @Query(
         """
         SELECT p.* FROM library_pages AS p
@@ -2437,6 +2440,23 @@ abstract class LibraryDao {
 
     @Query("SELECT * FROM library_data_operation_items WHERE item_id = :itemId LIMIT 1")
     abstract suspend fun operationItem(itemId: String): LibraryDataOperationItemEntity?
+
+    @Query(
+        """
+        SELECT DISTINCT item.target_document_id
+        FROM library_data_operation_items AS item
+        JOIN library_data_operations AS operation
+          ON operation.operation_id = item.operation_id
+        WHERE operation.phase NOT IN ('COMPLETED', 'CANCELLED', 'FAILED')
+        """,
+    )
+    protected abstract suspend fun nonterminalOperationTargetDocumentIds(): List<String>
+
+    @Transaction
+    open suspend fun documentIdsProtectedFromLegacyDeletion(): Set<String> = buildSet {
+        addAll(allDocumentIdsAnyState())
+        addAll(nonterminalOperationTargetDocumentIds())
+    }
 
     @Query(
         """

@@ -1716,6 +1716,8 @@ class MainActivity : FragmentActivity() {
             clearSearchablePdfSave()
             clearNormalDocumentOperations()
             session.clearScan()
+            library.deleteDocument(documentId, session::awaitDocumentSessionLeasesReleased)
+            return
         }
         library.deleteDocument(documentId)
     }
@@ -3562,6 +3564,8 @@ class MainActivity : FragmentActivity() {
         handleNormalPdfDestinationResult(uri)
 
     internal fun sharePdfForTest() = sharePdf()
+
+    internal fun deleteLibraryDocumentForTest(documentId: String) = deleteLibraryDocument(documentId)
 
     internal fun exportPagesForTest() = exportPages()
 
