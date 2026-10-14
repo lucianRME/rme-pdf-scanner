@@ -8,11 +8,13 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.File
 import java.io.FileOutputStream
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -21,6 +23,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.synapseworks.pageharbor.PageHarborSessionViewModel
+import org.synapseworks.pageharbor.R
 import org.synapseworks.pageharbor.document.session.DocumentImageMetadata
 import org.synapseworks.pageharbor.document.session.DocumentPage
 import org.synapseworks.pageharbor.document.session.DocumentPageId
@@ -42,6 +46,7 @@ class LibraryRepositoryInstrumentedTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private lateinit var database: LibraryDatabase
     private lateinit var repository: LibraryRepository
+    private lateinit var fileStore: LibraryFileStore
     private val sourceDirectory = File(context.cacheDir, "library-test-sources")
     private val libraryDirectory = File(
         File(context.filesDir, LibraryFileStore.LIBRARY_DIRECTORY),
@@ -56,10 +61,11 @@ class LibraryRepositoryInstrumentedTest {
         database = Room.inMemoryDatabaseBuilder(context, LibraryDatabase::class.java)
             .allowMainThreadQueries()
             .build()
+        fileStore = LibraryFileStore(context, libraryDirectory)
         repository = LibraryRepository(
             context = context,
             dao = database.libraryDao(),
-            fileStore = LibraryFileStore(context, libraryDirectory),
+            fileStore = fileStore,
             nowMillis = { ++clock },
         )
     }
@@ -629,6 +635,11 @@ class LibraryRepositoryInstrumentedTest {
             session(page(1, externalFile.name, 0xff654321.toInt())),
             title = "Original token",
         ).successValue()
+        val untouched = repository.saveSession(
+            session(page(2, "untouched-document.jpg", 0xff765432.toInt())),
+            title = "Untouched document",
+        ).successValue()
+        val untouchedDirectory = File(libraryDirectory, untouched.id)
         assertTrue(externalFile.isFile)
 
         val opened = repository.openDocument(saved.id).successValue()
@@ -648,6 +659,516 @@ class LibraryRepositoryInstrumentedTest {
         assertTrue(repository.observeSearch("renamed")!!.first().isEmpty())
         assertFalse(File(libraryDirectory, saved.id).exists())
         assertTrue(externalFile.isFile)
+        assertNotNull(database.libraryDao().document(untouched.id))
+        assertTrue(untouchedDirectory.isDirectory)
+        assertEquals(
+            LibraryResult.Failure(LibraryError.DOCUMENT_NOT_FOUND),
+            repository.deleteDocument(saved.id),
+        )
+    }
+
+    @Test
+    fun deleteDoesNotReportSuccessWhenPrivateDocumentDirectoryCannotBeRemoved() = runBlocking {
+        val saved = repository.saveSession(
+            session(page(1, "undeletable-private-copy.jpg", 0xff123456.toInt())),
+            title = "Deletion failure contract",
+        ).successValue()
+        val documentDirectory = File(libraryDirectory, saved.id)
+        assertTrue(documentDirectory.isDirectory)
+
+        val directories = documentDirectory.walkTopDown()
+            .filter(File::isDirectory)
+            .toList()
+            .asReversed()
+        directories.forEach { directory ->
+            assertTrue("Could not make ${directory.name} read-only", directory.setWritable(false, false))
+        }
+
+        try {
+            val result = repository.deleteDocument(saved.id)
+
+            assertFalse(
+                "Deletion reported success while the private document directory still existed",
+                result is LibraryResult.Success && documentDirectory.exists(),
+            )
+            if (result is LibraryResult.Failure) {
+                assertNotNull(database.libraryDao().document(saved.id))
+            }
+        } finally {
+            directories.asReversed().forEach { directory ->
+                directory.setWritable(true, false)
+            }
+        }
+    }
+
+    @Test
+    fun committedDeletionReportsDurablePendingCleanupUntilBytesAreRemoved() = runBlocking {
+        val saved = repository.saveSession(
+            session(page(1, "pending-private-cleanup.jpg", 0xff1a2b3c.toInt())),
+            title = "Pending private cleanup",
+        ).successValue()
+        val documentDirectory = File(libraryDirectory, saved.id)
+        val protectedDirectories = documentDirectory.walkTopDown()
+            .filter { candidate -> candidate.isDirectory && candidate != documentDirectory }
+            .toList()
+            .asReversed()
+        protectedDirectories.forEach { directory ->
+            assertTrue("Could not make ${directory.name} read-only", directory.setWritable(false, false))
+        }
+
+        var pending: PendingDocumentDeletion? = null
+        try {
+            val result = repository.deleteDocument(saved.id)
+
+            assertTrue("Expected cleanup-pending success but was $result", result is LibraryResult.Success)
+            assertEquals(
+                LibraryWarning.DELETION_CLEANUP_PENDING,
+                (result as LibraryResult.Success).warning,
+            )
+            assertEquals(null, database.libraryDao().document(saved.id))
+            assertFalse(documentDirectory.exists())
+            pending = pendingDeletions().single()
+        } finally {
+            pending?.directory?.walkTopDown()
+                ?.filter(File::isDirectory)
+                ?.toList()
+                ?.asReversed()
+                ?.forEach { directory -> directory.setWritable(true, false) }
+            protectedDirectories.forEach { directory -> directory.setWritable(true, false) }
+        }
+
+        val recovery = repository.recoverPendingDocumentDeletions()
+        assertEquals(1, recovery.deleted)
+        assertEquals(0, recovery.stillPending)
+        assertTrue(pendingDeletions().isEmpty())
+    }
+
+    @Test
+    fun databaseDeleteFailureRestoresQuarantinedFilesAndKeepsRecord() = runBlocking {
+        val saved = repository.saveSession(
+            session(page(1, "database-delete-failure.jpg", 0xff234567.toInt())),
+            title = "Database failure rollback",
+        ).successValue()
+        val documentDirectory = File(libraryDirectory, saved.id)
+        val sqlite = database.openHelper.writableDatabase
+        sqlite.execSQL(
+            """
+            CREATE TRIGGER fail_library_document_delete
+            BEFORE DELETE ON library_documents
+            BEGIN
+                SELECT RAISE(ABORT, 'forced deletion failure');
+            END
+            """.trimIndent(),
+        )
+
+        val result = try {
+            repository.deleteDocument(saved.id)
+        } finally {
+            sqlite.execSQL("DROP TRIGGER fail_library_document_delete")
+        }
+
+        assertEquals(LibraryResult.Failure(LibraryError.DATABASE_UNAVAILABLE), result)
+        assertNotNull(database.libraryDao().document(saved.id))
+        assertTrue(documentDirectory.isDirectory)
+        assertTrue(pendingDeletions().isEmpty())
+    }
+
+    @Test
+    fun repeatedDeleteTracksQuarantineWhenDatabaseAndRestorationPreviouslyFailed() = runBlocking {
+        var failRestoration = true
+        var failCleanup = true
+        val failingStore = object : LibraryFileStore(context, libraryDirectory) {
+            override fun restoreQuarantinedDocument(pending: PendingDocumentDeletion): Boolean =
+                if (failRestoration) false else super.restoreQuarantinedDocument(pending)
+
+            override fun completeDocumentDeletion(pending: PendingDocumentDeletion): Boolean =
+                if (failCleanup) false else super.completeDocumentDeletion(pending)
+        }
+        val failingRepository = LibraryRepository(
+            context = context,
+            dao = database.libraryDao(),
+            fileStore = failingStore,
+            nowMillis = { ++clock },
+        )
+        val saved = failingRepository.saveSession(
+            session(page(1, "rollback-and-cleanup-failure.jpg", 0xff334455.toInt())),
+            title = "Tracked repeated deletion",
+        ).successValue()
+        val sqlite = database.openHelper.writableDatabase
+        sqlite.execSQL(
+            """
+            CREATE TRIGGER fail_repeated_library_document_delete
+            BEFORE DELETE ON library_documents
+            BEGIN
+                SELECT RAISE(ABORT, 'forced deletion failure');
+            END
+            """.trimIndent(),
+        )
+
+        val first = try {
+            failingRepository.deleteDocument(saved.id)
+        } finally {
+            sqlite.execSQL("DROP TRIGGER fail_repeated_library_document_delete")
+        }
+
+        assertEquals(LibraryResult.Failure(LibraryError.DELETION_RECOVERY_PENDING), first)
+        assertNotNull(database.libraryDao().document(saved.id))
+        assertFalse(File(libraryDirectory, saved.id).exists())
+        assertEquals(saved.id, pendingDeletions(failingStore).single().documentId)
+
+        val repeated = failingRepository.deleteDocument(saved.id)
+        assertTrue(repeated is LibraryResult.Success)
+        assertEquals(
+            LibraryWarning.DELETION_CLEANUP_PENDING,
+            (repeated as LibraryResult.Success).warning,
+        )
+        assertEquals(null, database.libraryDao().documentAnyState(saved.id))
+        assertEquals(saved.id, pendingDeletions(failingStore).single().documentId)
+
+        failRestoration = false
+        failCleanup = false
+        val recovered = failingRepository.recoverPendingDocumentDeletions()
+        assertEquals(1, recovered.deleted)
+        assertEquals(0, recovered.stillPending)
+        assertTrue(pendingDeletions(failingStore).isEmpty())
+    }
+
+    @Test
+    fun transientRestorationFailureRecoversDocumentWithoutDeletingIt() = runBlocking {
+        var failRestoration = true
+        val failingStore = object : LibraryFileStore(context, libraryDirectory) {
+            override fun restoreQuarantinedDocument(pending: PendingDocumentDeletion): Boolean =
+                if (failRestoration) false else super.restoreQuarantinedDocument(pending)
+        }
+        val failingRepository = LibraryRepository(
+            context = context,
+            dao = database.libraryDao(),
+            fileStore = failingStore,
+            nowMillis = { ++clock },
+        )
+        val saved = failingRepository.saveSession(
+            session(page(1, "transient-restoration.jpg", 0xff445566.toInt())),
+            title = "Transient restoration",
+        ).successValue()
+        val sqlite = database.openHelper.writableDatabase
+        sqlite.execSQL(
+            """
+            CREATE TRIGGER fail_transient_library_document_delete
+            BEFORE DELETE ON library_documents
+            BEGIN
+                SELECT RAISE(ABORT, 'forced deletion failure');
+            END
+            """.trimIndent(),
+        )
+        try {
+            assertEquals(
+                LibraryResult.Failure(LibraryError.DELETION_RECOVERY_PENDING),
+                failingRepository.deleteDocument(saved.id),
+            )
+        } finally {
+            sqlite.execSQL("DROP TRIGGER fail_transient_library_document_delete")
+        }
+
+        failRestoration = false
+        val recovery = failingRepository.recoverPendingDocumentDeletions()
+        assertEquals(1, recovery.restored)
+        assertEquals(0, recovery.stillPending)
+        assertNotNull(database.libraryDao().document(saved.id))
+        assertTrue(File(libraryDirectory, saved.id).isDirectory)
+        assertTrue(pendingDeletions(failingStore).isEmpty())
+    }
+
+    @Test
+    fun restartRecoveryResolvesBothInterruptionWindows() = runBlocking {
+        val persistentStore = LibraryFileStore(context, libraryDirectory)
+        var persistentDatabase = Room.databaseBuilder(
+            context,
+            LibraryDatabase::class.java,
+            restartDatabaseName,
+        ).build()
+        var persistentRepository = LibraryRepository(
+            context = context,
+            dao = persistentDatabase.libraryDao(),
+            fileStore = persistentStore,
+            nowMillis = { ++clock },
+        )
+        val saved = persistentRepository.saveSession(
+            session(page(1, "interrupted-delete.jpg", 0xff345678.toInt())),
+            title = "Interrupted deletion",
+        ).successValue()
+        val documentDirectory = File(libraryDirectory, saved.id)
+
+        val beforeCommit = persistentStore.quarantineDocument(saved.id)
+        assertTrue(beforeCommit is DocumentDeletionPreparation.Quarantined)
+        assertFalse(documentDirectory.exists())
+        persistentDatabase.close()
+
+        persistentDatabase = Room.databaseBuilder(
+            context = context,
+            klass = LibraryDatabase::class.java,
+            name = restartDatabaseName,
+        ).build()
+        persistentRepository = LibraryRepository(
+            context = context,
+            dao = persistentDatabase.libraryDao(),
+            fileStore = persistentStore,
+            nowMillis = { ++clock },
+        )
+        val restored = persistentRepository.recoverPendingDocumentDeletions()
+        assertEquals(1, restored.restored)
+        assertTrue(documentDirectory.isDirectory)
+        assertNotNull(persistentDatabase.libraryDao().document(saved.id))
+
+        val afterCommit = persistentStore.quarantineDocument(saved.id)
+        assertTrue(afterCommit is DocumentDeletionPreparation.Quarantined)
+        assertNotNull(persistentDatabase.libraryDao().deleteDocument(saved.id))
+        persistentDatabase.close()
+
+        persistentDatabase = Room.databaseBuilder(
+            context = context,
+            klass = LibraryDatabase::class.java,
+            name = restartDatabaseName,
+        ).build()
+        persistentRepository = LibraryRepository(
+            context = context,
+            dao = persistentDatabase.libraryDao(),
+            fileStore = persistentStore,
+            nowMillis = { ++clock },
+        )
+        try {
+            val deleted = persistentRepository.recoverPendingDocumentDeletions()
+            assertEquals(1, deleted.deleted)
+            assertEquals(0, deleted.stillPending)
+            assertFalse(documentDirectory.exists())
+            assertTrue(pendingDeletions(persistentStore).isEmpty())
+        } finally {
+            persistentDatabase.close()
+        }
+    }
+
+    @Test
+    fun partialQuarantineCleanupRemainsPendingUntilRetrySucceeds() = runBlocking {
+        val saved = repository.saveSession(
+            session(page(1, "partial-cleanup.jpg", 0xff56789a.toInt())),
+            title = "Partial cleanup",
+        ).successValue()
+        val prepared = fileStore.quarantineDocument(saved.id)
+        assertTrue(prepared is DocumentDeletionPreparation.Quarantined)
+        val pending = (prepared as DocumentDeletionPreparation.Quarantined).pending
+        val directories = pending.directory.walkTopDown()
+            .filter(File::isDirectory)
+            .toList()
+            .asReversed()
+        directories.forEach { directory ->
+            assertTrue("Could not make ${directory.name} read-only", directory.setWritable(false, false))
+        }
+        assertNotNull(database.libraryDao().deleteDocument(saved.id))
+
+        val firstRecovery = repository.recoverPendingDocumentDeletions()
+        assertEquals(0, firstRecovery.deleted)
+        assertEquals(1, firstRecovery.stillPending)
+        assertEquals(saved.id, pendingDeletions().single().documentId)
+
+        pending.directory.walkTopDown()
+            .filter(File::isDirectory)
+            .toList()
+            .asReversed()
+            .forEach { directory -> directory.setWritable(true, false) }
+        val secondRecovery = repository.recoverPendingDocumentDeletions()
+        assertEquals(1, secondRecovery.deleted)
+        assertEquals(0, secondRecovery.stillPending)
+        assertTrue(pendingDeletions().isEmpty())
+    }
+
+    @Test
+    fun legacyConfirmedOrphanIsQuarantinedAndCleanupIsIdempotent() = runBlocking {
+        val orphanId = "legacy-confirmed-orphan"
+        val orphan = createLegacyDocumentDirectory(orphanId)
+
+        val first = repository.recoverPendingDocumentDeletions()
+        assertEquals(1, first.legacyQuarantined)
+        assertEquals(1, first.deleted)
+        assertEquals(0, first.stillPending)
+        assertFalse(orphan.exists())
+
+        val second = repository.recoverPendingDocumentDeletions()
+        assertEquals(0, second.legacyQuarantined)
+        assertEquals(0, second.deleted)
+        assertEquals(0, second.stillPending)
+    }
+
+    @Test
+    fun legacyDirectoryOwnedByNonterminalMigrationIsPreserved() = runBlocking {
+        val documentId = "migration-owned-document"
+        val owned = createLegacyDocumentDirectory(documentId)
+        val operation = migrationOperation("migration-owner")
+        database.libraryDao().insertOperation(operation)
+        database.libraryDao().insertOperationItems(
+            listOf(migrationItem(operation.operationId, documentId)),
+        )
+
+        val recovery = repository.recoverPendingDocumentDeletions()
+
+        assertEquals(0, recovery.legacyQuarantined)
+        assertEquals(1, recovery.legacyPreservedOwned)
+        assertTrue(owned.isDirectory)
+        assertTrue(pendingDeletions().isEmpty())
+    }
+
+    @Test
+    fun uncertainLegacyStateIsPreservedWhenDatabaseCannotClassifyOwnership() = runBlocking {
+        val documentId = "database-uncertain-document"
+        val candidate = createLegacyDocumentDirectory(documentId)
+        database.close()
+
+        val recovery = repository.recoverPendingDocumentDeletions()
+
+        assertEquals(0, recovery.legacyQuarantined)
+        assertEquals(1, recovery.legacyPreservedUncertain)
+        assertTrue(recovery.databaseUnavailable)
+        assertTrue(candidate.isDirectory)
+    }
+
+    @Test
+    fun pendingEnumerationFailureIsNotTreatedAsAnEmptyQuarantine() = runBlocking {
+        val candidate = createLegacyDocumentDirectory("preserved-when-pending-scan-fails")
+        val unavailableStore = object : LibraryFileStore(context, libraryDirectory) {
+            override fun pendingDocumentDeletions(): DocumentDirectoryScan<PendingDocumentDeletion> =
+                DocumentDirectoryScan.Unavailable
+        }
+        val unavailableRepository = LibraryRepository(
+            context = context,
+            dao = database.libraryDao(),
+            fileStore = unavailableStore,
+            nowMillis = { ++clock },
+        )
+
+        val recovery = unavailableRepository.recoverPendingDocumentDeletions()
+
+        assertTrue(recovery.filesystemScanUnavailable)
+        assertEquals(0, recovery.legacyQuarantined)
+        assertTrue(candidate.isDirectory)
+    }
+
+    @Test
+    fun mixedLegacyStatesDeleteOnlyConfirmedAbandonedDocumentBytes() = runBlocking {
+        val active = repository.saveSession(
+            session(page(1, "mixed-active.jpg", 0xff667788.toInt())),
+            title = "Mixed active",
+        ).successValue()
+        val activeDirectory = File(libraryDirectory, active.id)
+        val orphan = createLegacyDocumentDirectory("mixed-confirmed-orphan")
+        val uncertain = File(libraryDirectory, "mixed-unknown-shape").apply {
+            assertTrue(mkdirs())
+            File(this, "unrecognized-private-data").writeBytes(byteArrayOf(1, 2, 3))
+        }
+        val operationOwned = createLegacyDocumentDirectory("mixed-operation-owned")
+        val operation = migrationOperation("mixed-migration")
+        database.libraryDao().insertOperation(operation)
+        database.libraryDao().insertOperationItems(
+            listOf(migrationItem(operation.operationId, operationOwned.name)),
+        )
+
+        val recovery = repository.recoverPendingDocumentDeletions()
+
+        assertEquals(1, recovery.legacyQuarantined)
+        assertEquals(1, recovery.deleted)
+        assertEquals(2, recovery.legacyPreservedOwned)
+        assertTrue(activeDirectory.isDirectory)
+        assertFalse(orphan.exists())
+        assertTrue(operationOwned.isDirectory)
+        assertTrue(uncertain.isDirectory)
+    }
+
+    @Test
+    fun deletionWaitsForRealDocumentSessionLeaseBeforeRemovingLibrarySources() = runBlocking {
+        val saved = repository.saveSession(
+            session(page(1, "leased-library-source.jpg", 0xff778899.toInt())),
+            title = "Leased library source",
+        ).successValue()
+        val opened = repository.openDocument(saved.id).successValue()
+        val sessionViewModel = PageHarborSessionViewModel()
+        sessionViewModel.installDocumentSessionForTest(opened.session)
+        val lease = requireNotNull(sessionViewModel.acquireDocumentSessionLease())
+        val source = File(requireNotNull(opened.session.pages.single().source.ownedLibraryFile).path)
+
+        val deletion = async {
+            sessionViewModel.awaitDocumentSessionLeasesReleased()
+            repository.deleteDocument(saved.id)
+        }
+        yield()
+        assertFalse("Deletion bypassed an active DocumentSessionLease", deletion.isCompleted)
+        assertTrue(source.isFile)
+        assertNotNull(database.libraryDao().document(saved.id))
+
+        sessionViewModel.releaseDocumentSessionLease(lease)
+        deletion.await().successValue()
+        assertFalse(source.exists())
+        assertEquals(null, database.libraryDao().documentAnyState(saved.id))
+    }
+
+    @Test
+    fun deletionMessagesDistinguishPendingCleanupAndPendingRestoration() {
+        assertEquals(
+            R.string.library_delete_cleanup_pending,
+            org.synapseworks.pageharbor.ui.home.libraryActionMessageResource(
+                LibraryActionState.Succeeded(
+                    eventId = 1,
+                    action = LibraryActionSuccess.DELETED,
+                    warning = LibraryWarning.DELETION_CLEANUP_PENDING,
+                ),
+            ),
+        )
+        assertEquals(
+            R.string.library_error_deletion_recovery_pending,
+            org.synapseworks.pageharbor.ui.home.libraryActionMessageResource(
+                LibraryActionState.Failed(2, LibraryError.DELETION_RECOVERY_PENDING),
+            ),
+        )
+        assertEquals(
+            R.string.library_error_deletion_state_uncertain,
+            org.synapseworks.pageharbor.ui.home.libraryActionMessageResource(
+                LibraryActionState.Failed(3, LibraryError.DELETION_STATE_UNCERTAIN),
+            ),
+        )
+    }
+
+    @Test
+    fun deletionWaitsForActiveStableRevisionSnapshot() = runBlocking {
+        val gate = LibraryOperationGate()
+        val gatedRepository = LibraryRepository(
+            context = context,
+            dao = database.libraryDao(),
+            fileStore = fileStore,
+            nowMillis = { ++clock },
+            operationGate = gate,
+        )
+        val saved = gatedRepository.saveSession(
+            session(page(1, "stable-snapshot.jpg", 0xff456789.toInt())),
+            title = "Stable snapshot",
+        ).successValue()
+        val documentDirectory = File(libraryDirectory, saved.id)
+        val snapshotStarted = CompletableDeferred<Unit>()
+        val releaseSnapshot = CompletableDeferred<Unit>()
+        val snapshot = async {
+            gate.withStableSnapshot {
+                assertTrue(documentDirectory.isDirectory)
+                snapshotStarted.complete(Unit)
+                releaseSnapshot.await()
+                assertTrue(documentDirectory.isDirectory)
+            }
+        }
+        snapshotStarted.await()
+
+        val deletion = async { gatedRepository.deleteDocument(saved.id) }
+        yield()
+        assertFalse("Deletion bypassed the active revision snapshot", deletion.isCompleted)
+        releaseSnapshot.complete(Unit)
+        snapshot.await()
+        deletion.await().successValue()
+
+        assertFalse(documentDirectory.exists())
+        assertEquals(null, database.libraryDao().document(saved.id))
     }
 
     private fun session(vararg pages: DocumentPage): DocumentSession =
@@ -675,4 +1196,63 @@ class LibraryRepositoryInstrumentedTest {
         assertTrue("Expected success but was $this", this is LibraryResult.Success)
         return (this as LibraryResult.Success).value
     }
+
+    private fun pendingDeletions(
+        store: LibraryFileStore = fileStore,
+    ): List<PendingDocumentDeletion> =
+        when (val scan = store.pendingDocumentDeletions()) {
+            is DocumentDirectoryScan.Available -> scan.entries
+            DocumentDirectoryScan.Unavailable -> error("Pending-deletion directory was unavailable")
+        }
+
+    private fun createLegacyDocumentDirectory(documentId: String): File {
+        val revision = File(libraryDirectory, "$documentId/revisions/revision-1")
+        assertTrue(revision.mkdirs())
+        File(revision, "page.jpg").writeBytes(byteArrayOf(1, 2, 3, 4))
+        return File(libraryDirectory, documentId)
+    }
+
+    private fun migrationOperation(operationId: String) = LibraryDataOperationEntity(
+        operationId = operationId,
+        operationType = "VERIFIED_MIGRATION",
+        phase = "STAGING",
+        sourceKind = "SAF_TREE",
+        sourceRootUri = null,
+        sourceGrantFlags = 0,
+        createdAtMillis = ++clock,
+        updatedAtMillis = clock,
+        discoveredItemCount = 1,
+        plannedDocumentCount = 1,
+        preparedDocumentCount = 0,
+        importedDocumentCount = 0,
+        skippedDuplicateCount = 0,
+        failedItemCount = 0,
+        totalSourceBytes = 4,
+        processedSourceBytes = 0,
+        cancelRequested = false,
+        terminalErrorCode = null,
+    )
+
+    private fun migrationItem(
+        operationId: String,
+        documentId: String,
+    ) = LibraryDataOperationItemEntity(
+        itemId = "$operationId-item",
+        operationId = operationId,
+        ordinal = 0,
+        itemState = "STAGING",
+        targetDocumentId = documentId,
+        targetRevisionId = null,
+        proposedTitle = "Migration candidate",
+        proposedFolderPath = null,
+        sourceModifiedAtMillis = null,
+        sourceByteCount = 4,
+        sourcePageCount = 1,
+        logicalHashVersion = null,
+        logicalSha256 = null,
+        duplicateKind = "DIFFERENT",
+        duplicateDocumentId = null,
+        duplicateDecision = "IMPORT",
+        failureCode = null,
+    )
 }

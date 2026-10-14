@@ -10,9 +10,13 @@ import java.util.UUID
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.isActive
 import org.synapseworks.pageharbor.document.session.DocumentImageMetadata
 import org.synapseworks.pageharbor.document.session.DocumentPage
 import org.synapseworks.pageharbor.document.session.DocumentPageId
@@ -42,6 +46,28 @@ data class SavedLibraryDocument(
 data class OpenedLibraryDocument(
     val session: DocumentSession,
     val summary: LibraryDocumentSummary,
+)
+
+internal data class DocumentDeletionRecoveryReport(
+    val restored: Int,
+    val deleted: Int,
+    val stillPending: Int,
+    val legacyQuarantined: Int = 0,
+    val legacyPreservedOwned: Int = 0,
+    val legacyPreservedUncertain: Int = 0,
+    val filesystemScanUnavailable: Boolean = false,
+    val databaseUnavailable: Boolean = false,
+)
+
+private data class PreparedDocumentDeletionRecovery(
+    val restored: Int,
+    val stillPending: Int,
+    val cleanup: List<PendingDocumentDeletion>,
+    val legacyQuarantined: Int,
+    val legacyPreservedOwned: Int,
+    val legacyPreservedUncertain: Int,
+    val filesystemScanUnavailable: Boolean,
+    val databaseUnavailable: Boolean,
 )
 
 class LibraryRepository internal constructor(
@@ -853,17 +879,219 @@ class LibraryRepository internal constructor(
         deleteDocumentUnlocked(documentId)
     }
 
-    private suspend fun deleteDocumentUnlocked(documentId: String): LibraryResult<Unit> = try {
-        if (dao.deleteDocument(documentId) == null) {
-            LibraryResult.Failure(LibraryError.DOCUMENT_NOT_FOUND)
+    /**
+     * Reconciles durable filesystem quarantines after an interrupted deletion. A database row is
+     * authoritative that the document is still in the library, so its files are restored. When no
+     * row exists, physical deletion is retried. Unknown database state leaves the quarantine in
+     * place rather than risking either document loss or an untracked private-file orphan.
+     */
+    internal suspend fun recoverPendingDocumentDeletions(): DocumentDeletionRecoveryReport {
+        val prepared = operationGate.withMutation { prepareDocumentDeletionRecoveryUnlocked() }
+        var deleted = 0
+        var stillPending = prepared.stillPending
+        prepared.cleanup.forEach { pending ->
+            if (fileStore.completeDocumentDeletion(pending)) deleted++ else stillPending++
+        }
+        return DocumentDeletionRecoveryReport(
+            restored = prepared.restored,
+            deleted = deleted,
+            stillPending = stillPending,
+            legacyQuarantined = prepared.legacyQuarantined,
+            legacyPreservedOwned = prepared.legacyPreservedOwned,
+            legacyPreservedUncertain = prepared.legacyPreservedUncertain,
+            filesystemScanUnavailable = prepared.filesystemScanUnavailable,
+            databaseUnavailable = prepared.databaseUnavailable,
+        )
+    }
+
+    /**
+     * Decides ownership while the global mutation gate is held, but leaves recursive deletion for
+     * after the gate is released. This keeps slow or persistently failing cleanup from blocking
+     * unrelated library work.
+     */
+    private suspend fun prepareDocumentDeletionRecoveryUnlocked(): PreparedDocumentDeletionRecovery {
+        val pendingScan = fileStore.pendingDocumentDeletions()
+        if (pendingScan is DocumentDirectoryScan.Unavailable) {
+            return PreparedDocumentDeletionRecovery(
+                restored = 0,
+                stillPending = 0,
+                cleanup = emptyList(),
+                legacyQuarantined = 0,
+                legacyPreservedOwned = 0,
+                legacyPreservedUncertain = 0,
+                filesystemScanUnavailable = true,
+                databaseUnavailable = false,
+            )
+        }
+
+        var restored = 0
+        var stillPending = 0
+        var databaseUnavailable = false
+        val cleanup = mutableListOf<PendingDocumentDeletion>()
+        val pending = (pendingScan as DocumentDirectoryScan.Available).entries
+        pending.forEach { deletion ->
+            when (deletionRecordState(deletion.documentId)) {
+                DeletionRecordState.PRESENT -> {
+                    if (fileStore.restoreQuarantinedDocument(deletion)) restored++ else stillPending++
+                }
+                DeletionRecordState.ABSENT -> cleanup += deletion
+                DeletionRecordState.UNKNOWN -> {
+                    stillPending++
+                    databaseUnavailable = true
+                }
+            }
+        }
+
+        var legacyQuarantined = 0
+        var legacyPreservedOwned = 0
+        var legacyPreservedUncertain = 0
+        var filesystemScanUnavailable = false
+        when (val legacyScan = fileStore.legacyDocumentDirectoryCandidates()) {
+            DocumentDirectoryScan.Unavailable -> filesystemScanUnavailable = true
+            is DocumentDirectoryScan.Available -> {
+                val protectedDocumentIds = try {
+                    dao.documentIdsProtectedFromLegacyDeletion()
+                } catch (error: CancellationException) {
+                    if (!currentCoroutineContext().isActive) throw error
+                    null
+                } catch (_: Exception) {
+                    null
+                }
+                if (protectedDocumentIds == null) databaseUnavailable = true
+                legacyScan.entries.forEach { documentId ->
+                    when (legacyDirectoryOwnership(documentId, protectedDocumentIds)) {
+                        LegacyDirectoryOwnership.OWNED -> legacyPreservedOwned++
+                        LegacyDirectoryOwnership.UNKNOWN -> {
+                            legacyPreservedUncertain++
+                            databaseUnavailable = true
+                        }
+                        LegacyDirectoryOwnership.ABANDONED -> {
+                            when (val preparation = fileStore.quarantineDocument(documentId)) {
+                                is DocumentDeletionPreparation.Quarantined -> {
+                                    cleanup += preparation.pending
+                                    legacyQuarantined++
+                                }
+                                DocumentDeletionPreparation.NoPrivateFiles -> Unit
+                                is DocumentDeletionPreparation.AlreadyQuarantined,
+                                DocumentDeletionPreparation.QuarantineFailed,
+                                DocumentDeletionPreparation.StateUncertain,
+                                -> legacyPreservedUncertain++
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return PreparedDocumentDeletionRecovery(
+            restored = restored,
+            stillPending = stillPending,
+            cleanup = cleanup,
+            legacyQuarantined = legacyQuarantined,
+            legacyPreservedOwned = legacyPreservedOwned,
+            legacyPreservedUncertain = legacyPreservedUncertain,
+            filesystemScanUnavailable = filesystemScanUnavailable,
+            databaseUnavailable = databaseUnavailable,
+        )
+    }
+
+    private suspend fun deleteDocumentUnlocked(documentId: String): LibraryResult<Unit> {
+        val exists = try {
+            dao.document(documentId) != null
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            return LibraryResult.Failure(LibraryError.DATABASE_UNAVAILABLE)
+        }
+        if (!exists) return LibraryResult.Failure(LibraryError.DOCUMENT_NOT_FOUND)
+
+        val pending = when (val preparation = fileStore.quarantineDocument(documentId)) {
+            DocumentDeletionPreparation.NoPrivateFiles -> null
+            is DocumentDeletionPreparation.Quarantined -> preparation.pending
+            is DocumentDeletionPreparation.AlreadyQuarantined -> preparation.pending
+            DocumentDeletionPreparation.QuarantineFailed -> {
+                return LibraryResult.Failure(LibraryError.STORAGE_UNAVAILABLE)
+            }
+            DocumentDeletionPreparation.StateUncertain ->
+                return LibraryResult.Failure(LibraryError.DELETION_STATE_UNCERTAIN)
+        }
+
+        try {
+            if (dao.deleteDocument(documentId) == null) {
+                return resolveFailedDeletion(documentId, pending)
+            }
+        } catch (error: CancellationException) {
+            return resolveInterruptedDeletion(documentId, pending, error)
+        } catch (_: Exception) {
+            return resolveFailedDeletion(documentId, pending)
+        }
+
+        return finishCommittedDeletion(pending)
+    }
+
+    private suspend fun resolveInterruptedDeletion(
+        documentId: String,
+        pending: PendingDocumentDeletion?,
+        cancellation: CancellationException,
+    ): LibraryResult<Unit> = withContext(NonCancellable) {
+        when (deletionRecordState(documentId)) {
+            DeletionRecordState.ABSENT -> finishCommittedDeletion(pending)
+            DeletionRecordState.PRESENT -> {
+                pending?.let(fileStore::restoreQuarantinedDocument)
+                throw cancellation
+            }
+            DeletionRecordState.UNKNOWN -> throw cancellation
+        }
+    }
+
+    private suspend fun resolveFailedDeletion(
+        documentId: String,
+        pending: PendingDocumentDeletion?,
+    ): LibraryResult<Unit> = withContext(NonCancellable) {
+        when (deletionRecordState(documentId)) {
+            DeletionRecordState.ABSENT -> finishCommittedDeletion(pending)
+            DeletionRecordState.PRESENT -> {
+                if (pending == null || fileStore.restoreQuarantinedDocument(pending)) {
+                    LibraryResult.Failure(LibraryError.DATABASE_UNAVAILABLE)
+                } else {
+                    LibraryResult.Failure(LibraryError.DELETION_RECOVERY_PENDING)
+                }
+            }
+            DeletionRecordState.UNKNOWN -> LibraryResult.Failure(LibraryError.DATABASE_UNAVAILABLE)
+        }
+    }
+
+    private fun finishCommittedDeletion(
+        pending: PendingDocumentDeletion?,
+    ): LibraryResult<Unit> {
+        // Success means the Room row and live library path are gone. The warning distinguishes
+        // physical deletion from durable, quarantined cleanup that will be retried after restart.
+        val physicallyDeleted = pending == null || fileStore.completeDocumentDeletion(pending)
+        return LibraryResult.Success(
+            Unit,
+            warning = if (physicallyDeleted) null else LibraryWarning.DELETION_CLEANUP_PENDING,
+        )
+    }
+
+    private suspend fun deletionRecordState(documentId: String): DeletionRecordState = try {
+        if (dao.documentAnyState(documentId) == null) {
+            DeletionRecordState.ABSENT
         } else {
-            fileStore.deleteDocument(documentId)
-            LibraryResult.Success(Unit)
+            DeletionRecordState.PRESENT
         }
     } catch (error: CancellationException) {
-        throw error
+        if (!currentCoroutineContext().isActive) throw error
+        DeletionRecordState.UNKNOWN
     } catch (_: Exception) {
-        LibraryResult.Failure(LibraryError.DATABASE_UNAVAILABLE)
+        DeletionRecordState.UNKNOWN
+    }
+
+    private fun legacyDirectoryOwnership(
+        documentId: String,
+        protectedDocumentIds: Set<String>?,
+    ): LegacyDirectoryOwnership = when {
+        protectedDocumentIds == null -> LegacyDirectoryOwnership.UNKNOWN
+        documentId in protectedDocumentIds -> LegacyDirectoryOwnership.OWNED
+        else -> LegacyDirectoryOwnership.ABANDONED
     }
 
     suspend fun mergeDocuments(
@@ -1135,6 +1363,18 @@ class LibraryRepository internal constructor(
     } catch (_: Exception) {
         null
     }
+}
+
+private enum class DeletionRecordState {
+    PRESENT,
+    ABSENT,
+    UNKNOWN,
+}
+
+private enum class LegacyDirectoryOwnership {
+    OWNED,
+    ABANDONED,
+    UNKNOWN,
 }
 
 private fun LibraryDocumentListingRow.toSummary(): LibraryDocumentSummary = LibraryDocumentSummary(

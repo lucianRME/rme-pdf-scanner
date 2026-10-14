@@ -2,7 +2,7 @@
 
 Privacy-first, local-first, open-source Android document scanning with multilingual on-device OCR, full-library search, searchable PDFs, safer sharing, portable backup, and no RME account or cloud backend.
 
-[Google Play](https://play.google.com/store/apps/details?id=org.synapseworks.pageharbor) · [Website](https://synapseworks.org/rme-pdf-scanner/) · [v1.7.0 release](https://github.com/lucianRME/rme-pdf-scanner/releases/tag/v1.7.0) · [Privacy](https://synapseworks.org/rme-pdf-scanner/privacy/) · [Apache-2.0 license](LICENSE)
+[Google Play](https://play.google.com/store/apps/details?id=org.synapseworks.pageharbor) · [Website](https://synapseworks.org/rme-pdf-scanner/) · [v1.7.1 release](https://github.com/lucianRME/rme-pdf-scanner/releases/tag/v1.7.1) · [Privacy](https://synapseworks.org/rme-pdf-scanner/privacy/) · [Apache-2.0 license](LICENSE)
 
 **No ads. No account. No RME analytics or tracking. No proprietary RME backend.** Documents can stay in an app-private local library, and RME itself requests neither the `INTERNET` nor `ACCESS_NETWORK_STATE` permission.
 
@@ -33,7 +33,7 @@ Privacy-first, local-first, open-source Android document scanning with multiling
 
 ## Install
 
-Get RME PDF Scanner from [Google Play](https://play.google.com/store/apps/details?id=org.synapseworks.pageharbor) or the APK on [GitHub Releases](https://github.com/lucianRME/rme-pdf-scanner/releases). The current stable release is [v1.7.0](https://github.com/lucianRME/rme-pdf-scanner/releases/tag/v1.7.0), released in October 2026. Release builds are covered by unit, instrumentation, accessibility, and device testing.
+Get RME PDF Scanner from [Google Play](https://play.google.com/store/apps/details?id=org.synapseworks.pageharbor) or the APK on [GitHub Releases](https://github.com/lucianRME/rme-pdf-scanner/releases). The current stable release is [v1.7.1](https://github.com/lucianRME/rme-pdf-scanner/releases/tag/v1.7.1), released in October 2026. Release builds are covered by unit, instrumentation, accessibility, and device testing.
 
 ## Privacy
 

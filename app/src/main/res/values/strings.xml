@@ -607,6 +607,7 @@
     <string name="library_renamed">Document renamed.</string>
     <string name="library_moved">Document moved.</string>
     <string name="library_deleted">Saved document deleted.</string>
+    <string name="library_delete_cleanup_pending">Document removed from the library. Private-file cleanup will retry automatically.</string>
     <string name="library_folder_created">Folder created.</string>
     <string name="library_folder_renamed">Folder renamed.</string>
     <string name="library_folder_deleted">Folder deleted; its documents were moved out of it.</string>
@@ -622,6 +623,8 @@
     <string name="library_error_source_missing">A saved page is missing.</string>
     <string name="library_error_storage">The local library could not write its files.</string>
     <string name="library_error_database">The local library database is unavailable.</string>
+    <string name="library_error_deletion_recovery_pending">The document is still in your library. Reopen the app to retry restoring its private files.</string>
+    <string name="library_error_deletion_state_uncertain">The document was not deleted because its private files could not be verified safely.</string>
     <string name="library_error_corrupted">The saved document record is incomplete.</string>
     <string name="library_error_save_required">Save document changes before updating its recognized-text index.</string>
     <string name="library_error_interrupted">The library operation was interrupted.</string>

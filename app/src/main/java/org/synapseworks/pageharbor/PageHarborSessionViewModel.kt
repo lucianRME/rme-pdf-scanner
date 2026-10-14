@@ -10,6 +10,7 @@ import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import org.synapseworks.pageharbor.document.PageExportState
 import org.synapseworks.pageharbor.document.PdfSaveState
@@ -112,6 +113,7 @@ class PageHarborSessionViewModel internal constructor(
     private var activeAcquisition: ActiveDocumentAcquisition? = null
     private var nextDocumentSessionLeaseId = 0L
     private val activeDocumentSessionLeases = mutableMapOf<Long, DocumentSession>()
+    private val activeDocumentSessionLeaseCount = MutableStateFlow(0)
     private val deferredReleaseSessions = mutableListOf<DocumentSession>()
 
     internal fun beginScannerRequest(): ScannerRequestMode? {
@@ -454,13 +456,20 @@ class PageHarborSessionViewModel internal constructor(
             releaseObserverForTest = releaseObserverForTest,
         )
         activeDocumentSessionLeases[lease.id] = lease.session
+        activeDocumentSessionLeaseCount.value = activeDocumentSessionLeases.size
         return lease
     }
 
     internal fun releaseDocumentSessionLease(lease: DocumentSessionLease) {
         if (activeDocumentSessionLeases.remove(lease.id) == null) return
+        activeDocumentSessionLeaseCount.value = activeDocumentSessionLeases.size
         releaseDeferredSessionsWhenSafe()
         lease.releaseObserverForTest?.invoke()
+    }
+
+    /** Prevents deletion of RME-owned library sources until every active reader has exited. */
+    internal suspend fun awaitDocumentSessionLeasesReleased() {
+        activeDocumentSessionLeaseCount.first { count -> count == 0 }
     }
 
     internal fun hasActiveDocumentSessionLeases(): Boolean =
