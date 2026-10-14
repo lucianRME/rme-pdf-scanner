@@ -8,7 +8,6 @@ on:
       tag:
         description: Published stable GitHub release tag to synchronize
         required: true
-        default: v1.7.0
         type: string
 
 permissions:
