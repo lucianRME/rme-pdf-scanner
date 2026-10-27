@@ -1623,6 +1623,7 @@ class HomeScreenTest {
         composeTestRule.onNodeWithText("More").performClick()
         composeTestRule.onNodeWithText("About RME PDF Scanner").performScrollTo().performClick()
 
+        composeTestRule.onNodeWithText("About RME: Private PDF Scanner").assertIsDisplayed()
         composeTestRule.onNodeWithText("Private document scanner for Android")
             .assertIsDisplayed()
         composeTestRule.onNodeWithText("Version: ${BuildConfig.VERSION_NAME}")

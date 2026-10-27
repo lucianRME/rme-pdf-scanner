@@ -14,16 +14,16 @@ class ApplicationBrandingTest {
         val packageManager = context.packageManager
 
         assertTrue(context.packageName in SUPPORTED_TEST_TARGETS)
-        assertEquals("RME: PDF & Document Scanner", context.getString(R.string.app_name))
+        assertEquals("RME: Private PDF Scanner", context.getString(R.string.app_name))
         assertEquals("RME PDF Scanner", context.getString(R.string.app_name_short))
         assertEquals(
-            "RME: PDF & Document Scanner",
+            "RME: Private PDF Scanner",
             context.applicationInfo.loadLabel(packageManager).toString(),
         )
         val launcher = requireNotNull(packageManager.getLaunchIntentForPackage(context.packageName))
         assertEquals(ComponentName(context, MainActivity::class.java), launcher.component)
         val activity = packageManager.getActivityInfo(requireNotNull(launcher.component), 0)
-        assertEquals("RME: PDF & Document Scanner", activity.loadLabel(packageManager).toString())
+        assertEquals("RME PDF Scanner", activity.loadLabel(packageManager).toString())
     }
 
     @Test
