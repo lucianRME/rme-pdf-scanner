@@ -1,8 +1,8 @@
-# RME: PDF & Document Scanner Privacy Policy
+# RME: Private PDF Scanner Privacy Policy
 
 Effective date: 17 September 2026
 
-RME: PDF & Document Scanner is an Android document scanner published by SynapseWorks. This policy describes the
+RME: Private PDF Scanner is an Android document scanner published by SynapseWorks. This policy describes the
 `org.synapseworks.pageharbor` application, version `1.0.0` and later versions that retain the
 same practices. It is written for users and supports the app's Google Play distribution.
 

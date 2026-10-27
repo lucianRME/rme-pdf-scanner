@@ -1,7 +1,7 @@
 # App Lock Security
 
 Status: v1.5 implementation reference. App lock is an optional, device-local access control for
-RME: PDF & Document Scanner.
+RME: Private PDF Scanner.
 
 ## Device authentication
 

@@ -4,7 +4,7 @@ The RME PDF Scanner source code remains licensed under the [Apache License 2.0](
 
 The Apache License 2.0 does not grant permission to use the trade names, trademarks, service marks, or product names of the licensor, except for reasonable and customary use in describing the origin of the software, consistent with Section 6 of the Apache License 2.0.
 
-The names **RME**, **RME PDF Scanner**, **RME: PDF & Document Scanner**, and **SynapseWorks**, together with associated logos, app icons, visual identity, and other brand identifiers, are not granted for use in a way that represents a derivative application as an official RME or SynapseWorks product.
+The names **RME**, **RME PDF Scanner**, **RME: Private PDF Scanner**, **RME: PDF & Document Scanner** (a former product name), and **SynapseWorks**, together with associated logos, app icons, visual identity, and other brand identifiers, are not granted for use in a way that represents a derivative application as an official RME or SynapseWorks product.
 
 Forks and derivative works may accurately describe their origin, for example, “Based on RME PDF Scanner”. Forks and derivative applications should use their own application or product name, package or application ID, app icon, logo, and branding. They must not imply endorsement, sponsorship, official status, or affiliation with SynapseWorks unless explicitly authorized.
 

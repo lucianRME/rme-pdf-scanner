@@ -1,4 +1,4 @@
-# RME: PDF & Document Scanner
+# RME: Private PDF Scanner
 
 RME is a free, privacy-first, open-source Android document scanner developed by SynapseWorks.
 
