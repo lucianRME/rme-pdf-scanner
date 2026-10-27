@@ -1,6 +1,6 @@
 # Branding
 
-The formal product name is **RME: PDF & Document Scanner**. Use **RME PDF Scanner** for compact headings, About, and natural prose; do not use **RME** alone where the app would be unclear. The former product name was PageHarbor. See the [branding migration audit](BRANDING_MIGRATION.md) for compatibility decisions and store assets that need refreshing.
+The formal product name is **RME: Private PDF Scanner**. Use the full name for complete product identity, including the installed application label and external app-sharing message. Use **RME PDF Scanner** for compact headings and natural prose; do not use **RME** alone where the app would be unclear. Former product names were PageHarbor and RME: PDF & Document Scanner. See the historical [branding migration audit](BRANDING_MIGRATION.md) and the [current alignment audit](BRANDING_ALIGNMENT_2026_10.md).
 
 RME PDF Scanner's brand should support a focused, privacy-first document scanning tool. This guide describes direction, not final visual assets.
 
@@ -224,7 +224,7 @@ Branding must remain accessible.
 
 ## Future Branding
 
-If OCR or AI features are added later, they should extend the existing privacy-first brand rather than becoming the center of the product.
+Existing OCR and any future features should extend the privacy-first brand rather than becoming the center of the product.
 
 Privacy remains the primary differentiator.
 

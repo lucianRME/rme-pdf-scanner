@@ -1,11 +1,11 @@
-# RME: PDF & Document Scanner
+# RME: Private PDF Scanner
 
 Privacy-first, local-first, open-source Android document scanning with multilingual on-device OCR, full-library search, searchable PDFs, safer sharing, portable backup, and no RME account or cloud backend.
 
 [![GitHub stars](https://img.shields.io/github/stars/lucianRME/rme-pdf-scanner?style=social)](https://github.com/lucianRME/rme-pdf-scanner)
 [![Latest stable release](https://img.shields.io/github/v/release/lucianRME/rme-pdf-scanner?sort=semver&label=latest%20release)](https://github.com/lucianRME/rme-pdf-scanner/releases/latest)
 
-[Google Play](https://play.google.com/store/apps/details?id=org.synapseworks.pageharbor) · [Website](https://synapseworks.org/rme-pdf-scanner/) · [Latest release](https://github.com/lucianRME/rme-pdf-scanner/releases/latest) · [Privacy](https://synapseworks.org/rme-pdf-scanner/privacy/) · [Apache-2.0 license](LICENSE)
+[Google Play](https://play.google.com/store/apps/details?id=org.synapseworks.pageharbor) · [Website](https://synapseworks.org/rme-pdf-scanner/) · [GitBook](https://synapseworks.gitbook.io/synapseworks-docs/) · [Latest release](https://github.com/lucianRME/rme-pdf-scanner/releases/latest) · [Privacy](https://synapseworks.org/rme-pdf-scanner/privacy/) · [Apache-2.0 license](LICENSE)
 
 [⭐ Finding RME useful? Star the repository to help other people discover this privacy-first scanner.](https://github.com/lucianRME/rme-pdf-scanner)
 
@@ -38,12 +38,12 @@ Privacy-first, local-first, open-source Android document scanning with multiling
 
 ## Install
 
-Google Play is the primary installation method. You can also download the latest stable APK from GitHub Releases or use Obtainium to follow stable GitHub releases. Release builds are covered by unit, instrumentation, accessibility, and device testing.
+The current published stable release is **v1.7.1**. Google Play is the primary installation method. You can also download the latest stable APK from GitHub Releases or use Obtainium to follow stable GitHub releases. Release builds are covered by unit, instrumentation, accessibility, and device testing.
 
 <p>
   <a href="https://play.google.com/store/apps/details?id=org.synapseworks.pageharbor"><img src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" alt="Get RME PDF Scanner on Google Play" width="161"></a>
   <a href="https://github.com/lucianRME/rme-pdf-scanner/releases/latest"><img src="assets/badges/badge_github_releases.svg" alt="Download the latest stable RME APK from GitHub Releases" width="451" height="62"></a>
-  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22org.synapseworks.pageharbor%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FlucianRME%2Frme-pdf-scanner%22%2C%22author%22%3A%22SynapseWorks%22%2C%22name%22%3A%22RME%3A%20PDF%20%26%20Document%20Scanner%22%2C%22additionalSettings%22%3A%22%7B%5C%22includePrereleases%5C%22%3Afalse%7D%22%7D"><img src="assets/badges/badge_obtainium.png" alt="Get it on Obtainium" width="161"></a>
+  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22org.synapseworks.pageharbor%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FlucianRME%2Frme-pdf-scanner%22%2C%22author%22%3A%22SynapseWorks%22%2C%22name%22%3A%22RME%3A%20Private%20PDF%20Scanner%22%2C%22additionalSettings%22%3A%22%7B%5C%22includePrereleases%5C%22%3Afalse%7D%22%7D"><img src="assets/badges/badge_obtainium.png" alt="Get it on Obtainium" width="161"></a>
 </p>
 
 The badge uses Obtainium's third-party hosted redirect for browser compatibility; that redirect page includes analytics and advertising scripts. To avoid the redirect, open Obtainium, choose **Add App**, paste `https://github.com/lucianRME/rme-pdf-scanner`, keep **Include prereleases** disabled, and add the app. Obtainium will follow stable GitHub Releases and select the release APK.
@@ -87,7 +87,7 @@ The debug APK is written to `app/build/outputs/apk/debug/`. Release signing cred
 
 Visit [SynapseWorks](https://synapseworks.org/) or its [support page](https://synapseworks.org/support/). For public support, email [support@synapseworks.org](mailto:support@synapseworks.org); for security issues, email [security@synapseworks.org](mailto:security@synapseworks.org).
 
-RME was formerly **PageHarbor**. The Android application ID remains `org.synapseworks.pageharbor` for upgrade compatibility.
+RME: Private PDF Scanner was formerly known as **PageHarbor** and **RME: PDF & Document Scanner**. The Android application ID remains `org.synapseworks.pageharbor` for upgrade compatibility. The installed display name in v1.7.1 still uses the former full name.
 
 ## License
 

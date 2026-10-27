@@ -2,7 +2,7 @@
 
 ## Project purpose
 
-RME: PDF & Document Scanner is an open-source, privacy-first Android document scanner developed under the SynapseWorks brand. It is currently in early development. Build it around local document processing and user-controlled storage and sharing.
+RME: Private PDF Scanner is an open-source, privacy-first Android document scanner developed under the SynapseWorks brand. It is a released application; the current published stable release is v1.7.1. Build it around local document processing and user-controlled storage and sharing. Use RME PDF Scanner as the compact product name.
 
 ## Privacy principles
 
@@ -23,19 +23,23 @@ RME: PDF & Document Scanner is an open-source, privacy-first Android document sc
 - Gradle Kotlin DSL
 - Android Storage Access Framework for user-selected file destinations
 - Android share sheet for sharing
-- ML Kit Document Scanner only after final implementation and privacy validation
+- Existing Google ML Kit Document Scanner and on-device OCR integration, subject to the documented privacy boundaries in `PRIVACY.md` and `docs/PRIVACY_BOUNDARIES.md`
 
 Treat this list as direction, not authorization to add dependencies before they are needed and reviewed.
 
-## MVP scope
+## Released functionality and change scope
 
-The planned MVP is limited to:
+The released application supports:
 
-- Scanning one or more pages
-- Reviewing and reordering pages
-- Exporting pages as a PDF
-- Saving through the Android system file picker
-- Sharing through the Android share sheet
+- Multi-page scanning and PDF/image import through Android system interfaces
+- Page review, reordering, rotation, and enhancement
+- On-device OCR, saved-text search, and searchable PDF export
+- An app-private document library with folders and document metadata
+- PDF/JPEG export, merge, split, and size-targeted copies
+- Share-Safe redaction and two-sided card copies
+- User-controlled portable backup and restore, with optional backup encryption
+- Optional app access protection through Android device authentication
+- Saving through the Android system file picker and sharing through the Android share sheet
 
 Keep changes focused on the requested work. Do not add unrelated features or speculative extensibility.
 
@@ -77,7 +81,7 @@ Keep changes focused on the requested work. Do not add unrelated features or spe
 - Add focused tests for new behavior, including error, cancellation, and cleanup paths.
 - Test permission behavior and storage interactions without assuming a specific file provider.
 - Review changes for accidental network access, sensitive logging, and retained temporary files.
-- When the Android project exists, run the relevant build, unit and instrumentation tests, and lint before handing off changes.
+- Run the relevant build, unit and instrumentation tests, and lint before handing off changes.
 - Report any checks that could not be run and why.
 
 ## Git and commit practices

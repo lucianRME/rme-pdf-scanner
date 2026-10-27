@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-This log records lightweight product and architecture decisions for RME: PDF & Document Scanner. Existing ADRs retain the product name used when the decisions were recorded. Decisions may be revised as implementation validates platform behavior.
+This log records lightweight product and architecture decisions for RME: Private PDF Scanner. Existing ADRs retain the product name used when the decisions were recorded. Decisions may be revised as implementation validates platform behavior.
 
 ## ADR-001: No Proprietary Backend
 

@@ -1,6 +1,8 @@
-# RME: PDF & Document Scanner store assets
+# RME: Private PDF Scanner store assets
 
-The official launcher artwork and existing feature-graphic files are unchanged by the v1.7.0 screenshot update.
+The official launcher artwork and existing feature-graphic files are unchanged by this branding alignment.
+
+The unversioned `feature-graphic-1024x500.png` still visibly says **PageHarbor**, although its SVG source uses the accepted short name **RME PDF Scanner**. Treat that PNG as an obsolete export: do not reuse it for a current listing. See the [alignment audit](../../docs/BRANDING_ALIGNMENT_2026_10.md).
 
 ## Current release screenshots
 
