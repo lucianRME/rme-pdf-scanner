@@ -38,7 +38,7 @@ Privacy-first, local-first, open-source Android document scanning with multiling
 
 ## Install
 
-The current published stable release is **v1.7.1**. Google Play is the primary installation method. You can also download the latest stable APK from GitHub Releases or use Obtainium to follow stable GitHub releases. Release builds are covered by unit, instrumentation, accessibility, and device testing.
+The current stable GitHub release is **[v1.7.2](https://github.com/lucianRME/rme-pdf-scanner/releases/tag/v1.7.2)**. Google Play is the primary installation method; its publication is handled separately. You can also download the latest stable APK from GitHub Releases or use Obtainium to follow stable GitHub releases. See the [v1.7.2 validation report](docs/releases/v1.7.2-validation.md) for completed checks and deferred coverage.
 
 <p>
   <a href="https://play.google.com/store/apps/details?id=org.synapseworks.pageharbor"><img src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" alt="Get RME PDF Scanner on Google Play" width="161"></a>
@@ -87,7 +87,7 @@ The debug APK is written to `app/build/outputs/apk/debug/`. Release signing cred
 
 Visit [SynapseWorks](https://synapseworks.org/) or its [support page](https://synapseworks.org/support/). For public support, email [support@synapseworks.org](mailto:support@synapseworks.org); for security issues, email [security@synapseworks.org](mailto:security@synapseworks.org).
 
-RME: Private PDF Scanner was formerly known as **PageHarbor** and **RME: PDF & Document Scanner**. The Android application ID remains `org.synapseworks.pageharbor` for upgrade compatibility. The installed display name in v1.7.1 still uses the former full name.
+RME: Private PDF Scanner was formerly known as **PageHarbor** and **RME: PDF & Document Scanner**. The Android application ID remains `org.synapseworks.pageharbor` for upgrade compatibility.
 
 ## License
 

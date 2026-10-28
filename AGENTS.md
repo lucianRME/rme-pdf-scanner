@@ -2,7 +2,7 @@
 
 ## Project purpose
 
-RME: Private PDF Scanner is an open-source, privacy-first Android document scanner developed under the SynapseWorks brand. It is a released application; the current published stable release is v1.7.1. Build it around local document processing and user-controlled storage and sharing. Use RME PDF Scanner as the compact product name.
+RME: Private PDF Scanner is an open-source, privacy-first Android document scanner developed under the SynapseWorks brand. It is a released application; the current stable GitHub release is v1.7.2. Google Play publication is separate. Build it around local document processing and user-controlled storage and sharing. Use RME PDF Scanner as the compact product name.
 
 ## Privacy principles
 
