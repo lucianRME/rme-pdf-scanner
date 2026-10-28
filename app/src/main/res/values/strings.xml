@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">RME: PDF &amp; Document Scanner</string>
+    <string name="app_name">RME: Private PDF Scanner</string>
     <string name="app_name_short">RME PDF Scanner</string>
     <string name="home_status">Early development</string>
     <string name="home_headline">Scan documents without giving them away.</string>
@@ -406,7 +406,7 @@
     <string name="home_privacy_dialog_no_tracking">RME PDF Scanner does not operate advertising, tracking, or analytics.</string>
     <string name="home_privacy_dialog_mlkit_metrics">Google ML Kit may send encrypted technical diagnostics. It does not send your document images or recognized text.</string>
     <string name="home_privacy_dialog_dismiss">OK</string>
-    <string name="about_title">About RME PDF Scanner</string>
+    <string name="about_title">About RME: Private PDF Scanner</string>
     <string name="about_tagline">Private document scanner for Android</string>
     <string name="about_version">Version: %1$s</string>
     <string name="about_build_number">Build: %1$d</string>
@@ -472,8 +472,8 @@
     <string name="rme_play_url" translatable="false">https://play.google.com/store/apps/details?id=org.synapseworks.pageharbor</string>
     <string name="rme_market_url" translatable="false">market://details?id=org.synapseworks.pageharbor</string>
     <string name="rme_feature_email" translatable="false">support@synapseworks.org</string>
-    <string name="rme_feature_subject">RME PDF Scanner – Feature suggestion</string>
-    <string name="rme_share_message">RME PDF Scanner is a private, local-first document scanner for Android. %1$s</string>
+    <string name="rme_feature_subject">RME: Private PDF Scanner – Feature suggestion</string>
+    <string name="rme_share_message">RME: Private PDF Scanner is a private, local-first document scanner for Android. %1$s</string>
     <string name="rme_share_chooser_title">Share RME PDF Scanner</string>
     <string name="library_create_folder_action">Create folder</string>
     <string name="home_recent_documents">Recent documents</string>
