@@ -4,17 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.7.2] - Unreleased
+## [1.7.2] - 2026-10-28
 
 ### Changed
 
 - Updated the installed application name to **RME: Private PDF Scanner** and aligned About,
   app-sharing, and support identity with the official product name.
 - Retained **RME PDF Scanner** for the launcher and other compact surfaces.
-- Prepared version `1.7.2` / code `21`, subject to owner confirmation that Play has not consumed
-  the code. Application ID, signing configuration, permissions, dependencies, and stored-data
-  formats are unchanged. Production-channel upgrade and device validation remain release gates;
-  this entry does not announce publication.
+- Set version `1.7.2` / code `21`. Application ID, signing configuration, permissions,
+  dependencies, and stored-data formats are unchanged.
 
 ## [1.7.1] - 2026-10-14
 
