@@ -5,6 +5,11 @@ Privacy-first, local-first, open-source Android document scanning with multiling
 [![GitHub stars](https://img.shields.io/github/stars/lucianRME/rme-pdf-scanner?style=social)](https://github.com/lucianRME/rme-pdf-scanner)
 [![Latest stable release](https://img.shields.io/github/v/release/lucianRME/rme-pdf-scanner?sort=semver&label=latest%20release)](https://github.com/lucianRME/rme-pdf-scanner/releases/latest)
 
+<p>
+  <a href="https://sourceforge.net/projects/rme-pdf-scanner/"><img src="assets/awards/sourceforge-rising-star.svg" alt="SourceForge Rising Star Award 2026 awarded to RME: Private PDF Scanner" width="112" height="112"></a><br>
+  <sub>SourceForge Rising Star Award · November 2026</sub>
+</p>
+
 [Google Play](https://play.google.com/store/apps/details?id=org.synapseworks.pageharbor) · [Website](https://synapseworks.org/rme-pdf-scanner/) · [GitBook](https://synapseworks.gitbook.io/synapseworks-docs/) · [Latest release](https://github.com/lucianRME/rme-pdf-scanner/releases/latest) · [Privacy](https://synapseworks.org/rme-pdf-scanner/privacy/) · [Apache-2.0 license](LICENSE)
 
 [⭐ Finding RME useful? Star the repository to help other people discover this privacy-first scanner.](https://github.com/lucianRME/rme-pdf-scanner)
