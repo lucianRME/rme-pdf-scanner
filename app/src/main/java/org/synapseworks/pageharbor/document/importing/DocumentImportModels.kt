@@ -32,6 +32,8 @@ enum class DocumentImportError {
     PAGE_LIMIT_EXCEEDED,
     SOURCE_TOO_LARGE,
     TEMPORARY_FILE_FAILED,
+    INSUFFICIENT_STORAGE,
+    INSUFFICIENT_MEMORY,
     INTERRUPTED,
 }
 
@@ -93,7 +95,7 @@ fun sniffSupportedContentType(input: InputStream): String? {
     while (count < header.size) {
         val read = input.read(header, count, header.size - count)
         if (read < 0) break
-        if (read == 0) continue
+        if (read == 0) return null
         count += read
     }
     if (count >= 4 &&

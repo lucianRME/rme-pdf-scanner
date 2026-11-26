@@ -1,5 +1,6 @@
 package org.synapseworks.pageharbor
 
+import android.content.res.Configuration
 import android.net.Uri
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -11,6 +12,7 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.isDialog
@@ -18,12 +20,15 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -65,18 +70,40 @@ class LibraryUiTest {
             }
         }
 
-        listOf("Home", "Documents", "Tools", "More").forEach { label ->
-            composeTestRule.onNodeWithContentDescription(label).assertIsDisplayed()
+        listOf("Home", "Docs", "Tools", "More").forEach { label ->
+            composeTestRule.onNodeWithText(label).assertIsDisplayed()
         }
-        composeTestRule.onNodeWithText("Home").assertDoesNotExist()
+        composeTestRule.onNodeWithContentDescription("Documents").assertIsDisplayed()
         composeTestRule.onNodeWithContentDescription("Scan").assertIsDisplayed()
-        composeTestRule.onNodeWithContentDescription("Tools").performClick()
+        composeTestRule.onNodeWithText("Tools").performClick()
         composeTestRule.onNodeWithText("Import files").assertIsDisplayed()
         composeTestRule.onNodeWithText("ID / card copy").assertIsDisplayed()
 
-        val mergeY = composeTestRule.onNodeWithText("Merge").fetchSemanticsNode().boundsInRoot.center.y
-        val fitY = composeTestRule.onNodeWithText("Fit upload limit").fetchSemanticsNode().boundsInRoot.center.y
-        assertTrue(fitY > mergeY)
+        composeTestRule.onNodeWithTag("tools-grid").performScrollToNode(hasText("Merge"))
+        composeTestRule.onNodeWithText("Merge").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tools-grid").performScrollToNode(hasText("Fit upload limit"))
+        composeTestRule.onNodeWithText("Fit upload limit").assertIsDisplayed()
+    }
+
+    @Test
+    fun compactHomeDocksScanBelowScrollableContent() {
+        var cameraOpened = false
+        composeTestRule.setContent {
+            val narrow = Configuration(LocalConfiguration.current).apply {
+                screenWidthDp = 320
+                screenHeightDp = 610
+            }
+            CompositionLocalProvider(
+                LocalConfiguration provides narrow,
+                LocalDensity provides Density(LocalDensity.current.density, fontScale = 1.5f),
+            ) { PageHarborApp(onManualScan = { cameraOpened = true }) }
+        }
+        composeTestRule.onNodeWithText("Your local library is empty").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Scan or import a document.").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("library-docked-scan-action").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Scan").assertIsDisplayed().performClick()
+        composeTestRule.onNodeWithText("Import").assertIsDisplayed()
+        composeTestRule.runOnIdle { assertTrue(cameraOpened) }
     }
 
     @Test
@@ -341,9 +368,10 @@ class LibraryUiTest {
         composeTestRule.onNodeWithContentDescription("More actions for Electricity bill")
             .performClick()
         composeTestRule.onNodeWithText("Delete").performClick()
-        composeTestRule.onNodeWithText("Delete “Electricity bill” from RME?")
+        composeTestRule.onNodeWithText("Move Electricity bill to recycle bin?")
             .assertIsDisplayed()
-        composeTestRule.onNodeWithText("Delete").performClick()
+        assertEquals(null, deletedId)
+        composeTestRule.onNodeWithText("Move to bin").performClick()
 
         assertEquals("document-1", deletedId)
     }
@@ -523,7 +551,7 @@ class LibraryUiTest {
         }
 
         composeTestRule.onNodeWithText("More").performClick()
-        composeTestRule.onNodeWithText("Rename").performClick()
+        composeTestRule.onNodeWithText("Rename").performScrollTo().assertIsDisplayed().performClick()
         composeTestRule.waitForIdle()
         assertEquals("saved-document", requestedId)
         composeTestRule.onNodeWithText("Use suggestion").performClick()
@@ -542,13 +570,14 @@ class LibraryUiTest {
             )
         }
 
-        composeTestRule.onNodeWithText("More").performClick()
-        composeTestRule.onNodeWithText("Export PDF")
+        composeTestRule.onNodeWithTag("document-export-pdf")
             .assertIsDisplayed()
             .assertIsEnabled()
-        composeTestRule.onNodeWithText("Save to RME").performClick()
+        composeTestRule.onNodeWithTag("document-save-library").performClick()
         composeTestRule.onNodeWithText("Save editable local document").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Save to RME").performClick()
+        composeTestRule.onNode(
+            hasText("Save to RME") and hasAnyAncestor(isDialog()),
+        ).performClick()
         assertEquals("Document", savedTitle)
         composeTestRule.onNodeWithText("Edit").performClick()
         composeTestRule.onNodeWithText("Remove page").assertIsNotEnabled()

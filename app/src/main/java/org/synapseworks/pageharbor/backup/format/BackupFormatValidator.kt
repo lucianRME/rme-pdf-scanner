@@ -3,6 +3,33 @@ package org.synapseworks.pageharbor.backup.format
 import java.util.UUID
 
 object BackupFormatValidator {
+    private fun validateTags(manifest: BackupManifest) {
+        if (manifest.tags.size > 256 || (manifest.formatVersion < 8 && manifest.tags.isNotEmpty())) {
+            invalidMetadata("The tag catalog is invalid.")
+        }
+        val ids = HashSet<String>()
+        val names = HashSet<String>()
+        manifest.tags.forEach { tag ->
+            BackupPathValidator.requireStableId(tag.tagId, "tagId")
+            val name = org.synapseworks.pageharbor.library.organization.LibraryTagRules.name(tag.name)
+                ?: invalidMetadata("A tag name is invalid.")
+            if (name.display != tag.name || !ids.add(tag.tagId) || !names.add(name.key)) {
+                invalidMetadata("The tag catalog has invalid or duplicate entries.")
+            }
+        }
+    }
+
+    internal fun validateDocumentOrganization(document: BackupDocumentRecord, version: Int, knownTags: Set<String>) {
+        if ((version < 8 && (document.favorite || document.tagIds.isNotEmpty())) ||
+            (version >= 8 && !document.organizationMetadataPresent) ||
+            document.tagIds.size > 32 || document.tagIds.toSet().size != document.tagIds.size
+        ) invalidMetadata("The document organization metadata is invalid.")
+        document.tagIds.forEach { id ->
+            BackupPathValidator.requireStableId(id, "tagId")
+            if (id !in knownTags) relationshipInvalid("A document tag relationship is invalid.")
+        }
+    }
+
     private val sha256 = Regex("[0-9a-f]{64}")
     private val featureName = Regex("[a-z0-9][a-z0-9._-]{0,127}")
     private val supportedFilters = setOf(
@@ -11,7 +38,20 @@ object BackupFormatValidator {
         "GRAYSCALE",
         "BLACK_AND_WHITE",
         "HIGH_CONTRAST",
+        "DOCUMENT_CLEANUP",
+        "SHADOW_GLARE_LOW_V1", "SHADOW_GLARE_BALANCED_V1", "SHADOW_GLARE_STRONG_V1", "PAPER_WHITE_NEUTRAL_LOW_V1", "PAPER_WHITE_NEUTRAL_BALANCED_V1", "PAPER_WHITE_NEUTRAL_STRONG_V1", "PAPER_WHITE_COLOUR_LOW_V1", "PAPER_WHITE_COLOUR_BALANCED_V1", "PAPER_WHITE_COLOUR_STRONG_V1", "BLEED_THROUGH_LOW_V1", "BLEED_THROUGH_BALANCED_V1", "BLEED_THROUGH_STRONG_V1", "CREASE_STAIN_LOW_V1", "CREASE_STAIN_BALANCED_V1", "CREASE_STAIN_STRONG_V1", "MOIRE_LOW_V1", "MOIRE_BALANCED_V1", "MOIRE_STRONG_V1",
     )
+
+    fun validateAnnotations(page:BackupPageRecord,version:Int,limits:BackupFormatLimits) {
+        try {
+            require(version>=RME_BACKUP_FORMAT_VERSION_V7||page.paperSize.isEmpty())
+            org.synapseworks.pageharbor.document.session.DocumentPaperSize.decode(page.paperSize)?.let{require(it.matchesPixels(page.width,page.height))}
+            require(version>=RME_BACKUP_FORMAT_VERSION_V5 || page.annotations.isEmpty())
+            val layer=org.synapseworks.pageharbor.document.annotation.AnnotationLayer.decode(page.annotations,if(version>=RME_BACKUP_FORMAT_VERSION_V6)2 else 1)
+            require(version>=RME_BACKUP_FORMAT_VERSION_V6||layer.marks.none{it.signature!=null})
+            require(BackupJsonCodec.encodePage(page).toByteArray(Charsets.UTF_8).size<=limits.maximumJsonLineBytes)
+        } catch(_:IllegalArgumentException) { invalidMetadata("Invalid or incompatible annotation layer.") }
+    }
 
     fun validateCompatibility(
         manifest: BackupManifest,
@@ -21,7 +61,7 @@ object BackupFormatValidator {
         if (manifest.formatVersion !in setOf(
                 RME_BACKUP_FORMAT_VERSION_V1,
                 RME_BACKUP_FORMAT_VERSION_V2,
-                RME_BACKUP_FORMAT_VERSION_V3,
+                RME_BACKUP_FORMAT_VERSION_V3, RME_BACKUP_FORMAT_VERSION_V4, RME_BACKUP_FORMAT_VERSION_V5, RME_BACKUP_FORMAT_VERSION_V6, RME_BACKUP_FORMAT_VERSION_V7, RME_BACKUP_FORMAT_VERSION_V8,
             ) ||
             manifest.minimumReaderVersion !in 1..RME_BACKUP_READER_VERSION ||
             manifest.minimumReaderVersion != manifest.formatVersion
@@ -46,6 +86,7 @@ object BackupFormatValidator {
                 "The backup requires an unsupported feature.",
             )
         }
+        validateTags(manifest)
         requireCanonicalUuid(manifest.backupId)
         requireNonNegative(manifest.createdAtEpochMillis, "The backup timestamp is invalid.")
         requireBoundedText(manifest.producer.applicationId, 255, "The producer application ID is invalid.")
@@ -67,7 +108,7 @@ object BackupFormatValidator {
             }
 
             RME_BACKUP_FORMAT_VERSION_V2,
-            RME_BACKUP_FORMAT_VERSION_V3,
+            RME_BACKUP_FORMAT_VERSION_V3, RME_BACKUP_FORMAT_VERSION_V4, RME_BACKUP_FORMAT_VERSION_V5, RME_BACKUP_FORMAT_VERSION_V6, RME_BACKUP_FORMAT_VERSION_V7, RME_BACKUP_FORMAT_VERSION_V8,
             -> {
                 val ocr = manifest.ocr
                     ?: invalidMetadata("A v2 manifest must declare OCR metadata.")
@@ -156,6 +197,7 @@ object BackupFormatValidator {
         }
         requireAcyclicFolders(foldersById)
 
+        val knownTags = manifest.tags.map { it.tagId }.toSet()
         val documentsById = HashMap<String, BackupDocumentRecord>(documents.size)
         documents.forEach { document ->
             BackupPathValidator.requireStableId(document.documentId, "documentId")
@@ -165,12 +207,13 @@ object BackupFormatValidator {
             }
             requireBoundedText(document.title, 120, "A document title is invalid.")
             requireTimestamps(document.createdAtEpochMillis, document.modifiedAtEpochMillis)
-            if (document.contentHashVersion <= 0) invalidMetadata("A content hash version is invalid.")
+            if (document.contentHashVersion <= 0 || (document.contentHashVersion==4 && manifest.formatVersion<7)) invalidMetadata("A content hash version is invalid.")
             document.contentSha256?.let(::requireSha256)
             if (document.pageCount < 0 || document.sourceAssetCount < 0) {
                 invalidMetadata("A document count is invalid.")
             }
             validateDocumentProvenance(document)
+            validateDocumentOrganization(document, manifest.formatVersion, knownTags)
             if (documentsById.put(document.documentId, document) != null) {
                 duplicateMetadataId("document")
             }
@@ -195,6 +238,11 @@ object BackupFormatValidator {
             if (page.rotationDegrees !in setOf(0, 90, 180, 270)) {
                 invalidMetadata("A page rotation is invalid.")
             }
+            if (page.brightness !in -100..100 || page.contrast !in -100..100 ||
+                (manifest.formatVersion < RME_BACKUP_FORMAT_VERSION_V4 && (page.brightness != 0 || page.contrast != 0))) {
+                invalidMetadata("Manual adjustment metadata requires a compatible format and range.")
+            }
+            validateAnnotations(page,manifest.formatVersion,limits)
             if (page.filterName !in supportedFilters) invalidMetadata("A page filter is unsupported.")
             if (page.sourcePageIndex != null && page.sourcePageIndex < 0) {
                 invalidMetadata("A source page index is invalid.")

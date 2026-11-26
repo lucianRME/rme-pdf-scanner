@@ -288,6 +288,9 @@ internal class LocalTargetSizePdfEngine(
         progressListener: TargetSizeProgressListener,
     ): TargetSizePdfResult = withContext(Dispatchers.IO) {
         val documentRequest = request.documentRequest
+        if (documentRequest.pages.any { !it.adjustments.isNeutral || !it.annotations.isEmpty || it.paperSize!=null }) {
+            return@withContext prepare(documentRequest, progressListener)
+        }
         val workingDirectory = createWorkingDirectory()
             ?: return@withContext TargetSizePdfResult.Failure(
                 TargetSizePdfFailure.INSUFFICIENT_TEMPORARY_STORAGE,
@@ -586,6 +589,7 @@ internal class LocalTargetSizePdfEngine(
                     pages = request.pages.mapIndexed { index, page ->
                         SearchablePdfPage(
                             openJpegStream = { pageFiles[index].inputStream() },
+                            paperSize = org.synapseworks.pageharbor.document.physicalPdfPageSize(page.paperSize,page.rotation),
                             ocrResult = if (
                                 pagePlans[index].textStrategy ==
                                 TargetSizeTextStrategy.PRESERVE_POSITIONED_UNICODE
@@ -630,6 +634,8 @@ internal class LocalTargetSizePdfEngine(
             openSource = { openPageInputStream(page.sourceUri) },
             destination = output,
             filter = page.filter,
+            adjustments = page.adjustments,
+            annotations = page.annotations,
             rotation = page.rotation,
             imageMetadata = page.imageMetadata,
             encoding = SizedJpegEncoding(

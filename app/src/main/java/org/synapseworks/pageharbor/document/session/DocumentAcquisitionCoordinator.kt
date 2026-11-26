@@ -2,9 +2,10 @@ package org.synapseworks.pageharbor.document.session
 
 import java.util.Locale
 
-const val DEFAULT_MAX_DOCUMENT_PAGES = 20
-/** High safety ceiling for user-selected files; the 20-page limit belongs only to ML Kit scanning. */
-const val DEFAULT_MAX_IMPORTED_DOCUMENT_PAGES = 10_000
+/** Collection/API representability, not an advertised or preallocated document size.
+ * Real work remains bounded by per-page decode, source-byte and available-storage checks. */
+const val DEFAULT_MAX_DOCUMENT_PAGES = Int.MAX_VALUE
+const val DEFAULT_MAX_IMPORTED_DOCUMENT_PAGES = Int.MAX_VALUE
 const val DEFAULT_MAX_IMAGE_SOURCE_BYTES = 64L * 1024L * 1024L
 const val DEFAULT_MAX_IMAGE_PIXEL_COUNT = 12_500_000L
 const val DEFAULT_MAX_IMAGE_DIMENSION = 6_000
@@ -154,9 +155,12 @@ class LocalDocumentResourceCleaner : DocumentResourceCleaner {
  * It owns validation, stable identities, interruption, and temporary-resource transfer/cleanup.
  */
 class DocumentAcquisitionCoordinator(
-    val limits: DocumentInputLimits = DEFAULT_DOCUMENT_INPUT_LIMITS,
+    val limits: DocumentInputLimits = DEFAULT_DOCUMENT_SOURCE_LIMITS,
     private val resourceCleaner: DocumentResourceCleaner = LocalDocumentResourceCleaner(),
 ) {
+    internal var cleanupDelegate:((List<DocumentResource>,List<DocumentResource>)->Unit)?=null
+    internal fun pendingHistoryResources():List<DocumentResource> = cleanupCandidates(activeOperation?.pendingResources.orEmpty())
+    internal fun cleanupImmediately(resources:List<DocumentResource>,preserving:List<DocumentResource>)=performCleanup(resources,preserving)
     private var nextOperationId = 0L
     private var nextPageId = 0L
     private data class ActiveOperation(
@@ -215,28 +219,39 @@ class DocumentAcquisitionCoordinator(
         if (operation?.token != token) {
             cleanupInput(
                 input,
-                preserving = currentSession.ownedResources(),
+                preserving = currentSession.temporaryResourceReferences(),
                 preservingAcquired = operation?.pendingResources.orEmpty(),
             )
             return DocumentAcquisitionResult.Failure(DocumentAcquisitionError.INTERRUPTED)
         }
         activeOperation = null
 
+        // Page editors can publish new identities outside acquisition. Appending must
+        // allocate above the current document as well as this coordinator's sequence.
+        val firstPageId = if (operation.mode == DocumentAcquisitionMode.APPEND) {
+            val lastPageId = currentSession.pages.maxOfOrNull { it.id.value } ?: -1L
+            maxOf(nextPageId, lastPageId.coerceAtMost(Long.MAX_VALUE - 1) + 1)
+        } else {
+            nextPageId
+        }
         val error = validate(
             mode = operation.mode,
             maximumPageCount = operation.maximumPageCount,
             currentSession = currentSession,
             input = input,
-        )
+        ) ?: DocumentAcquisitionError.PAGE_LIMIT_EXCEEDED.takeIf {
+            firstPageId > Long.MAX_VALUE - input.pages.size
+        }
         if (error != null) {
             cleanupInput(
                 input,
-                preserving = currentSession.ownedResources(),
+                preserving = currentSession.temporaryResourceReferences(),
                 additionalResources = operation.pendingResources,
             )
             return DocumentAcquisitionResult.Failure(error)
         }
 
+        nextPageId = firstPageId
         val acquiredPages = input.pages.map { acquired ->
             DocumentPage(
                 id = DocumentPageId(nextPageId++),
@@ -283,11 +298,11 @@ class DocumentAcquisitionCoordinator(
         cleanupResources(
             resources = buildList {
                 if (operation.mode == DocumentAcquisitionMode.REPLACE && !deferReplacedSessionCleanup) {
-                    addAll(currentSession.ownedResources())
+                    addAll(currentSession.temporaryResourceReferences())
                 }
                 addAll(cleanupCandidates(operation.pendingResources + input.transientResources))
             },
-            preserving = session.ownedResources(),
+            preserving = session.temporaryResourceReferences(),
         )
         return DocumentAcquisitionResult.Success(session)
     }
@@ -302,7 +317,7 @@ class DocumentAcquisitionCoordinator(
             input?.let {
                 cleanupInput(
                     it,
-                    preserving = currentSession.ownedResources(),
+                    preserving = currentSession.temporaryResourceReferences(),
                     preservingAcquired = operation?.pendingResources.orEmpty(),
                 )
             }
@@ -311,7 +326,7 @@ class DocumentAcquisitionCoordinator(
         activeOperation = null
         cleanupInput(
             input = input ?: DocumentAcquisitionInput(emptyList()),
-            preserving = currentSession.ownedResources(),
+            preserving = currentSession.temporaryResourceReferences(),
             additionalResources = operation.pendingResources,
         )
         return DocumentAcquisitionResult.Cancelled
@@ -328,7 +343,7 @@ class DocumentAcquisitionCoordinator(
             input?.let {
                 cleanupInput(
                     it,
-                    preserving = currentSession.ownedResources(),
+                    preserving = currentSession.temporaryResourceReferences(),
                     preservingAcquired = operation?.pendingResources.orEmpty(),
                 )
             }
@@ -337,7 +352,7 @@ class DocumentAcquisitionCoordinator(
         activeOperation = null
         cleanupInput(
             input = input ?: DocumentAcquisitionInput(emptyList()),
-            preserving = currentSession.ownedResources(),
+            preserving = currentSession.temporaryResourceReferences(),
             additionalResources = operation.pendingResources,
         )
         return DocumentAcquisitionResult.Failure(reason)
@@ -359,7 +374,7 @@ class DocumentAcquisitionCoordinator(
         val pendingResources = activeOperation?.pendingResources.orEmpty()
         activeOperation = null
         cleanupResources(
-            resources = session.ownedResources() + cleanupCandidates(pendingResources),
+            resources = session.temporaryResourceReferences() + cleanupCandidates(pendingResources),
             preserving = emptyList(),
         )
         return DocumentSession()
@@ -371,8 +386,8 @@ class DocumentAcquisitionCoordinator(
         preservingSession: DocumentSession,
     ) {
         cleanupResources(
-            resources = sessions.flatMap(DocumentSession::ownedResources),
-            preserving = preservingSession.ownedResources(),
+            resources = sessions.flatMap(DocumentSession::temporaryResourceReferences),
+            preserving = preservingSession.temporaryResourceReferences(),
         )
     }
 
@@ -385,9 +400,9 @@ class DocumentAcquisitionCoordinator(
         if (input.pages.isEmpty() && input.directPdfSource == null) {
             return DocumentAcquisitionError.EMPTY_INPUT
         }
-        val requestedPageCount = input.pages.size +
-            if (mode == DocumentAcquisitionMode.APPEND) currentSession.pages.size else 0
-        if (requestedPageCount > maximumPageCount) {
+        val requestedPageCount = input.pages.size.toLong() +
+            if (mode == DocumentAcquisitionMode.APPEND) currentSession.pages.size.toLong() else 0L
+        if (requestedPageCount > maximumPageCount.toLong()) {
             return DocumentAcquisitionError.PAGE_LIMIT_EXCEEDED
         }
         input.pages.forEach { page ->
@@ -469,7 +484,6 @@ class DocumentAcquisitionCoordinator(
     private fun cleanupResourceOrNull(resource: AcquiredResource): DocumentResource? {
         if (resource.ownership != DocumentResourceOwnership.RME_OWNED_TEMPORARY) return null
         val ownedFile = resource.ownedTemporaryFile ?: return null
-        if (ownedFile.canonicalIdentityOrNull() == null) return null
         return DocumentResource(
             reference = resource.reference.orEmpty(),
             ownership = resource.ownership,
@@ -503,7 +517,7 @@ class DocumentAcquisitionCoordinator(
     ) {
         cleanupResources(
             resources = cleanupCandidates(resources),
-            preserving = preservingSession.ownedResources() + cleanupCandidates(preserving),
+            preserving = preservingSession.temporaryResourceReferences() + cleanupCandidates(preserving),
         )
     }
 
@@ -514,8 +528,14 @@ class DocumentAcquisitionCoordinator(
         resources: List<DocumentResource>,
         preserving: List<DocumentResource>,
     ) {
+        val delegate=cleanupDelegate
+        if(delegate!=null){delegate(resources,preserving);return}
+        performCleanup(resources,preserving)
+    }
+
+    private fun performCleanup(resources:List<DocumentResource>,preserving:List<DocumentResource>) {
         val retainedPaths = preserving
-            .mapNotNull { resource -> resource.ownedTemporaryFile?.canonicalIdentityOrNull()?.path }
+            .mapNotNull { resource -> resource.ownedTemporaryFile?.canonicalIdentityOrNull()?.path?:resource.ownedLibraryFile?.canonicalIdentityOrNull()?.path }
             .toSet()
         resources
             .mapNotNull { resource ->

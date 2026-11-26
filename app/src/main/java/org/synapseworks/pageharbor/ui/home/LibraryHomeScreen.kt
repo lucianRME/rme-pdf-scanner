@@ -1,8 +1,13 @@
 package org.synapseworks.pageharbor.ui.home
 
-import android.graphics.BitmapFactory
+import org.synapseworks.pageharbor.ui.theme.RmeIconButton
+import org.synapseworks.pageharbor.ui.theme.RmeTextButton
+import org.synapseworks.pageharbor.ui.theme.RmeTextField
+
 import android.net.Uri
 import android.content.res.Configuration
+import android.content.Intent
+import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -22,6 +27,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -32,11 +39,13 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items as lazyListItems
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallMerge
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.CameraAlt
@@ -44,7 +53,9 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContactPage
 import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.FitScreen
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.CreditCard
@@ -57,25 +68,26 @@ import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MoveToInbox
 import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.PrivacyTip
+import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
@@ -89,7 +101,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -97,16 +108,23 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import org.synapseworks.pageharbor.library.folderNavigationItems
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
+import org.synapseworks.pageharbor.image.bitmapDisplaySize
+import org.synapseworks.pageharbor.image.decodeDisplayBitmap
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.Role
@@ -127,7 +145,10 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Date
 import java.util.Locale
+import org.synapseworks.pageharbor.BuildConfig
 import org.synapseworks.pageharbor.R
+import org.synapseworks.pageharbor.office.OfficeImportActivity
+import org.synapseworks.pageharbor.resourcepack.ResourcePackActivity
 import org.synapseworks.pageharbor.document.importing.DocumentImportUiState
 import org.synapseworks.pageharbor.library.LibraryActionState
 import org.synapseworks.pageharbor.library.LibraryActionSuccess
@@ -145,7 +166,6 @@ import org.synapseworks.pageharbor.ui.theme.PageHarborLayout
 import org.synapseworks.pageharbor.ui.theme.PageHarborSpacing
 import org.synapseworks.pageharbor.ui.theme.RmePrimaryButton
 import org.synapseworks.pageharbor.ui.theme.RmeSecondaryButton
-import org.synapseworks.pageharbor.ui.theme.RmeFilledTextField
 import org.synapseworks.pageharbor.ui.theme.RmeModalBottomSheet
 import org.synapseworks.pageharbor.ui.theme.RmeSearchField
 import org.synapseworks.pageharbor.ui.theme.RmeTonalChoice
@@ -176,6 +196,15 @@ fun LibraryHomeScreen(
     showPrivacyInfo: Boolean,
     showAbout: Boolean,
     thumbnailUri: (String?) -> Uri?,
+    onOpenQrScanner: () -> Unit = {},
+    onOpenBusinessCard: () -> Unit = {},
+    onOpenReceipt: () -> Unit = {},
+    onOpenTable: () -> Unit = {},
+    onOpenForms: () -> Unit = {},
+    onOpenText: () -> Unit = {},
+    onOpenWorkflows: () -> Unit = {},
+    onOpenRecycleBin: () -> Unit = {},
+    onOpenOrganization: () -> Unit = {},
     onQueryChange: (String) -> Unit,
     onFolderSelected: (String?) -> Unit,
     onSortOrderChange: (LibrarySortOrder) -> Unit,
@@ -192,6 +221,7 @@ fun LibraryHomeScreen(
     onDeleteFolder: (String) -> Unit,
     onConsumeLibraryAction: () -> Unit,
     onScanDocument: () -> Unit,
+    onManualScan: () -> Unit = {},
     onImportFiles: () -> Unit,
     onCancelImport: () -> Unit,
     onViewScanResult: () -> Unit,
@@ -223,7 +253,6 @@ fun LibraryHomeScreen(
     var deletingDocument by remember { mutableStateOf<LibraryDocumentSummary?>(null) }
     var mergeSelection by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     var confirmFolderDelete by remember { mutableStateOf(false) }
-    var showAcquisitionChooser by rememberSaveable { mutableStateOf(false) }
     var toolPickerContext by rememberSaveable {
         mutableStateOf<ToolInvocationContext?>(null)
     }
@@ -250,7 +279,6 @@ fun LibraryHomeScreen(
         movingDocument,
         deletingDocument,
         confirmFolderDelete,
-        showAcquisitionChooser,
         toolPickerContext,
     ) {
         val isBusy =
@@ -258,7 +286,6 @@ fun LibraryHomeScreen(
             movingDocument != null ||
             deletingDocument != null ||
             confirmFolderDelete ||
-            showAcquisitionChooser ||
             toolPickerContext != null
         onTransientUiBusyChange(isBusy)
         if (isBusy) {
@@ -272,7 +299,6 @@ fun LibraryHomeScreen(
     }
     LaunchedEffect(importUiState) {
         if (importUiState is DocumentImportUiState.Processing) {
-            showAcquisitionChooser = false
             toolPickerContext = null
         }
     }
@@ -280,7 +306,7 @@ fun LibraryHomeScreen(
         onDispose { onTransientUiBusyChange(false) }
     }
 
-    BackHandler(enabled = !showAcquisitionChooser && toolPickerContext == null) {
+    BackHandler(enabled = toolPickerContext == null) {
         when {
             (destination == LibraryDestination.Home || destination == LibraryDestination.Documents) &&
                 libraryUiState.query.isNotBlank() -> {
@@ -307,56 +333,86 @@ fun LibraryHomeScreen(
         }
     }
 
+    val configuration = LocalConfiguration.current
+    val constrainedScanLayout = configuration.screenHeightDp < 460 ||
+        configuration.screenWidthDp < 400 && LocalDensity.current.fontScale >= 1.3f
+    val showImportAction = destination == LibraryDestination.Home || destination == LibraryDestination.Documents
+    val showScanAction = destination != LibraryDestination.More
+    val scanAction: @Composable () -> Unit = {
+        val rmeColors = MaterialTheme.rmeColors
+        FloatingActionButton(
+            modifier = Modifier
+                .size(PageHarborLayout.scanFabSize)
+                .testTag("library-scan-fab")
+                .semantics {
+                    if (!canStartScan) disabled()
+                },
+            shape = RoundedCornerShape(18.dp),
+            containerColor = if (canStartScan) {
+                rmeColors.fabBackground
+            } else {
+                rmeColors.disabledBackground
+            },
+            contentColor = if (canStartScan) {
+                rmeColors.fabForeground
+            } else {
+                rmeColors.iconDisabled
+            },
+            onClick = { if (canStartScan) onManualScan() },
+        ) {
+            Icon(
+                imageVector = Icons.Default.CameraAlt,
+                contentDescription = stringResource(R.string.scan_action),
+            )
+        }
+    }
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             LibraryTopAppBar(
                 destination = destination,
+                onRecycle = onOpenRecycleBin,
+                onWorkflows = onOpenWorkflows,
+                onOrganization = onOpenOrganization,
+                organizationEnabled = !working&&!acquiring,
                 onCreateFolder = { namingDialog = NamingDialog.CreateFolder },
             )
         },
         bottomBar = {
-            LibraryNavigationBar(
-                selectedDestination = destination,
-                onDestinationSelected = { selected ->
-                    if (selected != destination) onTopLevelBackSequenceReset()
-                    onDestinationSelected(selected)
-                },
-            )
+            Column {
+                if (showImportAction || (showScanAction && constrainedScanLayout)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().testTag("library-docked-scan-action")
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
+                    ) {
+                        if (showImportAction) {
+                            RmeSecondaryButton(onClick = onImportFiles, enabled = canStartScan) {
+                                Icon(Icons.Default.UploadFile, contentDescription = null)
+                                Spacer(Modifier.size(PageHarborSpacing.small))
+                                Text(stringResource(R.string.home_import_action))
+                            }
+                        }
+                        scanAction()
+                    }
+                }
+                LibraryNavigationBar(
+                    selectedDestination = destination,
+                    onDestinationSelected = { selected ->
+                        if (selected != destination) onTopLevelBackSequenceReset()
+                        onDestinationSelected(selected)
+                    },
+                )
+            }
         },
         floatingActionButton = {
-            if (destination != LibraryDestination.More) {
-                val rmeColors = MaterialTheme.rmeColors
-                FloatingActionButton(
-                    modifier = Modifier
-                        .size(PageHarborLayout.scanFabSize)
-                        .semantics {
-                            if (!canStartScan) disabled()
-                        },
-                    shape = RoundedCornerShape(18.dp),
-                    containerColor = if (canStartScan) {
-                        rmeColors.fabBackground
-                    } else {
-                        rmeColors.disabledBackground
-                    },
-                    contentColor = if (canStartScan) {
-                        rmeColors.fabForeground
-                    } else {
-                        rmeColors.iconDisabled
-                    },
-                    onClick = { if (canStartScan) showAcquisitionChooser = true },
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.CameraAlt,
-                        contentDescription = stringResource(R.string.scan_action),
-                    )
-                }
-            }
+            if (showScanAction && !showImportAction && !constrainedScanLayout) scanAction()
         },
     ) { padding ->
         when (destination) {
             LibraryDestination.Home -> HomeDestination(
-                modifier = Modifier.padding(padding),
+                modifier = Modifier.padding(padding).consumeWindowInsets(padding).imePadding(),
                 uiState = libraryUiState,
                 working = working,
                 scannerSpikeState = scannerSpikeState,
@@ -364,8 +420,6 @@ fun LibraryHomeScreen(
                 importUiState = importUiState,
                 thumbnailUri = thumbnailUri,
                 onQueryChange = onQueryChange,
-                onScan = { showAcquisitionChooser = true },
-                onImportFiles = onImportFiles,
                 onCancelImport = onCancelImport,
                 onViewScanResult = onViewScanResult,
                 onViewAllDocuments = { onDestinationSelected(LibraryDestination.Documents) },
@@ -382,7 +436,7 @@ fun LibraryHomeScreen(
             )
 
             LibraryDestination.Documents -> DocumentsDestination(
-                modifier = Modifier.padding(padding),
+                modifier = Modifier.padding(padding).consumeWindowInsets(padding).imePadding(),
                 uiState = libraryUiState,
                 selectedFolder = selectedFolder,
                 working = working,
@@ -419,7 +473,7 @@ fun LibraryHomeScreen(
             )
 
             LibraryDestination.Tools -> ToolsDestination(
-                modifier = Modifier.padding(padding),
+                modifier = Modifier.padding(padding).consumeWindowInsets(padding).imePadding(),
                 interactionEnabled = !working && !acquiring,
                 scannerSpikeState = scannerSpikeState,
                 hasActiveSession = hasActiveSession,
@@ -428,6 +482,13 @@ fun LibraryHomeScreen(
                 onCancelImport = onCancelImport,
                 onViewScanResult = onViewScanResult,
                 onCardCopy = onCardCopy,
+                onAutomaticScan = onScanDocument,
+                onQr = onOpenQrScanner,
+                onBusinessCard = onOpenBusinessCard,
+                onReceipt = onOpenReceipt,
+                onTable = onOpenTable,
+                onForms = onOpenForms,
+                onText = onOpenText,
                 onDocumentTool = { operation ->
                     toolPickerContext = ToolInvocationContext(
                         source = ToolInvocationSource.TOOLS_SCREEN,
@@ -438,7 +499,8 @@ fun LibraryHomeScreen(
             )
 
             LibraryDestination.More -> MoreDestination(
-                modifier = Modifier.padding(padding),
+                resourcePacksEnabled = !working && !acquiring,
+                modifier = Modifier.padding(padding).consumeWindowInsets(padding).imePadding(),
                 hasLibraryDocuments = hasLibraryDocuments,
                 onRateRme = onRateRme,
                 onSuggestFeature = onSuggestFeature,
@@ -454,23 +516,6 @@ fun LibraryHomeScreen(
         }
     }
 
-    if (showAcquisitionChooser) {
-        AcquisitionChooserSheet(
-            onDismiss = { showAcquisitionChooser = false },
-            onDocumentScan = {
-                showAcquisitionChooser = false
-                onScanDocument()
-            },
-            onCardCopy = {
-                showAcquisitionChooser = false
-                onCardCopy()
-            },
-            onImportFiles = {
-                onImportFiles()
-            },
-        )
-    }
-
     toolPickerContext?.let { request ->
         ToolDocumentPickerSheet(
             request = request,
@@ -479,7 +524,7 @@ fun LibraryHomeScreen(
             onDismiss = { toolPickerContext = null },
             onScan = {
                 toolPickerContext = null
-                showAcquisitionChooser = true
+                onManualScan()
             },
             onImport = {
                 onImportDocumentTool(request)
@@ -550,10 +595,10 @@ fun LibraryHomeScreen(
     }
 
     deletingDocument?.let { document ->
-        ConfirmDialog(
-            title = stringResource(R.string.library_delete_named_document_title, document.title),
-            message = stringResource(R.string.library_delete_document_message),
-            confirmLabel = stringResource(R.string.library_delete_action),
+        RecycleMoveConfirmation(
+            title = stringResource(R.string.recycle_move_title, document.title),
+            message = stringResource(R.string.recycle_move_message),
+            confirmLabel = stringResource(R.string.recycle_move_action),
             onDismiss = { deletingDocument = null },
             onConfirm = {
                 onDeleteDocument(document.id)
@@ -595,19 +640,41 @@ fun LibraryHomeScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LibraryTopAppBar(
+    onWorkflows: () -> Unit,
     destination: LibraryDestination,
+    onRecycle: () -> Unit,
+    onOrganization: () -> Unit,
+    organizationEnabled: Boolean,
     onCreateFolder: () -> Unit,
 ) {
+    val configuration = LocalConfiguration.current
+    val compactTitle = destination == LibraryDestination.Home &&
+        configuration.screenWidthDp < 400 && LocalDensity.current.fontScale >= 1.3f
+    val title = stringResource(destination.titleResource)
     TopAppBar(
         title = {
             Text(
-                modifier = Modifier.semantics { heading() },
-                text = stringResource(destination.titleResource),
+                modifier = Modifier.semantics {
+                    heading()
+                    if (compactTitle) contentDescription = title
+                },
+                text = if (compactTitle) stringResource(R.string.home_compact_title) else title,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         },
         actions = {
+            if(destination==LibraryDestination.Home||destination==LibraryDestination.Documents){
+                RmeTextButton(onClick=onWorkflows,modifier=Modifier.testTag("open-workflows")){Text("Presets")}
+                RmeIconButton(onClick=onRecycle,enabled=organizationEnabled,modifier=Modifier.testTag("open-recycle")){
+                    Icon(Icons.Default.Delete,contentDescription=stringResource(R.string.recycle_title))
+                }
+                RmeIconButton(onClick=onOrganization,enabled=organizationEnabled,modifier=Modifier.testTag("open-organization")){
+                    Icon(Icons.Default.Star,contentDescription=stringResource(R.string.org_title))
+                }
+            }
             if (destination == LibraryDestination.Documents) {
-                IconButton(onClick = onCreateFolder) {
+                RmeIconButton(onClick = onCreateFolder) {
                     Icon(
                         imageVector = Icons.Default.CreateNewFolder,
                         contentDescription = stringResource(R.string.library_create_folder_action),
@@ -623,7 +690,9 @@ private fun LibraryNavigationBar(
     selectedDestination: LibraryDestination,
     onDestinationSelected: (LibraryDestination) -> Unit,
 ) {
-    val largeText = LocalDensity.current.fontScale >= 1.8f
+    val fontScale = LocalDensity.current.fontScale
+    val compactLabels = fontScale >= 1.8f ||
+        (fontScale >= 1.35f && LocalConfiguration.current.screenWidthDp < 380)
     val rmeColors = MaterialTheme.rmeColors
     NavigationBar(
         containerColor = rmeColors.navigationBackground,
@@ -631,8 +700,13 @@ private fun LibraryNavigationBar(
     ) {
         LibraryDestination.entries.forEach { destination ->
             val label = stringResource(destination.labelResource)
+            val displayLabel = if (compactLabels && destination == LibraryDestination.Documents) {
+                stringResource(R.string.navigation_documents_short)
+            } else {
+                label
+            }
             NavigationBarItem(
-                modifier = if (largeText) {
+                modifier = if (displayLabel != label) {
                     Modifier.semantics { contentDescription = label }
                 } else {
                     Modifier
@@ -659,14 +733,13 @@ private fun LibraryNavigationBar(
                         contentDescription = null,
                     )
                 },
-                label = if (largeText) null else {
-                    {
-                        Text(
-                            text = label,
-                            maxLines = 1,
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                    }
+                label = {
+                    Text(
+                        text = displayLabel,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
                 },
             )
         }
@@ -683,8 +756,6 @@ private fun HomeDestination(
     importUiState: DocumentImportUiState,
     thumbnailUri: (String?) -> Uri?,
     onQueryChange: (String) -> Unit,
-    onScan: () -> Unit,
-    onImportFiles: () -> Unit,
     onCancelImport: () -> Unit,
     onViewScanResult: () -> Unit,
     onViewAllDocuments: () -> Unit,
@@ -759,12 +830,7 @@ private fun HomeDestination(
                 )
             } else if (displayedDocuments.isEmpty()) {
                 item(key = "home-empty", span = { GridItemSpan(maxLineSpan) }) {
-                    HomeEmptyState(
-                        query = uiState.query,
-                        enabled = !working && importUiState !is DocumentImportUiState.Processing,
-                        onScan = onScan,
-                        onImportFiles = onImportFiles,
-                    )
+                    HomeEmptyState()
                 }
             } else {
                 item(key = "home-section-heading", span = { GridItemSpan(maxLineSpan) }) {
@@ -789,7 +855,7 @@ private fun HomeDestination(
                     )
                 }
                 item(key = "home-view-all", span = { GridItemSpan(maxLineSpan) }) {
-                    TextButton(
+                    RmeTextButton(
                         modifier = Modifier.fillMaxWidth(),
                         onClick = onViewAllDocuments,
                     ) {
@@ -802,21 +868,13 @@ private fun HomeDestination(
 }
 
 @Composable
-private fun HomeEmptyState(
-    query: String,
-    enabled: Boolean,
-    onScan: () -> Unit,
-    onImportFiles: () -> Unit,
-) {
-    if (query.isNotBlank()) {
-        LibraryEmptyState(query = query, selectedFolderName = null)
-        return
-    }
+private fun HomeEmptyState() {
+    val compact = LocalDensity.current.fontScale >= 1.3f || LocalConfiguration.current.screenHeightDp < 460
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 240.dp)
-            .padding(vertical = PageHarborSpacing.extraLarge),
+            .heightIn(min = if (compact) 0.dp else 240.dp)
+            .padding(vertical = if (compact) PageHarborSpacing.medium else PageHarborSpacing.extraLarge),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -826,33 +884,16 @@ private fun HomeEmptyState(
             style = MaterialTheme.typography.headlineSmall,
             textAlign = TextAlign.Center,
         )
-        Text(
-            modifier = Modifier
-                .padding(top = PageHarborSpacing.small)
-                .widthIn(max = PageHarborLayout.homeContentMaxWidth),
-            text = stringResource(R.string.home_library_empty_message),
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-        Row(
-            modifier = Modifier.padding(top = PageHarborSpacing.large),
-            horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
-        ) {
-            RmePrimaryButton(enabled = enabled, onClick = onScan) {
-                Icon(Icons.Default.CameraAlt, contentDescription = null)
-                Text(
-                    modifier = Modifier.padding(start = PageHarborSpacing.small),
-                    text = stringResource(R.string.scan_action),
-                )
-            }
-            RmeSecondaryButton(enabled = enabled, onClick = onImportFiles) {
-                Icon(Icons.Default.UploadFile, contentDescription = null)
-                Text(
-                    modifier = Modifier.padding(start = PageHarborSpacing.small),
-                    text = stringResource(R.string.home_import_files),
-                )
-            }
+        if (!compact) {
+            Text(
+                modifier = Modifier
+                    .padding(top = PageHarborSpacing.small)
+                    .widthIn(max = PageHarborLayout.homeContentMaxWidth),
+                text = stringResource(R.string.home_library_empty_message),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
         }
     }
 }
@@ -865,6 +906,7 @@ private fun DocumentsDestination(
     working: Boolean,
     thumbnailUri: (String?) -> Uri?,
     mergeSelection: List<String>,
+    onOpenOrganization: () -> Unit = {},
     onQueryChange: (String) -> Unit,
     onFolderSelected: (String?) -> Unit,
     onSortOrderChange: (LibrarySortOrder) -> Unit,
@@ -1097,7 +1139,7 @@ private fun LazyGridScope.librarySearchResults(
                         key = "$keyPrefix-search-more",
                         span = { GridItemSpan(maxLineSpan) },
                     ) {
-                        TextButton(
+                        RmeTextButton(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .heightIn(min = 48.dp),
@@ -1139,6 +1181,7 @@ private fun LibrarySearchResultItem(
     onOpen: () -> Unit,
 ) {
     val detail = when (hit.matchType) {
+        LibrarySearchMatch.TAG -> stringResource(R.string.org_search_match_tag)
         LibrarySearchMatch.TITLE -> stringResource(R.string.library_search_match_title)
         LibrarySearchMatch.FOLDER -> stringResource(R.string.library_search_match_metadata)
         LibrarySearchMatch.OCR -> {
@@ -1196,104 +1239,6 @@ private fun LibrarySearchResultItem(
                 )
             }
         }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun AcquisitionChooserSheet(
-    onDismiss: () -> Unit,
-    onDocumentScan: () -> Unit,
-    onCardCopy: () -> Unit,
-    onImportFiles: () -> Unit,
-) {
-    RmeModalBottomSheet(
-        onDismissRequest = onDismiss,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(
-                    start = PageHarborSpacing.large,
-                    end = PageHarborSpacing.large,
-                    bottom = PageHarborSpacing.large,
-                ),
-            verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
-        ) {
-            Text(
-                modifier = Modifier
-                    .padding(bottom = PageHarborSpacing.small)
-                    .semantics { heading() },
-                text = stringResource(R.string.scan_chooser_title),
-                style = MaterialTheme.typography.headlineSmall,
-            )
-            AcquisitionAction(
-                icon = Icons.Default.CameraAlt,
-                title = stringResource(R.string.scan_chooser_document_title),
-                description = stringResource(R.string.scan_chooser_document_description),
-                onClick = onDocumentScan,
-            )
-            AcquisitionAction(
-                icon = Icons.Default.CreditCard,
-                title = stringResource(R.string.scan_chooser_card_title),
-                description = stringResource(R.string.scan_chooser_card_description),
-                onClick = onCardCopy,
-            )
-            AcquisitionAction(
-                icon = Icons.Default.UploadFile,
-                title = stringResource(R.string.scan_chooser_import_title),
-                description = stringResource(R.string.scan_chooser_import_description),
-                onClick = onImportFiles,
-            )
-        }
-    }
-}
-
-@Composable
-private fun AcquisitionAction(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    description: String,
-    onClick: () -> Unit,
-) {
-    val accessibilityLabel = "$title. $description"
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .semantics { contentDescription = accessibilityLabel }
-            .clickable(role = Role.Button, onClick = onClick),
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        tonalElevation = 1.dp,
-    ) {
-        ListItem(
-            colors = ListItemDefaults.colors(
-                containerColor = androidx.compose.ui.graphics.Color.Transparent,
-            ),
-            leadingContent = {
-                Surface(
-                    modifier = Modifier.size(44.dp),
-                    shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
-                    }
-                }
-            },
-            headlineContent = { Text(title, style = MaterialTheme.typography.titleMedium) },
-            supportingContent = {
-                Text(
-                    text = description,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            },
-        )
     }
 }
 
@@ -1489,7 +1434,7 @@ private fun ToolDocumentPickerSheet(
                 )
             }
             if (documents.isEmpty()) {
-                TextButton(
+                RmeTextButton(
                     modifier = Modifier.align(Alignment.End),
                     onClick = onDismiss,
                 ) {
@@ -1500,7 +1445,7 @@ private fun ToolDocumentPickerSheet(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small, Alignment.End),
                 ) {
-                    TextButton(onClick = onDismiss) {
+                    RmeTextButton(onClick = onDismiss) {
                         Text(stringResource(R.string.tool_picker_cancel))
                     }
                     val actionLabel = stringResource(request.operation.actionResource)
@@ -1551,9 +1496,18 @@ private fun ToolsDestination(
     onImportFiles: () -> Unit,
     onCancelImport: () -> Unit,
     onViewScanResult: () -> Unit,
+    onAutomaticScan: () -> Unit,
     onCardCopy: () -> Unit,
+    onQr: () -> Unit,
+    onBusinessCard: () -> Unit,
+    onReceipt: () -> Unit,
+    onTable: () -> Unit,
+    onForms: () -> Unit,
+    onText: () -> Unit,
     onDocumentTool: (DocumentToolOperation) -> Unit,
 ) {
+    val context = LocalContext.current
+    val officeAvailable = BuildConfig.M35_OFFICE_ENABLED && Build.SUPPORTED_ABIS.contains("arm64-v8a")
     val tools = listOf(
         ToolLauncherItemModel(
             key = "import",
@@ -1608,7 +1562,7 @@ private fun ToolsDestination(
         ),
         ToolLauncherItemModel(
             key = "share-safe-copy",
-            group = ToolGroup.TEXT_PRIVACY,
+            group = ToolGroup.PDF,
             icon = Icons.Default.Description,
             label = stringResource(R.string.share_safe_title),
             accessibilityLabel = stringResource(R.string.share_safe_tool_accessibility),
@@ -1651,8 +1605,19 @@ private fun ToolsDestination(
             onClick = onCardCopy,
         ),
         ToolLauncherItemModel(
+            key = "automatic-scan",
+            group = ToolGroup.CAPTURE,
+            icon = Icons.Default.CameraAlt,
+            label = stringResource(R.string.google_auto_scan),
+            availabilityText = stringResource(R.string.google_scan_controls),
+            accessibilityLabel = stringResource(R.string.google_scan_accessibility, stringResource(R.string.google_auto_scan), stringResource(R.string.google_scan_controls)),
+            searchTerms = listOf("automatic", "google", "document", "scan"),
+            enabled = interactionEnabled,
+            onClick = onAutomaticScan,
+        ),
+        ToolLauncherItemModel(
             key = "ocr",
-            group = ToolGroup.TEXT_PRIVACY,
+            group = ToolGroup.EXTRACTION,
             icon = Icons.Default.TextFields,
             label = stringResource(R.string.tools_ocr_title),
             accessibilityLabel = if (!interactionEnabled) {
@@ -1667,11 +1632,74 @@ private fun ToolsDestination(
             enabled = interactionEnabled,
             onClick = { onDocumentTool(DocumentToolOperation.EXTRACT_TEXT) },
         ),
-    )
+        ToolLauncherItemModel(
+            key = "qr",
+            group = ToolGroup.CAPTURE,
+            icon = Icons.Default.QrCodeScanner,
+            label = stringResource(R.string.qr_title),
+            enabled = interactionEnabled,
+            onClick = onQr,
+            testTag = "open-qr",
+        ),
+        ToolLauncherItemModel(
+            key = "business-card",
+            group = ToolGroup.EXTRACTION,
+            icon = Icons.Default.ContactPage,
+            label = stringResource(R.string.tools_business_card),
+            enabled = interactionEnabled,
+            onClick = onBusinessCard,
+            testTag = "open-business-card",
+        ),
+        ToolLauncherItemModel(
+            key = "receipt",
+            group = ToolGroup.EXTRACTION,
+            icon = Icons.AutoMirrored.Filled.ReceiptLong,
+            label = stringResource(R.string.tools_receipt),
+            enabled = interactionEnabled,
+            onClick = onReceipt,
+            testTag = "open-receipt",
+        ),
+        ToolLauncherItemModel(
+            key = "table",
+            group = ToolGroup.EXTRACTION,
+            icon = Icons.Default.TableChart,
+            label = stringResource(R.string.tools_table),
+            enabled = interactionEnabled,
+            onClick = onTable,
+            testTag = "open-table",
+        ),
+        ToolLauncherItemModel(
+            key = "forms",
+            group = ToolGroup.PDF,
+            icon = Icons.Default.Description,
+            label = stringResource(R.string.tools_pdf_form),
+            enabled = interactionEnabled,
+            onClick = onForms,
+            testTag = "open-forms",
+        ),
+        ToolLauncherItemModel(
+            key = "text",
+            group = ToolGroup.PDF,
+            icon = Icons.Default.EditNote,
+            label = stringResource(R.string.tools_pdf_text),
+            enabled = interactionEnabled,
+            onClick = onText,
+            testTag = "open-text",
+        ),
+        ToolLauncherItemModel(
+            key = "office",
+            group = ToolGroup.PDF,
+            icon = Icons.Default.PictureAsPdf,
+            label = stringResource(R.string.tools_office),
+            enabled = interactionEnabled,
+            onClick = { context.startActivity(Intent(context, OfficeImportActivity::class.java)) },
+            testTag = "open-office",
+        ).takeIf { officeAvailable },
+    ).filterNotNull()
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val fontScale = LocalDensity.current.fontScale
         val columnCount = when {
-            fontScale >= 1.8f -> 2
+            fontScale >= 1.5f || maxWidth < 345.dp -> 2
             maxWidth >= 840.dp -> 5
             maxWidth >= 600.dp -> 4
             else -> 3
@@ -1689,6 +1717,7 @@ private fun ToolsDestination(
                 .align(Alignment.TopCenter)
                 .widthIn(max = PageHarborLayout.expandedContentMaxWidth)
                 .fillMaxSize()
+                .testTag("tools-grid")
                 .padding(horizontal = horizontalPadding),
             columns = GridCells.Fixed(columnCount),
             contentPadding = PaddingValues(
@@ -1726,6 +1755,7 @@ private fun ToolsDestination(
 
 @Composable
 private fun MoreDestination(
+    resourcePacksEnabled: Boolean,
     modifier: Modifier,
     hasLibraryDocuments: Boolean,
     onRateRme: () -> Unit,
@@ -1739,6 +1769,7 @@ private fun MoreDestination(
     onPrivacyInfo: () -> Unit,
     onAbout: () -> Unit,
 ) {
+    val context = LocalContext.current
     Box(modifier = modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
@@ -1754,18 +1785,6 @@ private fun MoreDestination(
                 ),
             verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium),
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall)) {
-                Text(
-                    modifier = Modifier.semantics { heading() },
-                    text = stringResource(R.string.app_name_short),
-                    style = MaterialTheme.typography.headlineSmall,
-                )
-                Text(
-                    text = stringResource(R.string.more_tagline),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
             Text(
                 modifier = Modifier.semantics { heading() },
                 text = stringResource(R.string.more_data_backup_heading),
@@ -1774,16 +1793,16 @@ private fun MoreDestination(
             MoreActionGroup(
                 actions = listOf(
                     MoreAction(
-                        Icons.Default.MoveToInbox,
-                        R.string.more_move_scanner_title,
-                        R.string.more_move_scanner_description,
-                        onMoveFromScanner,
-                    ),
-                    MoreAction(
                         Icons.Default.Backup,
                         R.string.more_backup_restore_title,
                         R.string.more_backup_restore_description,
                         onBackupRestore,
+                    ),
+                    MoreAction(
+                        Icons.Default.MoveToInbox,
+                        R.string.more_move_scanner_title,
+                        R.string.more_move_scanner_description,
+                        onMoveFromScanner,
                     ),
                     MoreAction(
                         Icons.Default.PhoneAndroid,
@@ -1810,6 +1829,13 @@ private fun MoreDestination(
                         R.string.ocr_language_title,
                         R.string.ocr_language_more_description,
                         onOcrLanguage,
+                    ),
+                    MoreAction(
+                        Icons.Default.Description,
+                        R.string.more_resource_packs,
+                        R.string.more_resource_packs_description,
+                        { context.startActivity(Intent(context, ResourcePackActivity::class.java)) },
+                        enabled = resourcePacksEnabled,
                     ),
                 ),
             )
@@ -1947,8 +1973,9 @@ private fun ToolLauncherItem(tool: ToolLauncherItemModel) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val rmeColors = MaterialTheme.rmeColors
+    val tag = tool.testTag?.let { Modifier.testTag(it) } ?: Modifier
     Surface(
-        modifier = Modifier
+        modifier = tag
             .fillMaxWidth()
             .heightIn(min = PageHarborLayout.toolTileMinimumHeight)
             .clickable(
@@ -1959,7 +1986,7 @@ private fun ToolLauncherItem(tool: ToolLauncherItemModel) {
                 onClick = tool.onClick,
             )
             .semantics(mergeDescendants = true) {
-                contentDescription = tool.accessibilityLabel
+                contentDescription = tool.accessibilityLabel ?: tool.label
                 if (!tool.enabled) disabled()
             },
         shape = MaterialTheme.shapes.large,
@@ -1988,15 +2015,21 @@ private fun ToolLauncherItem(tool: ToolLauncherItemModel) {
             Text(
                 text = tool.label,
                 style = MaterialTheme.typography.labelLarge,
-                color = if (tool.enabled) {
-                    MaterialTheme.colorScheme.onSurface
-                } else {
-                    rmeColors.textDisabled
+                color = when {
+                    tool.enabled -> MaterialTheme.colorScheme.onSurface
+                    tool.availabilityText != null -> MaterialTheme.colorScheme.onSurfaceVariant
+                    else -> rmeColors.textDisabled
                 },
                 textAlign = TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
             )
+            if (tool.availabilityText != null) {
+                Text(
+                    text = tool.availabilityText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+            }
         }
     }
 }
@@ -2006,16 +2039,18 @@ private data class ToolLauncherItemModel(
     val group: ToolGroup,
     val icon: androidx.compose.ui.graphics.vector.ImageVector,
     val label: String,
-    val accessibilityLabel: String,
-    val searchTerms: List<String>,
+    val accessibilityLabel: String? = null,
+    val searchTerms: List<String> = emptyList(),
     val enabled: Boolean,
     val onClick: () -> Unit,
+    val testTag: String? = null,
+    val availabilityText: String? = null,
 )
 
 private enum class ToolGroup(val titleResource: Int) {
     CAPTURE(R.string.tools_capture_heading),
+    EXTRACTION(R.string.tools_extraction_heading),
     PDF(R.string.tools_pdf_heading),
-    TEXT_PRIVACY(R.string.tools_text_privacy_heading),
 }
 
 enum class LibraryDestination(
@@ -2103,7 +2138,7 @@ private fun ActiveWorkStatus(
                     },
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                TextButton(onClick = onCancelImport) {
+                RmeTextButton(onClick = onCancelImport) {
                     Text(stringResource(R.string.import_cancel_action))
                 }
             }
@@ -2120,7 +2155,7 @@ private fun ActiveWorkStatus(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        hasActiveSession -> FilledTonalButton(onClick = onViewScanResult) {
+        hasActiveSession -> RmeSecondaryButton(onClick = onViewScanResult) {
             Text(stringResource(R.string.home_view_scan_result))
         }
     }
@@ -2134,7 +2169,10 @@ private fun FolderControls(
     enabled: Boolean,
     onFolderSelected: (String?) -> Unit,
 ) {
-    val childFolders = folders.filter { it.parentFolderId == selectedFolderId }
+    var folderQuery by remember { mutableStateOf("") }
+    val folderItems = remember(folders, selectedFolderId, folderQuery) {
+        folderNavigationItems(folders, selectedFolderId, folderQuery)
+    }
     Column(verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
         Row(
             modifier = Modifier
@@ -2143,7 +2181,7 @@ private fun FolderControls(
             horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextButton(
+            RmeTextButton(
                 enabled = enabled,
                 onClick = { onFolderSelected(null) },
             ) {
@@ -2154,7 +2192,7 @@ private fun FolderControls(
                     text = ">",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                TextButton(
+                RmeTextButton(
                     enabled = enabled && folder.id != selectedFolderId,
                     onClick = { onFolderSelected(folder.id) },
                 ) {
@@ -2166,20 +2204,29 @@ private fun FolderControls(
                 }
             }
         }
-        if (childFolders.isNotEmpty()) {
+        if (folders.isNotEmpty()) {
+            RmeTextField(
+                modifier = Modifier.fillMaxWidth(),
+                value = folderQuery,
+                onValueChange = { folderQuery = it.take(256) },
+                label = { Text(stringResource(R.string.library_find_folders)) },
+                singleLine = true,
+                enabled = enabled,
+            )
+        }
+        if (folderItems.isNotEmpty()) {
             Text(
                 modifier = Modifier.semantics { heading() },
                 text = stringResource(R.string.library_child_folders_heading),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
             ) {
-                childFolders.forEach { folder ->
+                lazyListItems(folderItems, key = { it.folder.id }) { item ->
+                    val folder = item.folder
                     RmeTonalChoice(
                         selected = false,
                         enabled = enabled,
@@ -2189,13 +2236,15 @@ private fun FolderControls(
                         Text(
                             stringResource(
                                 R.string.library_folder_with_count,
-                                folder.name,
+                                item.path,
                                 folder.documentCount,
                             ),
                         )
                     }
                 }
             }
+        } else if (folderQuery.isNotBlank()) {
+            Text(stringResource(R.string.library_no_matching_folders))
         }
     }
 }
@@ -2293,7 +2342,7 @@ private fun SortMenuButton(
     onSortOrderChange: (LibrarySortOrder) -> Unit,
 ) {
     Box {
-        TextButton(enabled = enabled, onClick = { onExpandedChange(true) }) {
+        RmeTextButton(enabled = enabled, onClick = { onExpandedChange(true) }) {
             Text(stringResource(R.string.library_sort_action, sortLabel))
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }) {
@@ -2320,7 +2369,7 @@ private fun FolderMenuButton(
     onDelete: () -> Unit,
 ) {
     Box {
-        IconButton(enabled = enabled, onClick = { onExpandedChange(true) }) {
+        RmeIconButton(enabled = enabled, onClick = { onExpandedChange(true) }) {
             Icon(
                 imageVector = Icons.Default.MoreVert,
                 contentDescription = stringResource(R.string.library_folder_actions, folder.name),
@@ -2377,7 +2426,7 @@ private fun MergeBar(
             horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onClear) {
+            RmeIconButton(onClick = onClear) {
                 Icon(
                     Icons.Default.Close,
                     contentDescription = stringResource(R.string.library_clear_selection),
@@ -2391,7 +2440,7 @@ private fun MergeBar(
                 overflow = TextOverflow.Ellipsis,
             )
             if (primaryAction == SelectionPrimaryAction.EXTRACT_TEXT) {
-                FilledTonalButton(
+                RmeSecondaryButton(
                     modifier = Modifier.semantics { contentDescription = recognizeLabel },
                     enabled = enabled,
                     contentPadding = PaddingValues(horizontal = PageHarborSpacing.medium),
@@ -2407,7 +2456,7 @@ private fun MergeBar(
                     }
                 }
             } else {
-                Button(
+                RmePrimaryButton(
                     enabled = enabled,
                     contentPadding = PaddingValues(horizontal = PageHarborSpacing.medium),
                     onClick = onMerge,
@@ -2423,7 +2472,7 @@ private fun MergeBar(
                 }
             }
             Box {
-                IconButton(enabled = enabled, onClick = { showMore = true }) {
+                RmeIconButton(enabled = enabled, onClick = { showMore = true }) {
                     Icon(
                         Icons.Default.MoreVert,
                         contentDescription = stringResource(R.string.document_action_more),
@@ -2585,7 +2634,7 @@ private fun DocumentDetails(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            IconButton(enabled = enabled, onClick = onToggleMerge) {
+            RmeIconButton(enabled = enabled, onClick = onToggleMerge) {
                 Icon(
                     imageVector = if (mergePosition == null) {
                         Icons.Default.CheckBoxOutlineBlank
@@ -2683,7 +2732,7 @@ private fun DocumentOverflowMenu(
         stringResource(R.string.library_remove_from_merge, mergePosition + 1)
     }
     Box {
-        IconButton(enabled = enabled, onClick = { expanded = true }) {
+        RmeIconButton(enabled = enabled, onClick = { expanded = true }) {
             Icon(
                 imageVector = Icons.Default.MoreVert,
                 contentDescription = stringResource(R.string.library_more_actions, documentTitle),
@@ -2734,19 +2783,17 @@ private fun DocumentOverflowMenu(
 private fun LibraryThumbnail(modifier: Modifier, uri: Uri?, title: String) {
     val resolver = LocalContext.current.contentResolver
     val currentUri by rememberUpdatedState(uri)
+    var viewport by remember { mutableStateOf(IntSize.Zero) }
+    val target = bitmapDisplaySize(viewport.width, viewport.height)
     val state by rememberManagedDocumentPreview(
-        requestKey = uri?.toString(),
+        requestKey = uri?.toString() to target,
         isCurrent = { currentUri == uri },
         decode = {
-            uri?.let { value ->
-                runCatching {
-                    resolver.openInputStream(value)?.use(BitmapFactory::decodeStream)
-                }.getOrNull()
-            }
+            if (uri != null && target != null) decodeDisplayBitmap({ resolver.openInputStream(uri) }, target) else null
         },
     )
     Surface(
-        modifier = modifier,
+        modifier = modifier.onSizeChanged { viewport = it },
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceVariant,
     ) {
@@ -2832,7 +2879,7 @@ private fun NameDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
             ) {
-                RmeFilledTextField(
+                RmeTextField(
                     modifier = Modifier.fillMaxWidth(),
                     value = value,
                     onValueChange = { value = it.take(120) },
@@ -2845,7 +2892,7 @@ private fun NameDialog(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    TextButton(
+                    RmeTextButton(
                         modifier = Modifier.heightIn(min = 48.dp),
                         onClick = { value = smartName },
                     ) {
@@ -2855,7 +2902,7 @@ private fun NameDialog(
             }
         },
         confirmButton = {
-            TextButton(
+            RmeTextButton(
                 modifier = Modifier.semantics {
                     contentDescription = confirmAccessibilityLabel
                 },
@@ -2866,7 +2913,7 @@ private fun NameDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            RmeTextButton(onClick = onDismiss) {
                 Text(dismissLabel)
             }
         },
@@ -2888,17 +2935,17 @@ private fun MoveDocumentDialog(
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState()),
             ) {
-                TextButton(onClick = { onMove(null) }) {
+                RmeTextButton(onClick = { onMove(null) }) {
                     Text(stringResource(R.string.library_root_folder))
                 }
                 folders.forEach { folder ->
-                    TextButton(onClick = { onMove(folder.id) }) { Text(folder.name) }
+                    RmeTextButton(onClick = { onMove(folder.id) }) { Text(folder.name) }
                 }
             }
         },
         confirmButton = {},
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            RmeTextButton(onClick = onDismiss) {
                 Text(stringResource(R.string.library_cancel))
             }
         },
@@ -2918,12 +2965,12 @@ private fun ConfirmDialog(
         title = { Text(title) },
         text = { Text(message) },
         confirmButton = {
-            TextButton(onClick = onConfirm) {
+            RmeTextButton(onClick = onConfirm) {
                 Text(confirmLabel, color = MaterialTheme.colorScheme.error)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            RmeTextButton(onClick = onDismiss) {
                 Text(stringResource(R.string.library_cancel))
             }
         },
@@ -2985,7 +3032,7 @@ internal fun libraryActionMessageResource(state: LibraryActionState): Int? = whe
                 LibraryActionSuccess.SAVED -> R.string.library_saved
                 LibraryActionSuccess.RENAMED -> R.string.library_renamed
                 LibraryActionSuccess.MOVED -> R.string.library_moved
-                LibraryActionSuccess.DELETED -> R.string.library_deleted
+                LibraryActionSuccess.DELETED -> R.string.recycle_moved
                 LibraryActionSuccess.FOLDER_CREATED -> R.string.library_folder_created
                 LibraryActionSuccess.FOLDER_RENAMED -> R.string.library_folder_renamed
                 LibraryActionSuccess.FOLDER_MOVED -> R.string.library_moved

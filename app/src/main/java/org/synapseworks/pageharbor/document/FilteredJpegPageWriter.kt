@@ -3,11 +3,12 @@
 package org.synapseworks.pageharbor.document
 
 import android.graphics.Bitmap
+import org.synapseworks.pageharbor.image.ManualImageAdjustments
 import android.graphics.BitmapFactory
 import android.graphics.BitmapRegionDecoder
 import android.graphics.Matrix
 import android.graphics.Rect
-import android.media.ExifInterface
+import androidx.exifinterface.media.ExifInterface
 import androidx.core.graphics.scale
 import java.io.IOException
 import java.io.InputStream
@@ -39,10 +40,12 @@ internal data class SizedJpegEncoding(
 
 /**
  * Validates source metadata and encoded bounds before allocating full-resolution bitmaps, then
- * applies one non-destructive filter and writes a new JPEG. EXIF and session rotation share one
- * transform, intermediates transfer ownership immediately, and filters use one scanline buffer.
+ * applies the selected filter then manual settings once, and writes a new JPEG. EXIF/session rotation share one
+ * transform, intermediates transfer ownership immediately, and filters use scanline buffers.
+ * Document cleanup uses four rows and at most 256 KiB of histogram data; other filters use one row.
  * The common 12.5 MP ceiling therefore retains at most two full-page ARGB bitmaps (~100 MiB), not
- * several full-page bitmaps and arrays. Inputs are never silently downsampled.
+ * several full-page bitmaps and arrays. Larger admitted camera sources are sampled before
+ * allocation; original bytes and source metadata stay intact.
  * [openSource] must return a newly opened, readable stream on every invocation; this function
  * closes each stream independently after EXIF, bounds, or full-resolution decoding.
  */
@@ -53,9 +56,13 @@ fun writeFilteredJpegToDestination(
     rotation: DocumentPageRotation = DocumentPageRotation.DEGREES_0,
     imageMetadata: DocumentImageMetadata = DocumentImageMetadata(),
     limits: DocumentInputLimits = DEFAULT_DOCUMENT_INPUT_LIMITS,
+    adjustments: ManualImageAdjustments = ManualImageAdjustments(),
+    annotations: org.synapseworks.pageharbor.document.annotation.AnnotationLayer = org.synapseworks.pageharbor.document.annotation.AnnotationLayer.EMPTY,
+    isCancellationRequested: () -> Boolean = { false },
+    flattenToSrgb: Boolean = false,
 ): PageExportResult {
     if (destination == null) return PageExportResult.DestinationUnavailable
-    transformedImagePreflight(imageMetadata, limits = limits)?.let { failure ->
+    encodedImagePreflight(imageMetadata, limits = limits)?.let { failure ->
         destination.closeSafely()
         return failure
     }
@@ -64,12 +71,13 @@ fun writeFilteredJpegToDestination(
     var working: Bitmap? = null
     var outputBitmap: Bitmap? = null
     return try {
+        ensureEncodingActive(isCancellationRequested)
         val orientation = readOrientation(openSource)
         val bounds = readImageBounds(openSource) ?: run {
             destination.closeSafely()
             return PageExportResult.SourceMissing
         }
-        transformedImagePreflight(
+        encodedImagePreflight(
             metadata = imageMetadata,
             decodedWidth = bounds.first,
             decodedHeight = bounds.second,
@@ -78,7 +86,9 @@ fun writeFilteredJpegToDestination(
             destination.closeSafely()
             return failure
         }
-        decoded = decodeFullResolution(openSource) ?: run {
+        val sample = org.synapseworks.pageharbor.document.session.documentWorkingSampleSize(bounds.first,bounds.second,limits)
+            ?: return PageExportResult.SourceTooLarge
+        decoded = (if(sample==1)decodeFullResolution(openSource)else decodeWithSample(openSource,sample)) ?: run {
             destination.closeSafely()
             return PageExportResult.SourceMissing
         }
@@ -96,14 +106,29 @@ fun writeFilteredJpegToDestination(
         if (transformed !== decodedBitmap) decodedBitmap.recycle()
         decoded = null
         working = transformed
-        val readyForEncoding = if (filter == DocumentFilter.ORIGINAL) {
+        var readyForEncoding = if (filter == DocumentFilter.ORIGINAL && adjustments.isNeutral) {
             transformed
         } else {
-            filterBitmap(transformed, filter)
+            filterBitmap(transformed, filter, isCancellationRequested, adjustments)
         }
         if (readyForEncoding !== transformed) transformed.recycle()
         working = null
         outputBitmap = readyForEncoding
+        if (!annotations.isEmpty) {
+            if (!readyForEncoding.isMutable) {
+                val mutable=readyForEncoding.copy(Bitmap.Config.ARGB_8888,true) ?: return PageExportResult.WriteFailed
+                readyForEncoding.recycle();readyForEncoding=mutable;outputBitmap=mutable
+            }
+            org.synapseworks.pageharbor.document.annotation.AnnotationRenderer.draw(readyForEncoding,annotations,rotation) { ensureEncodingActive(isCancellationRequested) }
+        }
+        if (flattenToSrgb) {
+            // Color conversion and alpha compositing use Canvas into an explicit opaque sRGB target.
+            val opaque=Bitmap.createBitmap(readyForEncoding.width,readyForEncoding.height,Bitmap.Config.ARGB_8888,false,android.graphics.ColorSpace.get(android.graphics.ColorSpace.Named.SRGB))
+            try { val canvas=android.graphics.Canvas(opaque);canvas.drawColor(android.graphics.Color.WHITE);canvas.drawBitmap(readyForEncoding,0f,0f,null) }
+            catch(error:Throwable) { opaque.recycle();throw error }
+            readyForEncoding.recycle();readyForEncoding=opaque;outputBitmap=opaque
+        }
+        ensureEncodingActive(isCancellationRequested)
         destination.use { output ->
             if (readyForEncoding.compress(Bitmap.CompressFormat.JPEG, FilteredJpegQuality, output)) {
                 output.flush()
@@ -112,6 +137,9 @@ fun writeFilteredJpegToDestination(
                 PageExportResult.WriteFailed
             }
         }
+    } catch (error: CancellationException) {
+        destination.closeSafely()
+        throw error
     } catch (_: IOException) {
         destination.closeSafely()
         PageExportResult.WriteFailed
@@ -151,9 +179,11 @@ internal fun writeSizedJpegToDestination(
     isCancellationRequested: () -> Boolean = { false },
     /** Optional final in-place pixel sanitizer, applied after transforms/filters and before encode. */
     pixelSanitizer: ((Bitmap) -> Boolean)? = null,
+    adjustments: ManualImageAdjustments = ManualImageAdjustments(),
+    annotations: org.synapseworks.pageharbor.document.annotation.AnnotationLayer = org.synapseworks.pageharbor.document.annotation.AnnotationLayer.EMPTY,
 ): PageExportResult {
     if (destination == null) return PageExportResult.DestinationUnavailable
-    transformedImagePreflight(imageMetadata, limits = limits)?.let { failure ->
+    encodedImagePreflight(imageMetadata, limits = limits)?.let { failure ->
         destination.closeSafely()
         return failure
     }
@@ -168,7 +198,7 @@ internal fun writeSizedJpegToDestination(
             destination.closeSafely()
             return PageExportResult.SourceMissing
         }
-        transformedImagePreflight(
+        encodedImagePreflight(
             metadata = imageMetadata,
             decodedWidth = bounds.first,
             decodedHeight = bounds.second,
@@ -177,17 +207,18 @@ internal fun writeSizedJpegToDestination(
             destination.closeSafely()
             return failure
         }
-        val sampleSize = targetDecodeSampleSize(
+        val sampleSize = maxOf(requireNotNull(org.synapseworks.pageharbor.document.session.documentWorkingSampleSize(bounds.first,bounds.second,limits)),targetDecodeSampleSize(
             sourceWidth = bounds.first,
             sourceHeight = bounds.second,
             orientation = orientation,
             rotation = rotation,
             encoding = encoding,
-        )
+        ))
         decoded = decodeWithSample(openSource, sampleSize) ?: run {
             destination.closeSafely()
             return PageExportResult.SourceMissing
         }
+        transformedImagePreflight(imageMetadata, decoded.width, decoded.height, limits)?.let { return it }
         ensureEncodingActive(isCancellationRequested)
         val decodedBitmap = decoded
         val transformed = transform(decodedBitmap, orientation, rotation)
@@ -199,21 +230,22 @@ internal fun writeSizedJpegToDestination(
         working = null
         outputBitmap = scaled
         ensureEncodingActive(isCancellationRequested)
-        var filtered = if (filter == DocumentFilter.ORIGINAL) {
+        var filtered = if (filter == DocumentFilter.ORIGINAL && adjustments.isNeutral) {
             scaled
         } else {
-            filterBitmap(scaled, filter, isCancellationRequested)
+            filterBitmap(scaled, filter, isCancellationRequested, adjustments)
         }
         if (filtered !== scaled) scaled.recycle()
         outputBitmap = filtered
         ensureEncodingActive(isCancellationRequested)
-        if (pixelSanitizer != null && !filtered.isMutable) {
+        if ((pixelSanitizer != null || !annotations.isEmpty) && !filtered.isMutable) {
             val mutable = filtered.copy(Bitmap.Config.ARGB_8888, true)
                 ?: return PageExportResult.WriteFailed
             filtered.recycle()
             filtered = mutable
             outputBitmap = mutable
         }
+        org.synapseworks.pageharbor.document.annotation.AnnotationRenderer.draw(filtered,annotations,rotation) { ensureEncodingActive(isCancellationRequested) }
         if (pixelSanitizer?.invoke(filtered) == false) {
             destination.closeSafely()
             return PageExportResult.WriteFailed
@@ -281,16 +313,12 @@ internal fun transformedImagePreflight(
 internal fun pageSourcePreflight(
     metadata: DocumentImageMetadata,
     limits: DocumentInputLimits = DEFAULT_DOCUMENT_INPUT_LIMITS,
-): PageExportResult? = transformedImagePreflight(metadata = metadata, limits = limits)
+): PageExportResult? = encodedImagePreflight(metadata = metadata, limits = limits)
 
-internal fun readOrientation(openSource: () -> InputStream?): Int = runCatching {
-    openSource()?.use { source ->
-        ExifInterface(source).getAttributeInt(
-            ExifInterface.TAG_ORIENTATION,
-            ExifInterface.ORIENTATION_NORMAL,
-        )
-    } ?: ExifInterface.ORIENTATION_NORMAL
-}.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+internal fun encodedImagePreflight(metadata:DocumentImageMetadata,decodedWidth:Int?=null,decodedHeight:Int?=null,limits:DocumentInputLimits=DEFAULT_DOCUMENT_INPUT_LIMITS):PageExportResult? =
+    transformedImagePreflight(metadata,decodedWidth,decodedHeight,org.synapseworks.pageharbor.document.session.sourceLimitsForWorking(limits))
+
+internal fun readOrientation(openSource: () -> InputStream?): Int = readImageOrientation(openSource)
 
 @Suppress("DEPRECATION")
 internal fun decodeFullResolution(openSource: () -> InputStream?): Bitmap? =
@@ -309,7 +337,7 @@ internal fun decodeFullResolution(openSource: () -> InputStream?): Bitmap? =
     }
 
 @Suppress("DEPRECATION")
-private fun decodeWithSample(openSource: () -> InputStream?, sampleSize: Int): Bitmap? =
+internal fun decodeWithSample(openSource: () -> InputStream?, sampleSize: Int): Bitmap? =
     openSource()?.use { source ->
         val decoder = BitmapRegionDecoder.newInstance(source, false) ?: return@use null
         try {
@@ -373,7 +401,32 @@ private fun filterBitmap(
     source: Bitmap,
     filter: DocumentFilter,
     isCancellationRequested: () -> Boolean = { false },
+    adjustments: ManualImageAdjustments = ManualImageAdjustments(),
 ): Bitmap {
+    if (DocumentImageFilterEngine.requiresSpatialContext(filter)) {
+        val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+        var completed = false
+        return try {
+            val manualPlan = DocumentImageFilterEngine.createRowFilterPlan(DocumentFilter.ORIGINAL, null, source.width * source.height)
+            DocumentImageFilterEngine.processSpatialRows(
+                filter = filter,
+                width = source.width,
+                height = source.height,
+                readRow = { y, pixels ->
+                    source.getPixels(pixels, 0, source.width, 0, y, source.width, 1)
+                },
+                writeRow = { y, pixels ->
+                    DocumentImageFilterEngine.applyRowFilterInPlace(pixels, manualPlan, adjustments) { ensureEncodingActive(isCancellationRequested) }
+                    output.setPixels(pixels, 0, source.width, 0, y, source.width, 1)
+                },
+                ensureActive = { ensureEncodingActive(isCancellationRequested) },
+            )
+            completed = true
+            output
+        } finally {
+            if (!completed) output.recycle()
+        }
+    }
     val row = IntArray(source.width)
     val histogram = if (DocumentImageFilterEngine.requiresHistogram(filter)) {
         IntArray(256).also { counts ->
@@ -397,7 +450,7 @@ private fun filterBitmap(
         repeat(source.height) { y ->
             ensureEncodingActive(isCancellationRequested)
             source.getPixels(row, 0, source.width, 0, y, source.width, 1)
-            DocumentImageFilterEngine.applyRowFilterInPlace(row, plan)
+            DocumentImageFilterEngine.applyRowFilterInPlace(row, plan, adjustments) { ensureEncodingActive(isCancellationRequested) }
             output.setPixels(row, 0, source.width, 0, y, source.width, 1)
         }
         completed = true

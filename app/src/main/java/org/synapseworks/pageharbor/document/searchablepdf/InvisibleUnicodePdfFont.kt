@@ -9,6 +9,8 @@ import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDResources
 import com.tom_roush.pdfbox.pdmodel.common.PDStream
 import com.tom_roush.pdfbox.pdmodel.font.PDType3Font
+import com.tom_roush.pdfbox.pdmodel.font.PDFont
+import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import java.nio.charset.StandardCharsets
 
 /**
@@ -21,6 +23,7 @@ import java.nio.charset.StandardCharsets
 internal class InvisibleUnicodePdfFontSet(
     document: PDDocument,
     texts: Sequence<String>,
+    standardInvisibleGlyphs: Boolean = false,
 ) {
     private val codePoints = texts
         .flatMap { text -> text.pdfCodePoints().asSequence() }
@@ -28,7 +31,7 @@ internal class InvisibleUnicodePdfFontSet(
         .toList()
         .also { require(it.size <= MAX_DOCUMENT_CODE_POINTS) }
     private val subsets = codePoints.chunked(MAX_CODES_PER_FONT).map { subset ->
-        InvisibleUnicodePdfFont(document, subset)
+        InvisibleUnicodePdfFont(document, subset, standardInvisibleGlyphs)
     }
     private val encodingByCodePoint = buildMap {
         subsets.forEach { subset ->
@@ -40,7 +43,7 @@ internal class InvisibleUnicodePdfFontSet(
 
     fun encode(text: String): List<InvisibleUnicodeTextRun> {
         val result = mutableListOf<InvisibleUnicodeTextRun>()
-        var currentFont: PDType3Font? = null
+        var currentFont: PDFont? = null
         var currentBytes = mutableListOf<Byte>()
         fun flush() {
             val font = currentFont ?: return
@@ -59,7 +62,7 @@ internal class InvisibleUnicodePdfFontSet(
         return result
     }
 
-    private data class EncodedCode(val font: PDType3Font, val code: Int)
+    private data class EncodedCode(val font: PDFont, val code: Int)
 
     private companion object {
         const val MAX_CODES_PER_FONT = 255
@@ -68,7 +71,7 @@ internal class InvisibleUnicodePdfFontSet(
 }
 
 internal data class InvisibleUnicodeTextRun(
-    val font: PDType3Font,
+    val font: PDFont,
     val encodedBytes: ByteArray,
 ) {
     val codePointCount: Int get() = encodedBytes.size
@@ -83,9 +86,23 @@ internal fun ByteArray.toPdfHexString(): String = joinToString(
 private class InvisibleUnicodePdfFont(
     document: PDDocument,
     codePoints: List<Int>,
+    standardInvisibleGlyphs: Boolean,
 ) {
     val codeByCodePoint = codePoints.mapIndexed { index, codePoint -> codePoint to index + 1 }.toMap()
-    val font: PDType3Font = PDType3Font(createDictionary(document, codeByCodePoint))
+    val font: PDFont = if(standardInvisibleGlyphs) PDType1Font(createStandardDictionary(document,codeByCodePoint)) else PDType3Font(createDictionary(document,codeByCodePoint))
+
+    /** Standard14 glyphs are never painted; explicit ToUnicode carries reviewed characters.
+     * This opt-in avoids readers that ignore blank Type3 glyph programs. No font file is added. */
+    private fun createStandardDictionary(document:PDDocument,mapping:Map<Int,Int>):COSDictionary = COSDictionary().apply {
+        setItem(COSName.TYPE,COSName.FONT);setItem(COSName.SUBTYPE,COSName.TYPE1);setItem(COSName.BASE_FONT,COSName.getPDFName("Helvetica"))
+        setInt(COSName.FIRST_CHAR,1);setInt(COSName.LAST_CHAR,mapping.size)
+        setItem(COSName.WIDTHS,COSArray().apply{repeat(mapping.size){add(COSInteger.get(GLYPH_WIDTH.toLong()))}})
+        setItem(COSName.ENCODING,COSDictionary().apply{
+            setItem(COSName.TYPE,COSName.ENCODING);setItem(COSName.BASE_ENCODING,COSName.getPDFName("WinAnsiEncoding"))
+            setItem(COSName.DIFFERENCES,COSArray().apply{add(COSInteger.ONE);repeat(mapping.size){add(COSName.getPDFName("A"))}})
+        })
+        setItem(COSName.TO_UNICODE,toUnicodeStream(document,mapping))
+    }
 
     private fun createDictionary(
         document: PDDocument,

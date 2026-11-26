@@ -1,26 +1,28 @@
 package org.synapseworks.pageharbor
 
+import org.synapseworks.pageharbor.ocr.persistence.toEffectiveOcrRequestOrNull
+
 import android.app.Activity
+import org.synapseworks.pageharbor.image.ManualImageAdjustments
 import android.content.ActivityNotFoundException
 import android.content.Intent
-import android.content.pm.ActivityInfo
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.provider.Settings
-import androidx.activity.compose.setContent
+import android.view.WindowManager
+import org.synapseworks.pageharbor.ui.theme.setPageHarborContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.core.net.toUri
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
@@ -38,13 +40,21 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.synapseworks.pageharbor.document.PageExportResult
 import org.synapseworks.pageharbor.document.PageExportState
 import org.synapseworks.pageharbor.document.PageJpegExportPlan
+import org.synapseworks.pageharbor.document.crop.ImportCropViewModel
+import org.synapseworks.pageharbor.document.capture.CaptureMode
+import org.synapseworks.pageharbor.document.crop.supportsImportCrop
 import org.synapseworks.pageharbor.document.importing.DocumentImportOrigin
+import org.synapseworks.pageharbor.document.importing.isSinglePhotoShare
 import org.synapseworks.pageharbor.document.importing.DocumentImportPreparationResult
 import org.synapseworks.pageharbor.document.importing.DocumentImportProcessor
 import org.synapseworks.pageharbor.document.importing.DocumentImportProgressListener
@@ -55,6 +65,10 @@ import org.synapseworks.pageharbor.document.importing.extractInboundShareInput
 import org.synapseworks.pageharbor.document.DocumentOperationTracker
 import org.synapseworks.pageharbor.document.DocumentOperationToken
 import org.synapseworks.pageharbor.document.NormalPdfExportPlan
+import org.synapseworks.pageharbor.document.protectedpdf.PasswordPdfExportViewModel
+import org.synapseworks.pageharbor.ui.protectedpdf.PasswordPdfExportDialog
+import org.synapseworks.pageharbor.document.localtools.LocalPdfToolsViewModel
+import org.synapseworks.pageharbor.ui.localtools.LocalPdfToolsDialog
 import org.synapseworks.pageharbor.document.NormalPdfRecompositionResult
 import org.synapseworks.pageharbor.document.PdfExportResult
 import org.synapseworks.pageharbor.document.PdfSaveState
@@ -133,8 +147,6 @@ import org.synapseworks.pageharbor.backup.restore.RestoreMergePolicy
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.scanner.createScannerResultSummary
 import org.synapseworks.pageharbor.ui.PageHarborApp
-import org.synapseworks.pageharbor.ui.AppOrientationPolicy
-import org.synapseworks.pageharbor.ui.AppOrientationPreference
 import org.synapseworks.pageharbor.ui.PageHarborScreen
 import org.synapseworks.pageharbor.ocr.MlKitOcrEngine
 import org.synapseworks.pageharbor.ocr.MultilingualOcrRuntime
@@ -168,7 +180,6 @@ import org.synapseworks.pageharbor.ocr.persistence.BundledLatinOcrResultMapper
 import org.synapseworks.pageharbor.ocr.persistence.ScriptedOcrSessionRunner
 import org.synapseworks.pageharbor.library.LibraryResult
 import org.synapseworks.pageharbor.library.LibraryActionState
-import org.synapseworks.pageharbor.library.LibraryEffectiveOcrPage
 import org.synapseworks.pageharbor.library.LibraryOcrCommitResult
 import org.synapseworks.pageharbor.library.LibraryOcrPageSnapshot
 import org.synapseworks.pageharbor.library.LibraryViewModel
@@ -248,6 +259,27 @@ class MainActivity : FragmentActivity() {
     private val ocrReview: OcrReviewViewModel by viewModels()
     private val ocrBatch: OcrBatchViewModel by viewModels()
     private val reviewEligibility: ReviewEligibilityViewModel by viewModels()
+    private val xlsx: org.synapseworks.pageharbor.xlsx.XlsxViewModel by viewModels()
+    private lateinit var xlsxSave: androidx.activity.result.ActivityResultLauncher<String>
+    private val pptx: org.synapseworks.pageharbor.pptx.PptxViewModel by viewModels()
+    private lateinit var pptxSave: androidx.activity.result.ActivityResultLauncher<String>
+    private val integrity: org.synapseworks.pageharbor.integrity.IntegrityViewModel by viewModels()
+    private val integrityInputs=mutableMapOf<String,androidx.activity.result.ActivityResultLauncher<Array<String>>>()
+    private val integritySaves=mutableMapOf<String,androidx.activity.result.ActivityResultLauncher<String>>()
+    private val photo: org.synapseworks.pageharbor.photo.PhotoViewModel by viewModels()
+    private val photoSaves=mutableMapOf<String,androidx.activity.result.ActivityResultLauncher<String>>()
+    private val assistance: org.synapseworks.pageharbor.assistance.AssistanceViewModel by viewModels()
+    private val assistanceSaves=mutableMapOf<String,androidx.activity.result.ActivityResultLauncher<String>>()
+    private val translation: org.synapseworks.pageharbor.translation.TranslationViewModel by viewModels()
+    private val translationSaves=mutableMapOf<String,androidx.activity.result.ActivityResultLauncher<String>>()
+    private val docx: org.synapseworks.pageharbor.docx.DocxViewModel by viewModels()
+    private lateinit var docxSave: androidx.activity.result.ActivityResultLauncher<String>
+    private val workflows: org.synapseworks.pageharbor.workflow.WorkflowViewModel by viewModels()
+    private lateinit var workflowTree: androidx.activity.result.ActivityResultLauncher<Uri?>
+    private lateinit var workflowSave: androidx.activity.result.ActivityResultLauncher<String>
+    private lateinit var workflowDocxSave: androidx.activity.result.ActivityResultLauncher<String>
+    private lateinit var workflowPptxSave: androidx.activity.result.ActivityResultLauncher<String>
+    private lateinit var workflowXlsxSave: androidx.activity.result.ActivityResultLauncher<String>
     private val appLock: AppLockViewModel by viewModels()
     private val portability: PortabilityWorkflowViewModel by viewModels()
     private val migration: MigrationWorkflowViewModel by viewModels()
@@ -256,6 +288,40 @@ class MainActivity : FragmentActivity() {
     private val targetSizeWorkflow: TargetSizeWorkflowViewModel by viewModels()
     private val cardCopyWorkflow: CardCopyWorkflowViewModel by viewModels()
     private val shareSafeWorkflow: ShareSafeCopyWorkflowViewModel by viewModels()
+    private val passwordPdfExport: PasswordPdfExportViewModel by viewModels()
+    private val localPdfTools: LocalPdfToolsViewModel by viewModels()
+    private var continuousUseJob: Job? = null
+    private var continuousUseOwner: String? = null
+    private val bookSplit: org.synapseworks.pageharbor.document.booklayout.BookSplitViewModel by viewModels()
+    internal val pdfText: org.synapseworks.pageharbor.pdftext.TextViewModel by viewModels()
+    private lateinit var textInputLauncher: androidx.activity.result.ActivityResultLauncher<String>
+    private lateinit var textSaveLauncher: androidx.activity.result.ActivityResultLauncher<String>
+    internal val forms: org.synapseworks.pageharbor.forms.FormViewModel by viewModels()
+    private lateinit var formInputLauncher: androidx.activity.result.ActivityResultLauncher<String>
+    private lateinit var formSaveLauncher: androidx.activity.result.ActivityResultLauncher<String>
+    internal val table: org.synapseworks.pageharbor.table.TableViewModel by viewModels()
+    internal val receipt: org.synapseworks.pageharbor.receipt.ReceiptViewModel by viewModels()
+    internal val businessCard: org.synapseworks.pageharbor.businesscard.CardViewModel by viewModels()
+    private lateinit var cardImageLauncher: androidx.activity.result.ActivityResultLauncher<String>
+    private lateinit var tableImageLauncher: androidx.activity.result.ActivityResultLauncher<String>
+    private lateinit var tablePermissionLauncher: androidx.activity.result.ActivityResultLauncher<String>
+    private lateinit var tableDestinationLauncher: androidx.activity.result.ActivityResultLauncher<String>
+    private lateinit var receiptImageLauncher: androidx.activity.result.ActivityResultLauncher<String>
+    private lateinit var cardPermissionLauncher: androidx.activity.result.ActivityResultLauncher<String>
+    private lateinit var receiptPermissionLauncher: androidx.activity.result.ActivityResultLauncher<String>
+    private lateinit var cardEditorLauncher: androidx.activity.result.ActivityResultLauncher<Intent>
+    private lateinit var qrImageLauncher: androidx.activity.result.ActivityResultLauncher<String>
+    private lateinit var qrPermissionLauncher: androidx.activity.result.ActivityResultLauncher<String>
+    internal val qr: org.synapseworks.pageharbor.qr.QrViewModel by viewModels()
+    internal val recycle: org.synapseworks.pageharbor.library.recycle.RecycleViewModel by viewModels()
+    internal val organization: org.synapseworks.pageharbor.library.organization.LibraryOrganizationViewModel by viewModels()
+    internal val collage: org.synapseworks.pageharbor.document.collage.CollageViewModel by viewModels()
+    private val curvature: org.synapseworks.pageharbor.document.curvature.CurvatureViewModel by viewModels()
+    private val importCrop: ImportCropViewModel by viewModels()
+    internal val objectRemoval: org.synapseworks.pageharbor.document.objectremoval.ObjectRemovalViewModel by viewModels()
+    internal val annotationEditor: org.synapseworks.pageharbor.document.annotation.AnnotationEditorViewModel by viewModels()
+    private val continuousCapture: org.synapseworks.pageharbor.document.capture.ContinuousCaptureViewModel by viewModels()
+    internal var continuousBackendForTest: ((java.io.File,(Boolean)->Unit)->Unit)? by mutableStateOf(null)
     private val playReviewLauncher by lazy { GooglePlayReviewLauncher() }
     private val appLockAuthenticationController by lazy {
         AndroidXAppLockAuthenticationController(
@@ -320,6 +386,7 @@ class MainActivity : FragmentActivity() {
     private var searchablePdfDestinationLauncherOverride: ((String) -> Unit)? = null
     private var ocrTerminalStateObserverForTest: (() -> Unit)? = null
     private var documentSessionLeaseReleaseObserverForTest: (() -> Unit)? = null
+    internal var sourceStartupCleanupForTest: Job? = null; private set
     private val normalPdfSaveOperationTracker = DocumentOperationTracker()
     private val pdfShareOperationTracker = DocumentOperationTracker()
     private val pageExportOperationTracker = DocumentOperationTracker()
@@ -338,6 +405,12 @@ class MainActivity : FragmentActivity() {
     private var pageDestinationLauncherOverride: ((String) -> Unit)? = null
     private var pdfShareLauncherOverride: ((Uri) -> Unit)? = null
     private var importJob: Job? = null
+    private var inboundPhotoJob: Job? = null
+    private val privateShareAuthorities: Set<String> by lazy {
+        @Suppress("DEPRECATION")
+        val providers = packageManager.getPackageInfo(packageName, android.content.pm.PackageManager.GET_PROVIDERS).providers
+        providers.orEmpty().flatMap { it.authority.orEmpty().split(';') }.toSet()
+    }
     private val importProcessor by lazy {
         DocumentImportProcessor(this) { resource ->
             session.registerPendingAcquisitionResources(listOf(resource)) ==
@@ -501,6 +574,28 @@ class MainActivity : FragmentActivity() {
         )
     }
 
+    private val createLocalToolsPdfLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/pdf"),
+    ) { uri ->
+        val requestId = protectedActions.consumeLocalToolsSavePickerRequest()
+            ?: return@registerForActivityResult
+        runWhenUnlocked(
+            AppLockProtectedEntryPoint.ACTIVITY_RESULT_CALLBACK,
+            PendingProtectedAction.LocalToolsPdfDestination(uri, requestId),
+        )
+    }
+
+    private val createPasswordPdfLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/pdf"),
+    ) { uri ->
+        val requestId = protectedActions.consumePasswordPdfSavePickerRequest()
+            ?: return@registerForActivityResult
+        runWhenUnlocked(
+            AppLockProtectedEntryPoint.ACTIVITY_RESULT_CALLBACK,
+            PendingProtectedAction.PasswordPdfDestination(uri, requestId),
+        )
+    }
+
     private fun handleSearchablePdfDestinationResult(destinationUri: Uri?) {
         val preparedExport = searchablePdfPreparedExport
         if (destinationUri == null) {
@@ -540,8 +635,62 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    // M35: append the registration after existing launchers; no saved-state draft.
+    private var officeRecipeTicket: org.synapseworks.pageharbor.workflow.OfficeRecipeTicket? = null
+    private val officeRecipeLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val ticket = officeRecipeTicket; officeRecipeTicket = null
+        org.synapseworks.pageharbor.office.OfficeRecipeOffers.endRequest(ticket?.request)
+        val id = result.data?.getStringExtra(org.synapseworks.pageharbor.office.OfficeRecipeOffers.RESULT)
+        if (ticket == null || result.resultCode != android.app.Activity.RESULT_OK || id == null ||
+            result.data?.getStringExtra(org.synapseworks.pageharbor.office.OfficeRecipeOffers.REQUEST) != ticket.request) {
+            org.synapseworks.pageharbor.office.OfficeRecipeOffers.discard(id)
+        } else lifecycleScope.launch {
+            try {
+                kotlinx.coroutines.withTimeout(10000) {
+                    while (!lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) kotlinx.coroutines.delay(16)
+                }
+                val current = { lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) && appLock.state.value.phase != AppLockPhase.LOCKED }
+                workflows.foreground(current())
+                workflows.acceptOffice(ticket, id, current)
+            } catch (_: kotlinx.coroutines.CancellationException) { } finally { org.synapseworks.pageharbor.office.OfficeRecipeOffers.discard(id) }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(false)
+        updateProtectedWindow(appLock.state.value.config.enabled)
+        // Activity-owned registration survives QR composition removal by app lock. A new
+        // ViewModel after process death gets different keys, so old results cannot target it.
+        docxSave=activityResultRegistry.register("docx-save:"+docx.activityOwner,this,ActivityResultContracts.CreateDocument(org.synapseworks.pageharbor.docx.DOCX_MIME)){uri->docx.foreground(appLock.state.value.phase!=AppLockPhase.LOCKED);if(appLock.state.value.phase==AppLockPhase.LOCKED){docx.close();docx.destination(uri)}else docx.destination(uri)}
+        pptxSave=activityResultRegistry.register("pptx-save:"+pptx.activityOwner,this,ActivityResultContracts.CreateDocument(org.synapseworks.pageharbor.pptx.PPTX_MIME)){uri->pptx.foreground(appLock.state.value.phase!=AppLockPhase.LOCKED);if(appLock.state.value.phase==AppLockPhase.LOCKED)pptx.close();pptx.destination(uri)}
+        xlsxSave=activityResultRegistry.register("xlsx-save:"+xlsx.activityOwner,this,ActivityResultContracts.CreateDocument(org.synapseworks.pageharbor.xlsx.XLSX_MIME)){uri->xlsx.foreground(appLock.state.value.phase!=AppLockPhase.LOCKED);if(appLock.state.value.phase==AppLockPhase.LOCKED)xlsx.close();xlsx.destination(uri)}
+        workflowTree=activityResultRegistry.register("workflow-tree:"+workflows.activityOwner,this,ActivityResultContracts.OpenDocumentTree(),workflows::treeReturned)
+        workflowSave=activityResultRegistry.register("workflow-save:"+workflows.activityOwner,this,ActivityResultContracts.CreateDocument("application/pdf"),workflows::manualResult)
+        workflowDocxSave=activityResultRegistry.register("workflow-docx-save:"+workflows.activityOwner,this,ActivityResultContracts.CreateDocument(org.synapseworks.pageharbor.docx.DOCX_MIME),workflows::manualResult)
+        workflowPptxSave=activityResultRegistry.register("workflow-pptx-save:"+workflows.activityOwner,this,ActivityResultContracts.CreateDocument(org.synapseworks.pageharbor.pptx.PPTX_MIME),workflows::manualResult)
+        workflowXlsxSave=activityResultRegistry.register("workflow-xlsx-save:"+workflows.activityOwner,this,ActivityResultContracts.CreateDocument(org.synapseworks.pageharbor.xlsx.XLSX_MIME),workflows::manualResult)
+        textInputLauncher=activityResultRegistry.register("text-input:"+pdfText.activityResultOwner,this,ActivityResultContracts.GetContent(),pdfText::picked)
+        textSaveLauncher=activityResultRegistry.register("text-pdf:"+pdfText.activityResultOwner,this,ActivityResultContracts.CreateDocument("application/pdf")){uri->val gate=appLock;pdfText.destination(uri){gate.state.value.phase!=AppLockPhase.LOCKED}}
+        formInputLauncher=activityResultRegistry.register("form-input:"+forms.activityResultOwner,this,ActivityResultContracts.GetContent(),forms::picked)
+        formSaveLauncher=activityResultRegistry.register("form-pdf:"+forms.activityResultOwner,this,ActivityResultContracts.CreateDocument("application/pdf")){uri->val gate=appLock;forms.destination(uri){gate.state.value.phase!=AppLockPhase.LOCKED}}
+        tableImageLauncher=activityResultRegistry.register("table-image:"+table.activityResultOwner,this,ActivityResultContracts.GetContent(),table::picked)
+        tablePermissionLauncher=activityResultRegistry.register("table-camera:"+table.activityResultOwner,this,ActivityResultContracts.RequestPermission()){table.permissionResult(org.synapseworks.pageharbor.document.capture.CameraAccess.allowed(this))}
+        tableDestinationLauncher=activityResultRegistry.register("table-csv:"+table.activityResultOwner,this,ActivityResultContracts.CreateDocument("text/csv")){uri->val gate=appLock;table.destination(uri){gate.state.value.phase!=AppLockPhase.LOCKED}}
+        receiptImageLauncher=activityResultRegistry.register("receipt-image:"+receipt.activityResultOwner,this,ActivityResultContracts.GetContent(),receipt::picked)
+        receiptPermissionLauncher=activityResultRegistry.register("receipt-camera:"+receipt.activityResultOwner,this,ActivityResultContracts.RequestPermission()){ receipt.permissionResult(org.synapseworks.pageharbor.document.capture.CameraAccess.allowed(this)) }
+        cardImageLauncher=activityResultRegistry.register("card-image:"+businessCard.activityResultOwner,this,ActivityResultContracts.GetContent(),businessCard::picked)
+        cardPermissionLauncher=activityResultRegistry.register("card-camera:"+businessCard.activityResultOwner,this,ActivityResultContracts.RequestPermission()){
+            businessCard.permissionResult(org.synapseworks.pageharbor.document.capture.CameraAccess.allowed(this))
+        }
+        cardEditorLauncher=activityResultRegistry.register("card-editor:"+businessCard.activityResultOwner,this,ActivityResultContracts.StartActivityForResult()){
+            businessCard.editorReturned()
+        }
+        qrImageLauncher=activityResultRegistry.register("qr-image:"+qr.activityResultOwner,this,ActivityResultContracts.GetContent(),qr::receivePickedImage)
+        qrPermissionLauncher=activityResultRegistry.register("qr-camera:"+qr.activityResultOwner,this,ActivityResultContracts.RequestPermission()){
+            qr.permissionResult(org.synapseworks.pageharbor.document.capture.CameraAccess.allowed(this))
+        }
+        session.configureHistory(org.synapseworks.pageharbor.document.history.AndroidHistorySourceAccess(applicationContext))
         ocrDefaultSelection = ocrLanguagePreferences.read()
         lifecycleScope.launch {
             multilingualOcrRuntime.modelInstaller.states.collect { states ->
@@ -563,9 +712,15 @@ class MainActivity : FragmentActivity() {
                 observedDocumentRevision = revision
                 clearStaleOcrAndSearchablePdfOperations(revision)
                 clearStaleNormalDocumentOperations(revision)
+                if(continuousCapture.state?.revision?.let{it!=revision}==true)cancelContinuousCapture()
+                bookSplit.onDocumentRevisionChanged(revision)
+                curvature.onDocumentRevisionChanged(revision)
+                importCrop.onDocumentRevisionChanged(revision)
+                objectRemoval.onDocumentRevisionChanged(revision)
+                collage.onDocumentRevisionChanged(revision)
             }
         }
-        lifecycleScope.launch(Dispatchers.IO) {
+        sourceStartupCleanupForTest = lifecycleScope.launch(Dispatchers.IO) {
             deleteStaleSharedPdfs(cacheDir)
             deleteStaleSearchablePdfs(cacheDir)
             deleteStaleNormalPdfs(cacheDir)
@@ -597,12 +752,18 @@ class MainActivity : FragmentActivity() {
                 deleteStaleRedactedPdfVerifierFiles(cacheDir)
                 deleteStaleShareSafeFiles(cacheDir)
             }
-            if (session.documentPages.isEmpty()) {
+            if (session.documentPages.isEmpty() && !session.hasActiveDocumentSessionLeases()) {
                 deleteStaleDocumentImports(cacheDir)
             }
         }
         lifecycleScope.launch {
             appLock.state.collect { lockState ->
+                updateProtectedWindow(lockState.config.enabled)
+                workflows.foreground(lockState.phase!=AppLockPhase.LOCKED && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED))
+                if(lockState.phase==AppLockPhase.LOCKED){integrity.close();photo.close();assistance.close();translation.close();pptx.close();xlsx.close();docx.close();workflows.background(true);pdfText.lock();forms.lock();table.lock();receipt.lock();businessCard.lock();qr.lock();continuousCapture.pause();bookSplit.close();curvature.close();importCrop.close();objectRemoval.close();collage.close();annotationEditor.cancel()}
+                session.setHistoryActive(lockState.phase!=AppLockPhase.LOCKED&&lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED))
+                if(lockState.phase==AppLockPhase.LOCKED){organization.setActive(false);recycle.setActive(false)}
+                else if(lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)){organization.setActive(true);recycle.setActive(true);qr.setActive(true);businessCard.setActive(true);receipt.setActive(true);table.setActive(true);forms.setActive(true);pdfText.setActive(true)}
                 if (lockState.phase != AppLockPhase.LOCKED) {
                     deliverPendingProtectedActions()
                 }
@@ -671,8 +832,10 @@ class MainActivity : FragmentActivity() {
                 )
             }
         }
-        setContent {
+        setPageHarborContent {
             val libraryUiState by library.uiState.collectAsState()
+            val recycleUiState by recycle.state.collectAsState()
+            val organizationUiState by organization.uiState.collectAsState()
             val ocrReviewState by ocrReview.state.collectAsState()
             val ocrBatchState by ocrBatch.state.collectAsState()
             val appLockState by appLock.state.collectAsState()
@@ -686,16 +849,6 @@ class MainActivity : FragmentActivity() {
                 reminder = backupReminderPresentation,
                 reminderLibrarySnapshot = reminderLibrarySnapshot,
             )
-            val orientationPreference = AppOrientationPolicy.resolve(
-                smallestScreenWidthDp = LocalConfiguration.current.smallestScreenWidthDp,
-                screen = session.screen,
-                portabilityVisible = portabilityUiState !is UiPortabilityWorkflowState.Hidden,
-                ocrReviewVisible = ocrReviewState.active,
-                appLocked = appLockState.phase == AppLockPhase.LOCKED,
-            )
-            SideEffect {
-                applyOrientationPreference(orientationPreference)
-            }
             if (appLockState.phase == AppLockPhase.LOCKED) {
                 AppLockScreen(
                     state = appLockState,
@@ -706,6 +859,89 @@ class MainActivity : FragmentActivity() {
                     onOpenDeviceSecuritySettings = ::openDeviceSecuritySettings,
                     onExit = ::finish,
                 )
+            } else if(pdfText.state!=null) {
+                org.synapseworks.pageharbor.pdftext.TextScreen(pdfText,
+                    choose={owner,epoch->if(pdfText.beginInput(owner,epoch))try{textInputLauncher.launch("application/pdf")}catch(_:Exception){pdfText.picked(null)}},
+                    save={owner,epoch,review->if(pdfText.beginSave(owner,epoch,review))try{textSaveLauncher.launch("edited-text.pdf")}catch(_:Exception){pdfText.pickerFailed()}})
+            } else if(forms.state!=null) {
+                org.synapseworks.pageharbor.forms.FormScreen(forms,
+                    choose={owner,epoch->if(forms.beginInput(owner,epoch))try{formInputLauncher.launch("application/pdf")}catch(_:Exception){forms.picked(null)}},
+                    save={owner,epoch,review->if(forms.beginSave(owner,epoch,review))try{formSaveLauncher.launch("filled-form.pdf")}catch(_:Exception){forms.pickerFailed()}})
+            } else if(xlsx.visible) {
+                org.synapseworks.pageharbor.xlsx.XlsxScreen(xlsx,
+                    save={xlsx.beginSave()?.let{name->try{xlsxSave.launch(name)}catch(_:Exception){xlsx.destination(null)}}},
+                    share={xlsx.share{startActivity(it)}},
+                    addTable={xlsx.collect{receipt.close();table.close();table.setActive(true);table.open()}},
+                    addReceipt={xlsx.collect{table.close();receipt.close();receipt.setActive(true);receipt.open()}},
+                    queue=if(workflows.draft?.preset==org.synapseworks.pageharbor.workflow.WorkflowPreset.XLSX)({val p=xlsx.prepared;if(p!=null)workflows.acceptXlsx(p,{xlsx.visible&&xlsx.prepared===p&&appLock.state.value.phase!=AppLockPhase.LOCKED}){xlsx.close();table.close();receipt.close()}})else null)
+            } else if(table.state!=null) {
+                org.synapseworks.pageharbor.ui.home.TableScreen(table,
+                    chooseImage={owner,epoch->if(table.beginPicker(owner,epoch))try{tableImageLauncher.launch("image/*")}catch(_:Exception){table.picked(null)}},
+                    allowCamera={owner,epoch->if(table.beginPermission(owner,epoch))try{tablePermissionLauncher.launch(android.Manifest.permission.CAMERA)}catch(_:Exception){table.permissionResult(false)}},
+                    save={owner,epoch,review->if(table.beginSave(owner,epoch,review))try{tableDestinationLauncher.launch("table.csv")}catch(_:Exception){table.pickerFailed()}},
+                    workbook={xlsx.foreground(true);table.state?.let{xlsx.table(it,table.workbookInput)}},
+                    dismiss={table.close();xlsx.resume()})
+            } else if(receipt.state!=null) {
+                org.synapseworks.pageharbor.ui.home.ReceiptScreen(receipt,
+                    chooseImage={owner,epoch->if(receipt.beginPicker(owner,epoch))try { receiptImageLauncher.launch("image/*") } catch(_: Exception) { receipt.picked(null) }},
+                    allowCamera={owner,epoch->if(receipt.beginPermission(owner,epoch))try { receiptPermissionLauncher.launch(android.Manifest.permission.CAMERA) } catch(_: Exception) { receipt.permissionResult(false) }},
+                    workbook={xlsx.foreground(true);receipt.state?.let{xlsx.receipt(it,receipt.workbookInput)}},
+                    dismiss={receipt.close();xlsx.resume()})
+            } else if(businessCard.state!=null) {
+                org.synapseworks.pageharbor.ui.home.BusinessCardScreen(businessCard,
+                    chooseImage={owner,epoch->if(businessCard.beginPicker(owner,epoch))cardImageLauncher.launch("image/*")},
+                    allowCamera={owner,epoch->if(businessCard.beginPermission(owner,epoch))cardPermissionLauncher.launch(android.Manifest.permission.CAMERA)},
+                    openEditor={owner,epoch->businessCard.handoff(owner,epoch){cardEditorLauncher.launch(it)}})
+            } else if(qr.state!=null) {
+                org.synapseworks.pageharbor.ui.home.QrScreen(qr,
+                    onChooseImage={owner,epoch->if(qr.beginPicker(owner,epoch))qrImageLauncher.launch("image/*")},
+                    onAllowCamera={owner,epoch->if(qr.beginPermission(owner,epoch))qrPermissionLauncher.launch(android.Manifest.permission.CAMERA)})
+            } else if(pptx.visible) {
+                org.synapseworks.pageharbor.pptx.PptxScreen(pptx,
+                    save={pptx.beginSave()?.let{name->try{pptxSave.launch(name)}catch(_:Exception){pptx.destination(null)}}},
+                    share={pptx.share{startActivity(it)}},
+                    queue=if(workflows.draft?.preset==org.synapseworks.pageharbor.workflow.WorkflowPreset.PPTX)({val p=pptx.prepared;if(p!=null)workflows.acceptPptx(p,{pptx.visible&&pptx.prepared===p&&appLock.state.value.phase!=AppLockPhase.LOCKED}){pptx.close()}})else null)
+            } else if(integrity.visible) {
+                androidx.compose.runtime.LaunchedEffect(session.documentRevision,session.documentOwnerToken){integrity.changed()}
+                org.synapseworks.pageharbor.integrity.IntegrityScreen(integrity,pick=::launchIntegrityInput,save=::launchIntegritySave,share={integrity.share{startActivity(it)}})
+            } else if(photo.visible) {
+                androidx.compose.runtime.LaunchedEffect(session.documentRevision,session.documentOwnerToken){photo.changed()}
+                org.synapseworks.pageharbor.photo.PhotoScreen(photo,save=::launchPhotoSave,share={photo.share{startActivity(it)}})
+            } else if(assistance.visible) {
+                androidx.compose.runtime.LaunchedEffect(session.documentRevision,session.documentOwnerToken){assistance.changed()}
+                org.synapseworks.pageharbor.assistance.AssistanceScreen(assistance,save=::launchAssistanceSave,share={pdf->assistance.share(pdf){startActivity(it)}},ocr={assistance.close();recognizeText()})
+            } else if(translation.visible) {
+                androidx.compose.runtime.LaunchedEffect(session.documentRevision,session.documentOwnerToken){translation.changed()}
+                org.synapseworks.pageharbor.translation.TranslationScreen(translation,save={launchTranslationSave(false)},share={translation.share{startActivity(it)}},pdfSave={launchTranslationSave(true)},pdfShare={translation.sharePdf{startActivity(it)}},ocr={translation.close();recognizeText()})
+            } else if(docx.visible) {
+                org.synapseworks.pageharbor.docx.DocxScreen(docx,
+                    save={docx.beginSave()?.let{name->try{docxSave.launch(name)}catch(_:Exception){docx.destination(null)}}},
+                    share={docx.share{startActivity(it)}},
+                    queue={val p=docx.prepared;val c=docx.capture;if(p!=null&&c!=null)workflows.acceptDocx(p,c,current={docx.visible&&docx.prepared===p&&docx.capture===c&&appLock.state.value.phase!=AppLockPhase.LOCKED}){docx.close()}})
+            } else if(workflows.visible) {
+                org.synapseworks.pageharbor.workflow.WorkflowScreen(workflows,canCapture=session.documentPages.isNotEmpty()||workflows.draft?.preset==org.synapseworks.pageharbor.workflow.WorkflowPreset.XLSX,
+                    onCapture=::captureWorkflowDocument,
+                    onSuggest={val document=session.documentSession;val revision=session.documentRevision;lifecycleScope.launch { val ocr=workflowOcr(document);if(workflows.visible && session.documentSession===document && session.documentRevision==revision)workflows.titleSuggestion(ocr,revision) }},
+                    onTree={if(workflows.beginTree())try{workflowTree.launch(android.provider.DocumentsContract.buildDocumentUri("com.android.externalstorage.documents","primary:Download"))}catch(_:Exception){workflows.treeReturned(null)}},
+                    onManual={id->workflows.manual(id)?.let { name->try{if(name.endsWith(".docx"))workflowDocxSave.launch(name)else if(name.endsWith(".xlsx"))workflowXlsxSave.launch(name)else if(name.endsWith(".pptx"))workflowPptxSave.launch(name)else workflowSave.launch(name)}catch(_:Exception){workflows.manualResult(null)} }})
+            } else if(recycleUiState.open) {
+                org.synapseworks.pageharbor.ui.home.RecycleScreen(recycle)
+            } else if(organizationUiState.request.open) {
+                org.synapseworks.pageharbor.ui.home.LibraryOrganizationScreen(organization,onOpen=::openLibraryDocument)
+            } else if(collage.state!=null) {
+                org.synapseworks.pageharbor.ui.home.CollageScreen(collage,onApply=::applyCollage)
+            } else if(objectRemoval.state!=null) {
+                org.synapseworks.pageharbor.ui.home.ObjectRemovalScreen(objectRemoval,onApply=::applyObjectRemoval)
+            } else if(importCrop.state!=null) {
+                org.synapseworks.pageharbor.ui.home.ImportCropScreen(importCrop,onApply=::applyImportCrop)
+            } else if(curvature.state!=null) {
+                org.synapseworks.pageharbor.ui.home.CurvatureScreen(curvature,onApply=::applyCurvature)
+            } else if(bookSplit.state!=null) {
+                org.synapseworks.pageharbor.ui.home.BookSplitScreen(bookSplit,onApply=::applyBookSplit)
+            } else if(continuousCapture.state!=null) {
+                org.synapseworks.pageharbor.ui.home.ContinuousCaptureScreen(continuousCapture,
+                    onCancel=::cancelContinuousCapture,onUse=::useContinuousPages,
+                    onCardCopy=::openCardCopyFromCamera,backendOverride=continuousBackendForTest)
             } else {
                 LaunchedEffect(portabilityUiState) {
                     if (portabilityUiState is UiPortabilityWorkflowState.BackupReminder) {
@@ -748,6 +984,21 @@ class MainActivity : FragmentActivity() {
                     libraryHasDocuments = reminderLibrarySnapshot?.documentCount?.let { it > 0 }
                         ?: libraryUiState.recentDocuments.isNotEmpty(),
                     libraryThumbnailUri = library::thumbnailUri,
+                    onOpenQrScanner = ::openQrScanner,
+                    onOpenBusinessCard = ::openBusinessCard,
+                    onOpenReceipt = ::openReceipt,
+                    onOpenTable = ::openTable,
+                    onOpenForms = ::openForms,
+                    onOpenText = ::openPdfText,
+                    onOpenPptx = ::openPptx,
+                    onOpenIntegrity = ::openIntegrity,
+                    onOpenPhoto = ::openPhoto,
+                    onOpenAssistance = ::openAssistance,
+                    onOpenTranslation = ::openTranslation,
+                    onOpenDocx = ::openDocx,
+                    onOpenWorkflows = { if(appLock.state.value.phase!=AppLockPhase.LOCKED)workflows.open() },
+                    onOpenRecycleBin = { if(appLock.state.value.phase!=AppLockPhase.LOCKED)recycle.open() },
+                    onOpenLibraryOrganization = { openLibraryOrganization(libraryUiState.selectedFolderId,libraryUiState.query,libraryUiState.sortOrder) },
                     onLibraryQueryChange = library::updateQuery,
                     onLibraryFolderSelected = library::selectFolder,
                     onLibrarySortOrderChange = library::updateSortOrder,
@@ -783,6 +1034,27 @@ class MainActivity : FragmentActivity() {
                     onConsumeLibraryAction = library::consumeActionState,
                     onOcrSelectedPageChange = { ocrSelectedPageIndex = it },
                     onPageFilterChange = session::setPageFilter,
+                    onPageAdjustmentsChange = { page, settings -> session.setPageAdjustments(page.id.value, settings, page) },
+                    batchEditor = session.batchEditor,
+                    documentRevision = session.documentRevision,
+                    documentOwnerToken = session.documentOwnerToken,
+                    onReviewedShadowGlare = { page, filter, revision -> session.applyReviewedShadowGlare(page,revision,filter) },
+                    onReviewedWhitening = { page, filter, revision -> session.applyReviewedWhitening(page,revision,filter) },
+                    onReviewedBleedThrough = { page, filter, revision, owner -> session.applyReviewedBleedThrough(page,revision,filter,owner) },
+                    onReviewedCreaseStain = { page, filter, revision, owner -> session.applyReviewedCreaseStain(page,revision,filter,owner) },
+                    onReviewedMoire = { page, filter, revision, owner -> session.applyReviewedMoire(page,revision,filter,owner) },
+                    onBookSplit = { openBookSplit(it) },
+                    onCurvature = ::openCurvature,
+                    onImportCrop = { index -> openImportCrop(index, automatic = false) },
+                    onObjectRemoval = ::openObjectRemoval,
+                    onFingerRemoval = ::openFingerRemoval,
+                    onCollage = ::openCollage,
+                    annotationEditor = annotationEditor,
+                    onOpenAnnotations = ::openAnnotations,
+                    onAnnotationsApply = { page,revision,owner,layer -> appLock.state.value.phase!=AppLockPhase.LOCKED && session.applyAnnotations(page,revision,owner,layer) },
+                    historyState = session.historyState,
+                    onDocumentUndo = { navigateDocumentHistory(true) },
+                    onDocumentRedo = { navigateDocumentHistory(false) },
                     onPageRotate = session::rotatePageClockwise,
                     onPageMove = session::movePage,
                     onPageRemove = session::removePage,
@@ -790,6 +1062,7 @@ class MainActivity : FragmentActivity() {
                     onExtractLibraryPages = ::extractLibraryPages,
                     searchablePdfSaveState = searchablePdfSaveState,
                     onScanDocument = ::launchDocumentScanner,
+                    onManualScan = { openContinuousCapture(singlePage = true) },
                     onImportFiles = ::launchFileImport,
                     onCancelImport = ::cancelImport,
                     onSavePdf = ::choosePdfDestination,
@@ -818,7 +1091,9 @@ class MainActivity : FragmentActivity() {
                     onFitLimitClose = targetSizeWorkflow::close,
                     cardCopyWorkflowState = cardCopyWorkflow.state,
                     onOpenCardCopy = cardCopyWorkflow::open,
-                    onCardCopyScan = { side -> launchCardCopyScanner(side) },
+                    onCardCopyScan = cardCopyWorkflow::retake,
+                    onCardCopyCapture = cardCopyWorkflow::captureSide,
+                    onCancelCardCamera = cardCopyWorkflow::cancelCameraCapture,
                     onCardCopyImport = { side -> launchCardCopyImport(side) },
                     onCardCopyContinueReview = cardCopyWorkflow::continueToReview,
                     onCardCopyRotate = cardCopyWorkflow::rotate,
@@ -847,6 +1122,8 @@ class MainActivity : FragmentActivity() {
                     onCardCopyApplyRedactions = cardCopyWorkflow::applyRedactions,
                     shareSafeWorkflowState = shareSafeWorkflow.state,
                     onOpenShareSafeCopy = ::openShareSafeCopy,
+                    onPasswordPdfExport = ::openPasswordPdfExport,
+                    onLocalPdfTools = ::openLocalPdfTools,
                     onShareSafeRecipe = { recipe ->
                         shareSafeWorkflow.selectRecipe(recipe)
                         if (recipe == ShareSafeRecipe.SHARE_ID_COPY) {
@@ -944,20 +1221,47 @@ class MainActivity : FragmentActivity() {
                     },
                     onExitApp = ::finish,
                 )
+                LocalPdfToolsDialog(
+                    state = localPdfTools.state,
+                    onDismiss = localPdfTools::close,
+                    onOptionsChanged = localPdfTools::discardOutput,
+                    onPrepare = localPdfTools::prepare,
+                    onSave = {
+                        localPdfTools.createSaveRequest()?.let { requestId ->
+                            try {
+                                if (protectedActions.markLocalToolsSavePickerLaunched(requestId)) {
+                                    createLocalToolsPdfLauncher.launch(localPdfTools.state.suggestedName)
+                                } else {
+                                    localPdfTools.save(null, requestId)
+                                    localPdfTools.showMessage("Finish or cancel the previous save dialog first.")
+                                }
+                            } catch (_: ActivityNotFoundException) {
+                                protectedActions.consumeLocalToolsSavePickerRequest()
+                                localPdfTools.save(null, requestId)
+                                localPdfTools.showMessage("No system file picker is available.")
+                            }
+                        }
+                    },
+                    onShare = { handOffLocalPdfToolCopy(preview = false) },
+                    onPreview = { handOffLocalPdfToolCopy(preview = true) },
+                    onIdCopy = { localPdfTools.close(); cardCopyWorkflow.open() },
+                )
+                PasswordPdfExportDialog(
+                    state = passwordPdfExport.state,
+                    onDismiss = passwordPdfExport::close,
+                    onOptionsChanged = passwordPdfExport::discardOutput,
+                    onPrepare = passwordPdfExport::prepare,
+                    onSave = ::choosePasswordPdfDestination,
+                    onShare = ::sharePasswordPdf,
+                )
             }
         }
         handleInboundIntent(intent)
     }
 
-    private fun applyOrientationPreference(preference: AppOrientationPreference) {
-        val requested = when (preference) {
-            AppOrientationPreference.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            AppOrientationPreference.SYSTEM -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        }
-        if (requestedOrientation != requested) requestedOrientation = requested
-    }
-
     override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("password_pdf_save_request", protectedActions.passwordPdfSavePickerRequestForRecreation())
+        outState.putString("local_tools_save_request", protectedActions.localToolsSavePickerRequestForRecreation())
         outState.putString(STATE_PORTABILITY_ROUTE, portabilityRoute.name)
         outState.putString(STATE_MIGRATION_SOURCE, selectedMigrationSource.name)
         outState.putBoolean(STATE_MIGRATION_REVIEW_EXPANDED, migrationReviewExpanded)
@@ -974,6 +1278,8 @@ class MainActivity : FragmentActivity() {
 
     private fun restoreActivityUiState(savedState: Bundle?) {
         if (savedState == null) return
+        protectedActions.restorePasswordPdfSavePickerRequest(savedState.getString("password_pdf_save_request"))
+        protectedActions.restoreLocalToolsSavePickerRequest(savedState.getString("local_tools_save_request"))
         portabilityRoute = savedState.getString(STATE_PORTABILITY_ROUTE)
             ?.let { value -> enumValues<PortabilityRoute>().firstOrNull { it.name == value } }
             ?: PortabilityRoute.NONE
@@ -992,13 +1298,56 @@ class MainActivity : FragmentActivity() {
         )
     }
 
+    private fun updateProtectedWindow(appLockEnabled: Boolean) {
+        if (appLockEnabled) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+    }
+
     override fun onStart() {
         super.onStart()
         appLock.onAppForegrounded(SystemClock.elapsedRealtime())
+        session.setHistoryActive(appLock.state.value.phase!=AppLockPhase.LOCKED)
+        organization.setActive(appLock.state.value.phase!=AppLockPhase.LOCKED)
+        recycle.setActive(appLock.state.value.phase!=AppLockPhase.LOCKED)
+        qr.setActive(appLock.state.value.phase!=AppLockPhase.LOCKED)
+        businessCard.setActive(appLock.state.value.phase!=AppLockPhase.LOCKED)
+        receipt.setActive(appLock.state.value.phase!=AppLockPhase.LOCKED)
+        table.setActive(appLock.state.value.phase!=AppLockPhase.LOCKED)
+        forms.setActive(appLock.state.value.phase!=AppLockPhase.LOCKED)
+        pdfText.setActive(appLock.state.value.phase!=AppLockPhase.LOCKED)
+        workflows.foreground(appLock.state.value.phase!=AppLockPhase.LOCKED)
+        xlsx.foreground(appLock.state.value.phase!=AppLockPhase.LOCKED)
+        pptx.foreground(appLock.state.value.phase!=AppLockPhase.LOCKED)
+        integrity.foreground(appLock.state.value.phase!=AppLockPhase.LOCKED)
+        photo.foreground(appLock.state.value.phase!=AppLockPhase.LOCKED)
+        assistance.foreground(appLock.state.value.phase!=AppLockPhase.LOCKED)
+        translation.foreground(appLock.state.value.phase!=AppLockPhase.LOCKED)
+        docx.foreground(appLock.state.value.phase!=AppLockPhase.LOCKED)
         backupReminder.refreshEligibility()
     }
 
     override fun onStop() {
+        xlsx.background(isChangingConfigurations,table.state?.phase==org.synapseworks.pageharbor.table.TablePhase.IMAGE||receipt.state?.phase==org.synapseworks.pageharbor.receipt.ReceiptPhase.PICKER)
+        pptx.background(isChangingConfigurations)
+        integrity.background(isChangingConfigurations)
+        photo.background(isChangingConfigurations)
+        assistance.background(isChangingConfigurations)
+        translation.background(isChangingConfigurations)
+        docx.background(isChangingConfigurations)
+        workflows.background()
+        businessCard.background(isChangingConfigurations)
+        receipt.background(isChangingConfigurations)
+        table.background(isChangingConfigurations)
+        forms.background(isChangingConfigurations)
+        pdfText.background(isChangingConfigurations)
+        qr.background(isChangingConfigurations)
+        session.setHistoryActive(false)
+        if(!isChangingConfigurations){annotationEditor.cancel();collage.close();organization.setActive(false);recycle.setActive(false)}
+        bookSplit.close()
+        curvature.close()
+        if (!isChangingConfigurations) importCrop.close()
+        objectRemoval.close()
+        continuousCapture.pause()
         appLockAuthenticationController.cancel()
         appLock.onAppBackgrounded(SystemClock.elapsedRealtime())
         super.onStop()
@@ -1676,6 +2025,7 @@ class MainActivity : FragmentActivity() {
             "There is not enough usable temporary storage to verify and stage this restore."
         PortabilityWorkflowFailure.RESTORE_INVALID_OR_CORRUPT ->
             "The backup is invalid, incomplete, or corrupt. Your library was not changed."
+        PortabilityWorkflowFailure.RESTORE_DELETED_DOCUMENT_CONFLICT -> "This archive contains a document deleted here. Restore it from Recycle bin first. Purged known identities stay blocked; existing documents were not replaced."
         PortabilityWorkflowFailure.RESTORE_LIBRARY_UNAVAILABLE,
         PortabilityWorkflowFailure.RESTORE_FAILED,
         -> "The restore could not be completed safely. Your existing library was not replaced."
@@ -1716,7 +2066,7 @@ class MainActivity : FragmentActivity() {
             clearSearchablePdfSave()
             clearNormalDocumentOperations()
             session.clearScan()
-            library.deleteDocument(documentId, session::awaitDocumentSessionLeasesReleased)
+            library.deleteDocument(documentId)
             return
         }
         library.deleteDocument(documentId)
@@ -1971,6 +2321,12 @@ class MainActivity : FragmentActivity() {
                 cardCopyWorkflow.onSaveDestination(action.uri)
             is PendingProtectedAction.ShareSafePdfDestination ->
                 shareSafeWorkflow.onSaveDestination(action.uri)
+            is PendingProtectedAction.PasswordPdfDestination ->
+                passwordPdfExport.save(action.uri, action.requestId) {
+                    appLock.state.value.phase != AppLockPhase.LOCKED
+                }
+            is PendingProtectedAction.LocalToolsPdfDestination ->
+                localPdfTools.save(action.uri, action.requestId)
             is PendingProtectedAction.LaunchPortabilityPicker ->
                 launchPortabilityPicker(action.request)
             is PendingProtectedAction.LaunchMigrationPicker -> launchMigrationPicker(action.request)
@@ -1978,11 +2334,210 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    internal fun openPdfText() {
+        if(appLock.state.value.phase==AppLockPhase.LOCKED||forms.state!=null||table.state!=null||receipt.state!=null||businessCard.state!=null||qr.state!=null||continuousCapture.state!=null||bookSplit.state!=null||curvature.state!=null||objectRemoval.state!=null||collage.state!=null||annotationEditor.state!=null||session.batchEditor.state!=null)return
+        pdfText.open()
+    }
+
+    internal fun openForms() {
+        if(appLock.state.value.phase==AppLockPhase.LOCKED||pdfText.state!=null||table.state!=null||receipt.state!=null||businessCard.state!=null||qr.state!=null||continuousCapture.state!=null||bookSplit.state!=null||curvature.state!=null||objectRemoval.state!=null||collage.state!=null||annotationEditor.state!=null||session.batchEditor.state!=null)return
+        forms.open()
+    }
+
+    internal fun openTable() {
+        if(appLock.state.value.phase==AppLockPhase.LOCKED||pdfText.state!=null||forms.state!=null||receipt.state!=null||businessCard.state!=null||qr.state!=null||continuousCapture.state!=null||bookSplit.state!=null||curvature.state!=null||objectRemoval.state!=null||collage.state!=null||annotationEditor.state!=null||session.batchEditor.state!=null)return
+        table.open()
+    }
+
+    internal fun openReceipt() {
+        if(appLock.state.value.phase==AppLockPhase.LOCKED||pdfText.state!=null||forms.state!=null||table.state!=null||businessCard.state!=null||qr.state!=null||continuousCapture.state!=null||bookSplit.state!=null||curvature.state!=null||objectRemoval.state!=null||collage.state!=null||annotationEditor.state!=null||session.batchEditor.state!=null)return
+        receipt.open()
+    }
+
+    internal fun openBusinessCard() {
+        if(appLock.state.value.phase==AppLockPhase.LOCKED||pdfText.state!=null||forms.state!=null||table.state!=null||receipt.state!=null||qr.state!=null||continuousCapture.state!=null||bookSplit.state!=null||curvature.state!=null||objectRemoval.state!=null||collage.state!=null||annotationEditor.state!=null||session.batchEditor.state!=null)return
+        businessCard.open()
+    }
+
+    internal fun openQrScanner() {
+        if(appLock.state.value.phase==AppLockPhase.LOCKED||pdfText.state!=null||forms.state!=null||table.state!=null||receipt.state!=null||businessCard.state!=null||continuousCapture.state!=null||bookSplit.state!=null||curvature.state!=null||objectRemoval.state!=null||collage.state!=null||annotationEditor.state!=null||session.batchEditor.state!=null)return
+        qr.open()
+    }
+
+    internal fun openContinuousCapture(singlePage: Boolean = false) {
+        if(appLock.state.value.phase==AppLockPhase.LOCKED||pdfText.state!=null||forms.state!=null||table.state!=null||receipt.state!=null||businessCard.state!=null||qr.state!=null||!continuousCapture.canOpen)return
+        val token=session.beginContinuousRequest()?:run {
+            if(session.documentPages.isEmpty()&&session.documentSession.directPdfSource!=null)
+                android.widget.Toast.makeText(this,R.string.continuous_pdf_only,android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        if(!continuousCapture.open(token,session.documentRevision,singlePage))session.cancelContinuousRequest(token)
+    }
+    internal fun openCardCopyFromCamera(cameraOwner: String) {
+        val capture = continuousCapture.state ?: return
+        if (capture.owner != cameraOwner || !capture.canSelectMode ||
+            appLock.state.value.phase == AppLockPhase.LOCKED || cardCopyWorkflow.state != CardCopyWorkflowState.Hidden) return
+        // End only this empty camera acquisition. The current document remains the return destination.
+        cancelContinuousCapture()
+        cardCopyWorkflow.open()
+    }
+
+    internal fun cancelContinuousCapture() {
+        continuousUseJob?.cancel();continuousUseJob=null;continuousUseOwner=null
+        continuousCapture.request?.let(session::cancelContinuousRequest)
+        continuousCapture.cancel()
+    }
+    internal fun useContinuousPages() {
+        if(continuousUseJob?.isActive==true)return
+        val capture=continuousCapture.state?:return
+        val token=continuousCapture.request?:return
+        continuousUseOwner=capture.owner
+        continuousUseJob=lifecycleScope.launch {
+            try {
+                val input=withContext(Dispatchers.IO){val context=kotlinx.coroutines.currentCoroutineContext();runCatching{continuousCapture.input{context.ensureActive()}}.getOrNull()}
+                if(input==null){
+                    if(continuousCapture.state===capture){cancelContinuousCapture();android.widget.Toast.makeText(this@MainActivity,R.string.continuous_capture_lost,android.widget.Toast.LENGTH_SHORT).show()}
+                    return@launch
+                }
+                if(continuousCapture.state!==capture||appLock.state.value.phase==AppLockPhase.LOCKED)return@launch
+                if(!continuousCapture.transfer{session.completeContinuousRequest(token,capture.revision,input)}) {
+                    cancelContinuousCapture()
+                    android.widget.Toast.makeText(this@MainActivity,R.string.continuous_stale,android.widget.Toast.LENGTH_SHORT).show()
+                } else if (capture.singlePage) {
+                    openCapturedPageReviewWhenReady(capture.mode)
+                }
+            } finally {if(continuousUseOwner==capture.owner){continuousUseJob=null;continuousUseOwner=null}}
+        }
+    }
+
+    private suspend fun openCapturedPageReviewWhenReady(mode: CaptureMode) {
+        val published = session.documentSession
+        val revision = session.documentRevision
+        val page = published.pages.lastOrNull() ?: return
+        // Publishing newly owned files starts an asynchronous history audit. Retain this explicit
+        // review request until it admits that exact page, or until its UI owner is no longer active.
+        val stillCurrent = {
+            session.documentSession === published && session.documentRevision == revision &&
+                session.screen == PageHarborScreen.ScanResult && session.documentPages.lastOrNull() === page &&
+                appLock.state.value.phase != AppLockPhase.LOCKED &&
+                lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+        }
+        combine(
+            snapshotFlow { session.historyReady() || session.documentSession !== published || session.screen != PageHarborScreen.ScanResult },
+            session.documentRevisionChanges, lifecycle.currentStateFlow, appLock.state,
+        ) { readyOrChanged, currentRevision, lifecycleState, lock ->
+            readyOrChanged || currentRevision != revision || !lifecycleState.isAtLeast(Lifecycle.State.STARTED) ||
+                lock.phase == AppLockPhase.LOCKED
+        }.first { it }
+        if (stillCurrent()) {
+            if (mode == CaptureMode.BOOK) {
+                openBookSplit(published.pages.lastIndex, capturedSpread = true)
+            } else {
+                // Explicit review stays open when automatic boundary detection has no proposal.
+                openImportCrop(published.pages.lastIndex, automatic = false)
+            }
+        }
+    }
+
+    internal fun openLibraryOrganization(folderId:String?=null,query:String="",sort:org.synapseworks.pageharbor.library.LibrarySortOrder=org.synapseworks.pageharbor.library.LibrarySortOrder.MODIFIED_DESC) {
+        if(appLock.state.value.phase==AppLockPhase.LOCKED||collage.state!=null||annotationEditor.state!=null||curvature.state!=null||objectRemoval.state!=null||bookSplit.state!=null||continuousCapture.state!=null)return
+        organization.open(folderId,query,sort)
+    }
+
+    internal fun openCollage() {
+        if(!session.historyReady()||appLock.state.value.phase==AppLockPhase.LOCKED||continuousCapture.state!=null||bookSplit.state!=null||curvature.state!=null||objectRemoval.state!=null||collage.state!=null||annotationEditor.state!=null||session.batchEditor.state!=null)return
+        val document=session
+        val lease=document.acquireDocumentSessionLease(documentSessionLeaseReleaseObserverForTest)?:return
+        if(!collage.open(lease.session,document.documentRevision,document.documentOwnerToken){document.releaseDocumentSessionLease(lease)})document.releaseDocumentSessionLease(lease)
+    }
+    internal fun applyCollage() {
+        collage.apply{expected,revision,owner,output->
+            appLock.state.value.phase!=AppLockPhase.LOCKED&&session.applyCollage(expected,revision,output,owner)
+        }
+    }
+
+    internal fun openAnnotations(page:org.synapseworks.pageharbor.document.session.DocumentPage) {
+        if(!session.historyReady()||appLock.state.value.phase==AppLockPhase.LOCKED||continuousCapture.state!=null||bookSplit.state!=null||curvature.state!=null||objectRemoval.state!=null||collage.state!=null||session.batchEditor.state!=null)return
+        val document=session
+        if(document.documentSession.pages.firstOrNull{it.id==page.id}!==page)return
+        val lease=document.acquireDocumentSessionLease()?:return
+        annotationEditor.open(page,document.documentRevision,document.documentOwnerToken){document.releaseDocumentSessionLease(lease)}
+    }
+
+    internal fun openBookSplit(pageIndex:Int, capturedSpread: Boolean = false) {
+        if(!session.historyReady())return
+        if(session.documentSession.pages.getOrNull(pageIndex)?.annotations?.isEmpty==false){android.widget.Toast.makeText(this,"Remove annotations before changing page geometry.",android.widget.Toast.LENGTH_LONG).show();return}
+        if(appLock.state.value.phase==AppLockPhase.LOCKED||continuousCapture.state!=null||bookSplit.state!=null||curvature.state!=null||objectRemoval.state!=null||collage.state!=null||annotationEditor.state!=null)return
+        val document=session
+        val lease=document.acquireDocumentSessionLease(documentSessionLeaseReleaseObserverForTest)?:return
+        if(!bookSplit.open(lease.session,document.documentRevision,pageIndex,capturedSpread){document.releaseDocumentSessionLease(lease)})document.releaseDocumentSessionLease(lease)
+    }
+    internal fun applyBookSplit() {
+        bookSplit.apply{expected,revision,replacements->
+            appLock.state.value.phase!=AppLockPhase.LOCKED&&session.applyBookSplit(expected,revision,replacements)
+        }
+    }
+
+    internal fun openObjectRemoval(pageIndex:Int)=openRemoval(pageIndex,org.synapseworks.pageharbor.document.objectremoval.RemovalMode.BRUSH)
+    internal fun openFingerRemoval(pageIndex:Int)=openRemoval(pageIndex,org.synapseworks.pageharbor.document.objectremoval.RemovalMode.FINGER)
+    private fun openRemoval(pageIndex:Int,mode:org.synapseworks.pageharbor.document.objectremoval.RemovalMode) {
+        if(!session.historyReady()||appLock.state.value.phase==AppLockPhase.LOCKED||continuousCapture.state!=null||bookSplit.state!=null||curvature.state!=null||objectRemoval.state!=null||collage.state!=null||annotationEditor.state!=null||session.batchEditor.state!=null)return
+        val document=session
+        val lease=document.acquireDocumentSessionLease(documentSessionLeaseReleaseObserverForTest)?:return
+        if(!objectRemoval.open(lease.session,document.documentRevision,pageIndex,document.documentOwnerToken,mode){document.releaseDocumentSessionLease(lease)})document.releaseDocumentSessionLease(lease)
+    }
+    internal fun applyObjectRemoval() {
+        val action=if(objectRemoval.state?.mode==org.synapseworks.pageharbor.document.objectremoval.RemovalMode.FINGER)org.synapseworks.pageharbor.document.history.HistoryAction.FINGER_REMOVAL else org.synapseworks.pageharbor.document.history.HistoryAction.OBJECT_REMOVAL
+        objectRemoval.apply{expected,revision,output,owner->
+            appLock.state.value.phase!=AppLockPhase.LOCKED&&session.applyObjectRemoval(expected,revision,output,owner,action)
+        }
+    }
+
+    internal fun openCurvature(pageIndex:Int) {
+        if(!session.historyReady())return
+        if(session.documentSession.pages.getOrNull(pageIndex)?.annotations?.isEmpty==false){android.widget.Toast.makeText(this,"Remove annotations before changing page geometry.",android.widget.Toast.LENGTH_LONG).show();return}
+        if(appLock.state.value.phase==AppLockPhase.LOCKED||continuousCapture.state!=null||bookSplit.state!=null||curvature.state!=null||objectRemoval.state!=null||collage.state!=null||annotationEditor.state!=null)return
+        val document=session
+        val lease=document.acquireDocumentSessionLease(documentSessionLeaseReleaseObserverForTest)?:return
+        if(!curvature.open(lease.session,document.documentRevision,pageIndex){document.releaseDocumentSessionLease(lease)})document.releaseDocumentSessionLease(lease)
+    }
+    internal fun applyCurvature() {
+        curvature.apply{expected,revision,replacement->
+            appLock.state.value.phase!=AppLockPhase.LOCKED&&session.applyCurvature(expected,revision,replacement)
+        }
+    }
+
+    private fun openImportCrop(pageIndex: Int, automatic: Boolean) {
+        if (!session.historyReady() || appLock.state.value.phase == AppLockPhase.LOCKED ||
+            importCrop.state != null || continuousCapture.state != null || bookSplit.state != null ||
+            curvature.state != null || objectRemoval.state != null || collage.state != null ||
+            annotationEditor.state != null || session.batchEditor.state != null) return
+        if (session.documentPages.getOrNull(pageIndex)?.supportsImportCrop() != true) return
+        val document = session
+        val lease = document.acquireDocumentSessionLease(documentSessionLeaseReleaseObserverForTest) ?: return
+        if (!importCrop.open(lease.session, document.documentRevision, pageIndex, automatic) {
+                document.releaseDocumentSessionLease(lease)
+            }) document.releaseDocumentSessionLease(lease)
+    }
+
+    private fun applyImportCrop() {
+        importCrop.apply { expected, revision, page, derived, filter ->
+            appLock.state.value.phase != AppLockPhase.LOCKED &&
+                lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED) &&
+                session.applyPageGeometry(expected, revision, page, derived, filter,
+                    org.synapseworks.pageharbor.document.history.HistoryAction.CROP)
+        }
+    }
+
+    internal fun navigateDocumentHistory(undo:Boolean):Boolean {
+        if(appLock.state.value.phase==AppLockPhase.LOCKED||!lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)||
+            continuousCapture.state!=null||bookSplit.state!=null||curvature.state!=null||importCrop.state!=null||objectRemoval.state!=null||collage.state!=null||annotationEditor.state!=null||session.batchEditor.state!=null)return false
+        return if(undo)session.undoDocument()else session.redoDocument()
+    }
+
     private fun launchDocumentScanner() {
         if (session.beginScannerRequest() == null) return
         clearNormalDocumentOperations()
-        val remainingPageCapacity = session.remainingPageCapacity()
-
         val options = GmsDocumentScannerOptions.Builder()
             .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_BASE_WITH_FILTER)
             .setResultFormats(
@@ -1990,7 +2545,6 @@ class MainActivity : FragmentActivity() {
                 GmsDocumentScannerOptions.RESULT_FORMAT_PDF,
             )
             .setGalleryImportAllowed(true)
-            .setPageLimit(remainingPageCapacity)
             .build()
 
         GmsDocumentScanning.getClient(options)
@@ -2027,7 +2581,8 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun handleInboundIntentUnlocked(intent: Intent) {
-        when (val input = extractInboundShareInput(intent)) {
+        inboundPhotoJob?.cancel()
+        when (val input = extractInboundShareInput(intent, privateShareAuthorities)) {
             InboundShareInput.NotShareIntent -> Unit
             is InboundShareInput.Failure -> {
                 consumeInboundActivityIntent()
@@ -2035,7 +2590,12 @@ class MainActivity : FragmentActivity() {
                 session.failImportRequest(input.reason)
             }
             is InboundShareInput.Ready -> {
+                if (input.isSinglePhotoShare(intent.action)) {
+                    importSharedPhotoWhenReady(intent, input)
+                    return
+                }
                 consumeInboundActivityIntent()
+                importCrop.close()
                 inboundMigrationFlow = true
                 inboundMigrationRestoreExistingTask = inboundIntentArrivedViaNewIntent
                 inboundIntentArrivedViaNewIntent = false
@@ -2046,6 +2606,26 @@ class MainActivity : FragmentActivity() {
                 migrationShowIssues = false
                 migration.dismissResult()
                 migration.startInboundShare(input.resources, MigrationSourceApp.OTHER)
+            }
+        }
+    }
+
+    private fun importSharedPhotoWhenReady(intent: Intent, input: InboundShareInput.Ready) {
+        inboundPhotoJob = lifecycleScope.launch {
+            lifecycle.currentStateFlow.first { it.isAtLeast(Lifecycle.State.STARTED) }
+            snapshotFlow { session.historyReady() || appLock.state.value.phase == AppLockPhase.LOCKED }.first { it }
+            if (appLock.gate(AppLockProtectedEntryPoint.INBOUND_SHARE).decision != AppLockAccessDecision.ALLOW) {
+                protectedActions.enqueue(PendingProtectedAction.InboundIntent(intent, intent.inboundShareFingerprint()))
+                return@launch
+            }
+            consumeInboundActivityIntent()
+            inboundIntentArrivedViaNewIntent = false
+            if (session.beginImportRequest(DocumentImportOrigin.INBOUND_SHARE)) {
+                importCrop.close()
+                processImportedUris(
+                    input.uris,
+                    org.synapseworks.pageharbor.document.session.DocumentSourceCategory.INBOUND_SHARE,
+                )
             }
         }
     }
@@ -2061,7 +2641,7 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun Intent.inboundShareFingerprint(): String = when (
-        val input = extractInboundShareInput(this)
+        val input = extractInboundShareInput(this, privateShareAuthorities)
     ) {
         is InboundShareInput.Ready -> buildString {
             append(action)
@@ -2118,6 +2698,14 @@ class MainActivity : FragmentActivity() {
                     clearSearchablePdfSave()
                     clearNormalDocumentOperations()
                     session.completeImportRequest(result)
+                    val completed = session.importUiState as? org.synapseworks.pageharbor.document.importing.DocumentImportUiState.Completed
+                    if (completed?.appended == false && session.documentPages.singleOrNull()?.supportsImportCrop() == true) {
+                        val importedRevision = session.documentRevision
+                        snapshotFlow { session.historyReady() || session.documentRevision != importedRevision }.first { it }
+                        if (session.documentRevision == importedRevision && session.screen == PageHarborScreen.ScanResult) {
+                            openImportCrop(0, automatic = true)
+                        }
+                    }
                 }
 
                 is DocumentImportPreparationResult.Failure -> {
@@ -2438,6 +3026,9 @@ class MainActivity : FragmentActivity() {
                                 pageId = page.id.value,
                                 originalUri = page.source.toAndroidUri(),
                                 filter = page.filter,
+                                adjustments = page.adjustments,
+                                annotations = page.annotations,
+                                paperSize = page.paperSize,
                                 rotation = page.rotation,
                                 contentType = page.contentType,
                                 imageMetadata = page.imageMetadata,
@@ -2668,6 +3259,9 @@ class MainActivity : FragmentActivity() {
                                 expectedSourceSha256 = sourceHash,
                                 regions = emptyList(),
                                 filter = page.filter,
+                                adjustments = page.adjustments,
+                                annotations = page.annotations,
+                                paperSize = page.paperSize,
                                 rotation = page.rotation,
                                 effectiveOcr = effectiveOcr[index],
                                 ocrProvenance = effectiveOcr[index]?.layout
@@ -2756,26 +3350,6 @@ class MainActivity : FragmentActivity() {
                 -> shareSafeWorkflow.markShareResult(false)
             }
         }
-    }
-
-    private fun launchCardCopyScanner(side: CardCopySide) {
-        if (!cardCopyWorkflow.beginAcquisition(side, CardCopyAcquisition.SCAN)) return
-        val options = GmsDocumentScannerOptions.Builder()
-            .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_BASE_WITH_FILTER)
-            .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
-            .setGalleryImportAllowed(false)
-            .setPageLimit(1)
-            .build()
-        GmsDocumentScanning.getClient(options)
-            .getStartScanIntent(this)
-            .addOnSuccessListener { sender ->
-                try {
-                    cardCopyScanLauncher.launch(IntentSenderRequest.Builder(sender).build())
-                } catch (_: RuntimeException) {
-                    cardCopyWorkflow.onAcquisitionFailure()
-                }
-            }
-            .addOnFailureListener { cardCopyWorkflow.onAcquisitionFailure() }
     }
 
     private fun launchCardCopyImport(side: CardCopySide) {
@@ -2956,6 +3530,261 @@ class MainActivity : FragmentActivity() {
             PdfShareIntentResult.NoPdfAvailable,
             PdfShareIntentResult.InvalidUri,
             -> targetSizeWorkflow.markShareFailed()
+        }
+    }
+
+    private fun openLocalPdfTools() {
+        if (localPdfTools.state.visible) return
+        val lease = session.acquireDocumentSessionLease(documentSessionLeaseReleaseObserverForTest) ?: return
+        val plan = normalPdfExportPlan(lease.session)
+        lifecycleScope.launch {
+            try {
+                localPdfTools.open(plan)
+            } finally {
+                session.releaseDocumentSessionLease(lease)
+            }
+        }
+    }
+
+    private fun handOffLocalPdfToolCopy(preview: Boolean) {
+        val output = localPdfTools.beginHandoff() ?: return
+        lifecycleScope.launch {
+            val preparedOwner = AtomicReference<PdfSharePreparationResult.Ready?>()
+            var handedOff = false
+            var message: String? = null
+            try {
+                val prepared = withContext(Dispatchers.IO) {
+                    preparePdfForSharing(this@MainActivity, Uri.fromFile(output)).also {
+                        if (it is PdfSharePreparationResult.Ready) preparedOwner.set(it)
+                    }
+                }
+                if (appLock.state.value.phase == AppLockPhase.LOCKED) {
+                    message = "Unlock RME, then choose Preview or Share again."
+                    return@launch
+                }
+                if (prepared !is PdfSharePreparationResult.Ready) {
+                    message = "The prepared PDF could not be opened."
+                    return@launch
+                }
+                val intent = if (preview) {
+                    Intent(Intent.ACTION_VIEW).setDataAndType(prepared.uri, "application/pdf")
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        .apply { clipData = android.content.ClipData.newRawUri("PDF", prepared.uri) }
+                } else {
+                    val result = createPdfShareIntent(prepared.uri)
+                    if (result !is PdfShareIntentResult.Success) return@launch
+                    Intent.createChooser(result.intent, getString(R.string.pdf_share_chooser_title))
+                }
+                startActivity(intent)
+                handedOff = true
+                preparedOwner.set(null)
+            } catch (_: CancellationException) {
+                // The private hand-off copy is released below if Android never received it.
+            } catch (_: ActivityNotFoundException) {
+                message = "No application is available for this PDF."
+            } catch (_: Exception) {
+                message = "The PDF could not be opened."
+            } finally {
+                if (!handedOff) preparedOwner.getAndSet(null)?.let(::discardPreparedPdfShare)
+                localPdfTools.finishHandoff(output, message)
+            }
+        }
+    }
+
+    private suspend fun workflowOcr(document:DocumentSession):OcrResult? = try { captureTargetSizeEffectiveOcr(document) } catch(cancelled:kotlinx.coroutines.CancellationException) { throw cancelled } catch(_:Exception) { null }
+
+    private fun openPptx() {
+        if(appLock.state.value.phase==AppLockPhase.LOCKED||pptx.visible||!lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED))return
+        val document=session;val revision=document.documentRevision;val owner=document.documentOwnerToken
+        val lease=document.acquireDocumentSessionLease()?:return
+        pptx.foreground(true)
+        pptx.open(lease.session,revision,owner,
+            current={document.documentRevision==revision&&document.documentOwnerToken==owner&&appLock.state.value.phase!=AppLockPhase.LOCKED&&lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)},
+            release={document.releaseDocumentSessionLease(lease)},ocrProvider={workflowOcr(lease.session)})
+    }
+
+    private fun openIntegrity(){
+        if(appLock.state.value.phase==AppLockPhase.LOCKED||integrity.visible)return
+        val revision=session.documentRevision;val owner=session.documentOwnerToken
+        integrity.open{session.documentRevision==revision&&session.documentOwnerToken==owner&&appLock.state.value.phase!=AppLockPhase.LOCKED}
+    }
+    private fun launchIntegrityInput(baseline:Boolean){
+        val ticket=integrity.beginPick(baseline)?:return
+        val launcher=activityResultRegistry.register("integrity-input:"+integrity.owner+":"+ticket,ActivityResultContracts.OpenDocument()){uri->
+            val prior=integrityInputs.remove(ticket);integrity.foreground(appLock.state.value.phase!=AppLockPhase.LOCKED)
+            if(appLock.state.value.phase==AppLockPhase.LOCKED)integrity.close()
+            integrity.selected(ticket,uri);prior?.unregister()
+        };integrityInputs[ticket]=launcher
+        try{launcher.launch(arrayOf("application/pdf"))}catch(_:Exception){integrityInputs.remove(ticket)?.unregister();integrity.selected(ticket,null)}
+    }
+    private fun launchIntegritySave(){
+        val name=integrity.beginSave()?:return;val ticket=integrity.saveTicket?:return
+        val launcher=activityResultRegistry.register("integrity-export:"+integrity.owner+":"+ticket,ActivityResultContracts.CreateDocument("text/plain")){uri->
+            val prior=integritySaves.remove(ticket);integrity.foreground(appLock.state.value.phase!=AppLockPhase.LOCKED)
+            if(appLock.state.value.phase==AppLockPhase.LOCKED)integrity.close()
+            integrity.destination(ticket,uri);prior?.unregister()
+        };integritySaves[ticket]=launcher
+        try{launcher.launch(name)}catch(_:Exception){integritySaves.remove(ticket)?.unregister();integrity.destination(ticket,null)}
+    }
+    private fun openPhoto(index:Int){
+        if(appLock.state.value.phase==AppLockPhase.LOCKED||photo.visible)return
+        val document=session;val revision=document.documentRevision;val owner=document.documentOwnerToken
+        val lease=document.acquireDocumentSessionLease()?:return
+        val page=lease.session.pages.getOrNull(index)?:run{document.releaseDocumentSessionLease(lease);return}
+        photo.open(page,lease.session.originalPdfSources+lease.session.pages.map{it.source},
+            {document.documentRevision==revision&&document.documentOwnerToken==owner&&document.documentSession.pages.getOrNull(index)===page&&appLock.state.value.phase!=AppLockPhase.LOCKED},
+            {document.releaseDocumentSessionLease(lease)})
+    }
+    private fun launchPhotoSave(){
+        val name=photo.beginSave()?:return;val ticket=photo.saveTicket?:return
+        val launcher=activityResultRegistry.register("photo-export:"+photo.owner+":"+ticket,ActivityResultContracts.CreateDocument("image/png")){uri->
+            val prior=photoSaves.remove(ticket);photo.foreground(appLock.state.value.phase!=AppLockPhase.LOCKED)
+            if(appLock.state.value.phase==AppLockPhase.LOCKED)photo.close()
+            photo.destination(ticket,uri);prior?.unregister()
+        };photoSaves[ticket]=launcher
+        try{launcher.launch(name)}catch(_:Exception){photoSaves.remove(ticket)?.unregister();photo.destination(ticket,null)}
+    }
+    private fun openAssistance(){
+        if(appLock.state.value.phase==AppLockPhase.LOCKED||assistance.visible)return
+        val document=session;val revision=document.documentRevision;val owner=document.documentOwnerToken
+        val lease=document.acquireDocumentSessionLease()?:return
+        assistance.open(lease.session,revision,{document.documentRevision==revision&&document.documentOwnerToken==owner&&appLock.state.value.phase!=AppLockPhase.LOCKED},{document.releaseDocumentSessionLease(lease)}){workflowOcr(lease.session)}
+    }
+    private fun launchAssistanceSave(pdf:Boolean){
+        val name=assistance.beginSave(pdf)?:return;val ticket=assistance.saveTicket?:return
+        val launcher=activityResultRegistry.register("assistance-export:"+assistance.owner+":"+ticket,ActivityResultContracts.CreateDocument(if(pdf)"application/pdf"else"text/plain")){uri->
+            val prior=assistanceSaves.remove(ticket);assistance.foreground(appLock.state.value.phase!=AppLockPhase.LOCKED)
+            if(appLock.state.value.phase==AppLockPhase.LOCKED)assistance.close()
+            assistance.destination(ticket,uri);prior?.unregister()
+        };assistanceSaves[ticket]=launcher
+        try{launcher.launch(name)}catch(_:Exception){assistanceSaves.remove(ticket)?.unregister();assistance.destination(ticket,null)}
+    }
+    private fun launchTranslationSave(pdf:Boolean){
+        val name=(if(pdf)translation.beginPdfSave()else translation.beginSave())?:return
+        val ticket=translation.saveTicket?:return
+        val launcher=activityResultRegistry.register("translation-export:"+translation.owner+":"+ticket,ActivityResultContracts.CreateDocument(if(pdf)"application/pdf" else "text/plain")){uri->
+            val prior=translationSaves.remove(ticket)
+            translation.foreground(appLock.state.value.phase!=AppLockPhase.LOCKED)
+            if(appLock.state.value.phase==AppLockPhase.LOCKED)translation.close()
+            translation.destination(ticket,uri);prior?.unregister()
+        }
+        translationSaves[ticket]=launcher
+        try{launcher.launch(name)}catch(_:Exception){translationSaves.remove(ticket)?.unregister();translation.destination(ticket,null)}
+    }
+
+    private fun openTranslation(){
+        if(appLock.state.value.phase==AppLockPhase.LOCKED || translation.visible)return
+        val document=session;val revision=document.documentRevision;val owner=document.documentOwnerToken
+        val lease=document.acquireDocumentSessionLease()?:return
+        translation.open(lease.session,revision,{document.documentRevision==revision&&document.documentOwnerToken==owner&&appLock.state.value.phase!=AppLockPhase.LOCKED},{document.releaseDocumentSessionLease(lease)}){workflowOcr(lease.session)}
+    }
+
+    private fun openDocx() = openDocx(false)
+
+    private fun openDocx(fromRecipe:Boolean) {
+        if(appLock.state.value.phase==AppLockPhase.LOCKED || docx.visible || !lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED))return
+        val document=session;val revision=document.documentRevision;val owner=document.documentOwnerToken
+        val ticket=if(fromRecipe)workflows.beginDocx(revision,owner)?:return else null
+        val lease=document.acquireDocumentSessionLease()?:return
+        docx.foreground(true)
+        docx.open(lease.session,null,revision,owner,
+            current={document.documentRevision==revision && document.documentOwnerToken==owner && appLock.state.value.phase!=AppLockPhase.LOCKED && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)},
+            release={document.releaseDocumentSessionLease(lease)},recipeName=ticket?.name,
+            ocrProvider={workflowOcr(lease.session)})
+    }
+
+    private fun captureWorkflowDocument(password:CharArray) {
+        // M35 captures a separate reviewed Office PDF, never the current library document.
+        if(workflows.draft?.preset==org.synapseworks.pageharbor.workflow.WorkflowPreset.OFFICE) {
+            password.fill('\u0000')
+            if(appLock.state.value.phase==AppLockPhase.LOCKED)return
+            val ticket=workflows.beginOffice()?:return
+            officeRecipeTicket=ticket
+            try { officeRecipeLauncher.launch(Intent(this,org.synapseworks.pageharbor.office.OfficeImportActivity::class.java).putExtra(org.synapseworks.pageharbor.office.OfficeRecipeOffers.REQUEST,ticket.request)) }
+            catch(_:Exception){officeRecipeTicket=null}
+            return
+        }
+        if(workflows.draft?.preset==org.synapseworks.pageharbor.workflow.WorkflowPreset.PPTX){password.fill('\u0000');if(appLock.state.value.phase!=AppLockPhase.LOCKED)openPptx();return}
+        if(workflows.draft?.preset==org.synapseworks.pageharbor.workflow.WorkflowPreset.XLSX){password.fill('\u0000');if(appLock.state.value.phase!=AppLockPhase.LOCKED){xlsx.foreground(true);xlsx.openEmpty()};return}
+        if(workflows.draft?.preset==org.synapseworks.pageharbor.workflow.WorkflowPreset.DOCX){password.fill('\u0000');openDocx(true);return}
+        if(appLock.state.value.phase==AppLockPhase.LOCKED){password.fill('\u0000');return}
+        val document=session;val revision=document.documentRevision;val owner=document.documentOwnerToken
+        val lease=document.acquireDocumentSessionLease()?:run{password.fill('\u0000');workflows.noDocument();return}
+        lifecycleScope.launch {
+            var handed=false
+            try {
+                val ocr=workflowOcr(lease.session)
+                workflows.capture(lease.session,revision,owner,ocr,password,
+                    current={document.documentRevision==revision && document.documentOwnerToken==owner && appLock.state.value.phase!=AppLockPhase.LOCKED},
+                    release={document.releaseDocumentSessionLease(lease)})
+                handed=true
+            } finally { password.fill('\u0000');if(!handed)document.releaseDocumentSessionLease(lease) }
+        }
+    }
+
+    private fun openPasswordPdfExport() {
+        if (passwordPdfExport.state.visible || session.documentPages.isEmpty() ||
+            appLock.state.value.phase == AppLockPhase.LOCKED) return
+        val lease = session.acquireDocumentSessionLease(documentSessionLeaseReleaseObserverForTest) ?: return
+        val plan = normalPdfExportPlan(lease.session)
+        lifecycleScope.launch {
+            try { passwordPdfExport.open(plan) }
+            finally { session.releaseDocumentSessionLease(lease) }
+        }
+    }
+
+    private fun choosePasswordPdfDestination() {
+        if (appLock.state.value.phase == AppLockPhase.LOCKED) return
+        val request = passwordPdfExport.createSaveRequest() ?: return
+        try {
+            if (protectedActions.markPasswordPdfSavePickerLaunched(request)) {
+                createPasswordPdfLauncher.launch("RME-protected.pdf")
+            } else {
+                passwordPdfExport.save(null, request) { false }
+                passwordPdfExport.showMessage(R.string.protect_previous_picker)
+            }
+        } catch (_: ActivityNotFoundException) {
+            protectedActions.consumePasswordPdfSavePickerRequest()
+            passwordPdfExport.save(null, request) { false }
+            passwordPdfExport.showMessage(R.string.protect_no_picker)
+        }
+    }
+
+    private fun sharePasswordPdf() {
+        if (appLock.state.value.phase == AppLockPhase.LOCKED) return
+        val handoff = passwordPdfExport.beginHandoff() ?: return
+        lifecycleScope.launch {
+            val preparedOwner = AtomicReference<PdfSharePreparationResult.Ready?>()
+            var handedOff = false
+            var message: Int? = null
+            try {
+                val prepared = withContext(Dispatchers.IO) {
+                    preparePdfForSharing(this@MainActivity, Uri.fromFile(handoff.output)).also {
+                        if (it is PdfSharePreparationResult.Ready) preparedOwner.set(it)
+                    }
+                }
+                if (!passwordPdfExport.isCurrent(handoff)) return@launch
+                if (appLock.state.value.phase == AppLockPhase.LOCKED) {
+                    message = R.string.protect_unlock_share
+                    return@launch
+                }
+                if (prepared !is PdfSharePreparationResult.Ready) {
+                    message = R.string.protect_share_failure
+                    return@launch
+                }
+                val intent = createPdfShareIntent(prepared.uri)
+                if (intent !is PdfShareIntentResult.Success) return@launch
+                startActivity(Intent.createChooser(intent.intent, getString(R.string.pdf_share_chooser_title)))
+                handedOff = true
+                preparedOwner.set(null)
+            } catch (_: CancellationException) {
+                // The undelivered private handoff copy is released below.
+            } catch (_: Exception) {
+                message = R.string.protect_share_failure
+            } finally {
+                if (!handedOff) preparedOwner.getAndSet(null)?.let(::discardPreparedPdfShare)
+                passwordPdfExport.finishHandoff(handoff, message)
+            }
         }
     }
 
@@ -3440,8 +4269,10 @@ class MainActivity : FragmentActivity() {
                     sourceUri = page.source.toAndroidUri(),
                     destinationUri = destinationUri,
                     filter = plan.filter,
+                    adjustments = plan.adjustments,
                     rotation = plan.rotation,
                     imageMetadata = page.imageMetadata,
+                    annotations = plan.annotations,
                 )
             }
         }
@@ -3452,6 +4283,8 @@ class MainActivity : FragmentActivity() {
         filter: org.synapseworks.pageharbor.image.DocumentFilter,
         rotation: org.synapseworks.pageharbor.document.session.DocumentPageRotation,
         imageMetadata: org.synapseworks.pageharbor.document.session.DocumentImageMetadata,
+        adjustments: ManualImageAdjustments,
+        annotations: org.synapseworks.pageharbor.document.annotation.AnnotationLayer,
     ): PageExportResult {
         val destination = try {
             contentResolver.openOutputStream(destinationUri)
@@ -3483,6 +4316,8 @@ class MainActivity : FragmentActivity() {
             filter = filter,
             rotation = rotation,
             imageMetadata = imageMetadata,
+            adjustments = adjustments,
+            annotations = annotations,
         )
     }
 
@@ -3495,6 +4330,11 @@ class MainActivity : FragmentActivity() {
     }
 
     override fun onDestroy() {
+        integrityInputs.values.toList().forEach{it.unregister()};integrityInputs.clear()
+        integritySaves.values.toList().forEach{it.unregister()};integritySaves.clear()
+        photoSaves.values.toList().forEach{it.unregister()};photoSaves.clear()
+        assistanceSaves.values.toList().forEach{it.unregister()};assistanceSaves.clear()
+        translationSaves.values.toList().forEach{it.unregister()};translationSaves.clear()
         importJob?.cancel()
         importJob = null
         ocrJob?.cancel()
@@ -3740,24 +4580,6 @@ private data class PersistedSearchablePdfOcr(
     val provider: EffectiveOcrPageProvider,
     val requests: List<EffectiveOcrPageRequest>,
 )
-
-private fun LibraryEffectiveOcrPage.toEffectiveOcrRequestOrNull(): EffectiveOcrPageRequest? {
-    val fingerprintVersion = inputFingerprintVersion?.takeIf { it > 0 } ?: return null
-    val fingerprint = inputFingerprint?.takeIf(String::isNotBlank) ?: return null
-    return EffectiveOcrPageRequest(
-        address = OcrPageAddress(documentId, pageId),
-        expectedCurrentness = OcrRecognitionCurrentness(
-            inputFingerprintVersion = fingerprintVersion,
-            inputFingerprint = fingerprint,
-            durable = OcrDurablePageCurrentness(
-                documentContentRevision = documentContentRevision,
-                pageVisualRevision = pageVisualRevision,
-                ocrStateRevision = ocrStateRevision,
-                activeArtifactRevision = activeArtifactRevision,
-            ),
-        ),
-    )
-}
 
 private fun LibraryOcrPageSnapshot.toUnavailableOcrRequest(): EffectiveOcrPageRequest =
     EffectiveOcrPageRequest(

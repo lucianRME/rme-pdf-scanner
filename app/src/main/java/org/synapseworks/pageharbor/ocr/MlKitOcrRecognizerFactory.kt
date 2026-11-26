@@ -47,7 +47,7 @@ private class MlKitOcrScriptRecognizer(
     override suspend fun recognize(
         request: OcrPageRecognitionRequest,
     ): OcrPageRecognitionOutcome = when (
-        val result = MlKitTextRecognitionPipeline.recognize(recognizer, request.source)
+        val result = MlKitTextRecognitionPipeline.recognize(recognizer, request.source, recoverTableCells = script == OcrScript.LATIN)
     ) {
         MlKitPageRecognitionResult.ImageUnreadable -> OcrPageRecognitionOutcome.Failure(
             descriptor = request.descriptor,

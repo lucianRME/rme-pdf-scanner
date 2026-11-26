@@ -10,6 +10,7 @@ import java.io.InputStream
 import java.io.OutputStream
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -178,16 +179,19 @@ class LocalSearchablePdfExportCoordinator(
         return try {
             coroutineContext.ensureActive()
             reportProgress(request.progressListener, SearchablePdfExportProgress.Generating)
+            val renderContext=coroutineContext
             when (
                 val generated = generator.generate(
                     SearchablePdfRequest(
                         pages = request.visualPages.mapIndexed { index, visualPage ->
                             SearchablePdfPage(
-                                openJpegStream = { openVisualJpegStream(visualPage) },
+                                openJpegStream = { openVisualJpegStream(visualPage) { !renderContext.isActive } },
                                 ocrResult = orderedOcrPages[index],
+                                paperSize = org.synapseworks.pageharbor.document.physicalPdfPageSize(visualPage.paperSize,visualPage.rotation),
                             )
                         },
                         outputFile = temporaryFile,
+                        standardInvisibleGlyphs = true,
                     ),
                 )
             ) {
@@ -427,7 +431,7 @@ class LocalSearchablePdfExportCoordinator(
      * The generator invokes this one page at a time. OCR never uses this stream: it always uses
      * [SearchablePdfExportRequest.pageUris], the unfiltered original sources, in [recognize].
      */
-    private fun openVisualJpegStream(page: SearchablePdfVisualPage): InputStream =
+    private fun openVisualJpegStream(page: SearchablePdfVisualPage,isCancellationRequested:()->Boolean): InputStream =
         when (val plan = searchablePdfVisualPlan(page)) {
             is SearchablePdfVisualPlan.Original -> {
                 pageSourcePreflight(page.imageMetadata)?.let {
@@ -436,12 +440,13 @@ class LocalSearchablePdfExportCoordinator(
                 openSourceInputStream(page.originalUri) ?: throw FileNotFoundException()
             }
 
-            is SearchablePdfVisualPlan.Filtered -> openFilteredVisualJpegStream(page, plan.filter)
+            is SearchablePdfVisualPlan.Filtered -> openFilteredVisualJpegStream(page, plan.filter,isCancellationRequested)
         }
 
     private fun openFilteredVisualJpegStream(
         page: SearchablePdfVisualPage,
         filter: org.synapseworks.pageharbor.image.DocumentFilter,
+        isCancellationRequested:()->Boolean,
     ): InputStream {
         val temporaryImage = createTemporaryVisualJpeg()
             ?: throw FileNotFoundException()
@@ -454,13 +459,16 @@ class LocalSearchablePdfExportCoordinator(
             deleteTemporaryVisualJpeg(temporaryImage)
             throw FileNotFoundException()
         }
-        val result = writeFilteredJpegToDestination(
+        val result = try { writeFilteredJpegToDestination(
             openSource = { openSourceInputStream(page.originalUri) },
             destination = destination,
             filter = filter,
             rotation = page.rotation,
+            adjustments = page.adjustments,
+            annotations = page.annotations,
             imageMetadata = page.imageMetadata,
-        )
+            isCancellationRequested = isCancellationRequested,
+        ) }catch(error:Throwable){deleteTemporaryVisualJpeg(temporaryImage);throw error}
         when (result) {
             PageExportResult.Success -> Unit
             PageExportResult.SourceTooLarge -> {

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="google_scan_controls">Uses Google’s camera controls</string>
+    <string name="google_scan_accessibility">%1$s. %2$s.</string>
+    <string name="qr_automatic">Point at a QR code</string>
+    <string name="qr_paused">Scanning paused</string>
+    <string name="qr_pause">Pause QR scanning</string>
+    <string name="qr_resume_capture">Resume QR scanning</string>
+    <string name="id_capture_front">Capture the front</string>
+    <string name="id_capture_back">Capture the back</string>
+    <string name="id_step_front">1 of 2 · Front of ID</string>
+    <string name="id_step_back">2 of 2 · Back of ID</string>
+    <string name="id_front_hint">Fit the front inside the frame.</string>
+    <string name="id_back_hint">Turn the card over and fit the back inside the frame.</string>
+    <string name="id_choose_image">Choose image</string>
+    <string name="id_failed_capture">Couldn’t use that image. Try again or choose another.</string>
+    <string name="id_no_camera">Camera unavailable</string>
+    <string name="id_retry_camera">Retry camera</string>
+    <string name="id_camera_access">Allow camera access or choose an image.</string>
+</resources>

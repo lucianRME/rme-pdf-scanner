@@ -1,0 +1,126 @@
+{
+  "version": "RG006_PHONE_V1",
+  "fixtures": [
+    {
+      "name": "phone-jpeg.jpg",
+      "width": 4096,
+      "height": 3072,
+      "orientation": 1,
+      "bytes": 268353,
+      "sha256": "b645127084eb359110164f62c4a868b900bcd7ab659953726353a53e4984ef04",
+      "expected": "ACCEPT",
+      "sample": 2,
+      "workingWidth": 2048,
+      "workingHeight": 1536
+    },
+    {
+      "name": "phone-png.png",
+      "width": 4096,
+      "height": 3072,
+      "orientation": 1,
+      "bytes": 79887,
+      "sha256": "88d24401c0edbae5c2865929fabc29816e0fa53f3b41a1ae07e6632603534f6e",
+      "expected": "ACCEPT",
+      "sample": 2,
+      "workingWidth": 2048,
+      "workingHeight": 1536
+    },
+    {
+      "name": "phone-webp.webp",
+      "width": 4096,
+      "height": 3072,
+      "orientation": 1,
+      "bytes": 26428,
+      "sha256": "3acb1a20e63c6cf5f6becb355c616e0b70a4f88084a11d6c82e6306e31ea82bd",
+      "expected": "ACCEPT",
+      "sample": 2,
+      "workingWidth": 2048,
+      "workingHeight": 1536
+    },
+    {
+      "name": "camera48.jpg",
+      "width": 8000,
+      "height": 6000,
+      "orientation": 1,
+      "bytes": 806649,
+      "sha256": "aea5037fbf65de84eb8ead36fd98ac5709f11c201a3fa6bc29d61bbac662dab2",
+      "expected": "ACCEPT",
+      "sample": 2,
+      "workingWidth": 4000,
+      "workingHeight": 3000
+    },
+    {
+      "name": "portrait.jpg",
+      "width": 3024,
+      "height": 4032,
+      "orientation": 1,
+      "bytes": 301983,
+      "sha256": "6f8d6a234e3501a795a350ec9995a4d91d7ad3757197a04a5deee9d40064903f",
+      "expected": "ACCEPT",
+      "sample": 1,
+      "workingWidth": 3024,
+      "workingHeight": 4032
+    },
+    {
+      "name": "exif90.jpg",
+      "width": 4096,
+      "height": 3072,
+      "orientation": 6,
+      "bytes": 268353,
+      "sha256": "4c9732d37651d5e8b02ff430310088f87763ef662e11bac7093e03d9c94c41cb",
+      "expected": "ACCEPT",
+      "sample": 2,
+      "workingWidth": 2048,
+      "workingHeight": 1536
+    },
+    {
+      "name": "small.jpg",
+      "width": 1200,
+      "height": 800,
+      "orientation": 1,
+      "bytes": 35120,
+      "sha256": "2314f9ca1f98fa69822d40e19d166963b847787a3aa9ffd9601895802ba1662b",
+      "expected": "ACCEPT",
+      "sample": 1,
+      "workingWidth": 1200,
+      "workingHeight": 800
+    },
+    {
+      "name": "corrupt.jpg",
+      "expected": "INVALID_IMAGE",
+      "sha256": "374ffede23adbc8bc625205f4bf86750807ffb6ce71fc7d10cac8bded0872bf5",
+      "bytes": 4
+    },
+    {
+      "name": "unsupported.bin",
+      "expected": "UNSUPPORTED_TYPE",
+      "sha256": "dfe6dee8fb141b3b03c1d8f72600da09e93c4c449a9b922b16929954ffb5b850",
+      "bytes": 24
+    }
+  ],
+  "limits": {
+    "sourceBytes": 67108864,
+    "sourcePixels": 100000000,
+    "sourceLongEdge": 16384,
+    "workingPixels": 12500000,
+    "workingLongEdge": 6000,
+    "allocation": "power-of-two sample; actual decoded dimensions rechecked; original bytes retained",
+    "storageReserve": 67108864,
+    "heap": "decoded ARGB bytes +8MiB before admission; cooperative cancellation around codec calls",
+    "noHEIC": true
+  },
+  "controls": [
+    "64MiB+1 actual stream with missing/understated metadata REFUSE",
+    "valid bytes with false-large/zero/null size ACCEPT",
+    "false MIME uses actual signatures",
+    "100MP/16384 bound overflow REFUSE",
+    "low storage/heap typed refusal",
+    "multiple/new/append/repeated retain order and exact source",
+    "revoked source before copy REFUSE; after completed private capture independent",
+    "cancel/interruption retains old session, cleans registered staging",
+    "JPEG/PDF exports bounded, EXIF rotation correct; original hashes exact"
+  ],
+  "baseline": "c37fd260; unchanged importer guard shared with v1.7.2 baee5a343",
+  "matrix": "API35 ARM64 native16KiB owned AVD/local Downloads and owned provider; Samsung SM_S938B API read at runtime/local Downloads + owned provider; ordinary/R8 isolated packages",
+  "visualGate": "corner positions/colors within30/channel; visible text/grid; no crop; independent dimensions/orientation and source SHA-256 exact"
+}

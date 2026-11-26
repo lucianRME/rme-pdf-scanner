@@ -1,5 +1,12 @@
 package org.synapseworks.pageharbor.ui.ocr
 
+import org.synapseworks.pageharbor.ui.theme.RmeFilterChip
+import org.synapseworks.pageharbor.ui.theme.RmeIconButton
+import org.synapseworks.pageharbor.ui.theme.RmePrimaryButton
+import org.synapseworks.pageharbor.ui.theme.RmeSecondaryButton
+import org.synapseworks.pageharbor.ui.theme.RmeTextButton
+import org.synapseworks.pageharbor.ui.theme.RmeTextField
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Arrangement
@@ -9,30 +16,34 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.key
+import org.synapseworks.pageharbor.ui.home.OcrPageText
+import org.synapseworks.pageharbor.ui.home.OcrSourcePassage
+import org.synapseworks.pageharbor.ui.home.ScannedDocumentPreview
+import org.synapseworks.pageharbor.ui.home.ocrReadoutBlocks
+import org.synapseworks.pageharbor.ui.home.sourcePassages
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -65,6 +76,28 @@ fun OcrReviewScreen(
     onCancelRerun: () -> Unit,
 ) {
     var pendingAction by rememberSaveable { mutableStateOf<PendingReviewAction?>(null) }
+    val pageText = state.page?.effectiveText.orEmpty()
+    val blocks = remember(pageText) { ocrReadoutBlocks(pageText) }
+    val links = remember(blocks, state.scan) { sourcePassages(blocks, state.scan?.layout) }
+    var selected by remember(state.page?.snapshot) { mutableStateOf<OcrSourcePassage?>(null) }
+    var showScan by rememberSaveable(state.selectedPageId) { mutableStateOf(false) }
+    val position = remember(state.page?.snapshot) { org.synapseworks.pageharbor.ui.home.DocumentPreviewPosition() }
+    val source = state.scan?.takeIf { state.selectedPageId == state.page?.snapshot?.pageId && state.loadState == OcrReviewLoadState.READY }
+    var spellingOpen by remember(state.documentId, state.selectedPageId, state.editing, state.draftText) {
+        mutableStateOf(false)
+    }
+    if (state.editing && spellingOpen) {
+        OcrSpellingDialog(
+            sourceText = state.draftText,
+            script = OcrScript.fromStableId(state.page?.actualScript),
+            confirmLabel = R.string.ocr_spelling_update_draft,
+            onDismiss = { spellingOpen = false },
+            onConfirm = { reviewed ->
+                spellingOpen = false
+                onDraftChange(reviewed)
+            },
+        )
+    }
 
     fun perform(action: PendingReviewAction) {
         if (state.editing) onCancelEdit()
@@ -84,42 +117,60 @@ fun OcrReviewScreen(
     }
 
     BackHandler {
+        if (showScan) { showScan = false; return@BackHandler }
         if (state.operationRunning) onCancelRerun()
         request(PendingReviewAction.BACK)
     }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            text = stringResource(R.string.ocr_review_title),
-                            modifier = Modifier.semantics { heading() },
-                        )
-                        if (state.documentTitle.isNotBlank()) {
+            Column {
+                TopAppBar(
+                    title = {
+                        Column {
                             Text(
-                                text = state.documentTitle,
-                                style = MaterialTheme.typography.bodySmall,
-                                maxLines = 1,
+                                text = stringResource(R.string.ocr_review_title),
+                                modifier = Modifier.semantics { heading() },
+                            )
+                            if (state.documentTitle.isNotBlank()) {
+                                Text(
+                                    text = state.documentTitle,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
+                    },
+                    navigationIcon = {
+                        RmeIconButton(onClick = { if (showScan) showScan = false else request(PendingReviewAction.BACK) }) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = stringResource(R.string.ocr_back_action),
                             )
                         }
+                    },
+                )
+                if (source != null && !state.editing) {
+                    androidx.compose.foundation.layout.Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        RmeFilterChip(selected = !showScan, onClick = { showScan = false },
+                            label = { Text(stringResource(R.string.ocr_text_section_heading)) })
+                        RmeFilterChip(selected = showScan, onClick = { showScan = true },
+                            label = { Text(stringResource(R.string.ocr_source_tab)) })
                     }
-                },
-                navigationIcon = {
-                    IconButton(onClick = { request(PendingReviewAction.BACK) }) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.ocr_back_action),
-                        )
-                    }
-                },
-            )
+                }
+            }
         },
     ) { padding ->
+        if (showScan && source != null && !state.editing) {
+            key(state.page?.snapshot) {
+                ScannedDocumentPreview(source.uri, source.metadata, state.selectedPageIndex + 1, state.pageIds.size,
+                    source.rotation, selected?.bounds, position, Modifier.padding(padding).fillMaxSize())
+            }
+            return@Scaffold
+        }
         Column(
             modifier = Modifier
-                .padding(padding)
+                .padding(padding).consumeWindowInsets(padding).imePadding()
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 16.dp),
@@ -166,23 +217,18 @@ fun OcrReviewScreen(
             }
             if (page != null) {
                 val script = page.actualScript?.let(OcrScript::fromStableId)
-                Text(
-                    text = if (script == null) {
-                        stringResource(R.string.ocr_review_no_script)
-                    } else {
-                        stringResource(R.string.ocr_review_script, scriptDisplayName(script))
-                    },
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
-                if (page.rawText == null) {
+                if (script != null) {
+                    Text(stringResource(R.string.ocr_review_script, scriptDisplayName(script)),
+                        style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                val needsText = page.rawText.isNullOrBlank() && page.effectiveText.isNullOrBlank() && !page.hasCorrection
+                if (needsText && !state.editing) {
                     ReviewMessage(stringResource(R.string.ocr_review_empty))
-                    Button(
+                    RmePrimaryButton(
                         enabled = !state.operationRunning,
                         onClick = { request(PendingReviewAction.RERUN_PAGE) },
                     ) {
-                        Text(stringResource(R.string.ocr_review_rerun_page))
+                        Text(stringResource(R.string.ocr_read_this_page))
                     }
                 } else if (state.editing) {
                     Text(
@@ -190,7 +236,12 @@ fun OcrReviewScreen(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
-                    OutlinedTextField(
+                    if (state.draftText.isNotBlank()) {
+                        RmeTextButton(onClick = { spellingOpen = true }) {
+                            Text(stringResource(R.string.ocr_spelling_review))
+                        }
+                    }
+                    RmeTextField(
                         value = state.draftText,
                         onValueChange = onDraftChange,
                         modifier = Modifier
@@ -203,13 +254,13 @@ fun OcrReviewScreen(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Button(
+                        RmePrimaryButton(
                             modifier = Modifier.fillMaxWidth(),
                             onClick = onSaveCorrection,
                         ) {
                             Text(stringResource(R.string.ocr_review_save))
                         }
-                        TextButton(
+                        RmeTextButton(
                             modifier = Modifier.fillMaxWidth(),
                             onClick = onCancelEdit,
                         ) {
@@ -237,7 +288,16 @@ fun OcrReviewScreen(
                             modifier = Modifier.testTag("ocr_review_corrected_indicator"),
                         )
                     }
-                    SelectionContainer {
+                    if (links.isNotEmpty()) {
+                        Text(stringResource(R.string.ocr_tap_source), style = MaterialTheme.typography.bodySmall)
+                        androidx.compose.foundation.layout.Box(Modifier.testTag("ocr_review_effective_text")) {
+                            OcrPageText(pageText, "", null, blocks, links, selected) {
+                                position.lastViewport = androidx.compose.ui.unit.IntSize.Zero
+                                selected = it
+                                showScan = true
+                            }
+                        }
+                    } else SelectionContainer {
                         Text(
                             text = page.effectiveText.orEmpty(),
                             modifier = Modifier
@@ -249,14 +309,14 @@ fun OcrReviewScreen(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Button(
+                        RmePrimaryButton(
                             modifier = Modifier.fillMaxWidth(),
                             onClick = onBeginEdit,
                         ) {
                             Text(stringResource(R.string.ocr_review_edit))
                         }
                         if (page.hasCorrection) {
-                            OutlinedButton(
+                            RmeSecondaryButton(
                                 modifier = Modifier.fillMaxWidth(),
                                 onClick = onRevertCorrection,
                             ) {
@@ -281,20 +341,20 @@ fun OcrReviewScreen(
                     }
                 }
 
-                if (!state.editing && page.rawText != null) {
+                if (!state.editing && !needsText) {
                     HorizontalDivider()
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        OutlinedButton(
+                        RmeSecondaryButton(
                             modifier = Modifier.fillMaxWidth(),
                             enabled = !state.operationRunning,
                             onClick = { request(PendingReviewAction.RERUN_PAGE) },
                         ) {
                             Text(stringResource(R.string.ocr_review_rerun_page))
                         }
-                        OutlinedButton(
+                        RmeSecondaryButton(
                             modifier = Modifier.fillMaxWidth(),
                             enabled = !state.operationRunning,
                             onClick = { request(PendingReviewAction.RERUN_DOCUMENT) },
@@ -321,7 +381,7 @@ fun OcrReviewScreen(
                         running.progress.totalPages,
                     ),
                 )
-                TextButton(onClick = onCancelRerun) {
+                RmeTextButton(onClick = onCancelRerun) {
                     Text(stringResource(R.string.ocr_review_cancel_rerun))
                 }
             }
@@ -336,7 +396,7 @@ fun OcrReviewScreen(
             title = { Text(stringResource(R.string.ocr_review_unsaved_title)) },
             text = { Text(stringResource(R.string.ocr_review_unsaved_message)) },
             confirmButton = {
-                TextButton(
+                RmeTextButton(
                     onClick = {
                         pendingAction = null
                         perform(pending)
@@ -344,7 +404,7 @@ fun OcrReviewScreen(
                 ) { Text(stringResource(R.string.ocr_review_discard_edit)) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingAction = null }) {
+                RmeTextButton(onClick = { pendingAction = null }) {
                     Text(stringResource(R.string.ocr_review_keep_editing))
                 }
             },
@@ -368,14 +428,14 @@ private fun PageNavigation(
             modifier = Modifier.semantics { heading() }.testTag("ocr_review_page_indicator"),
         )
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(
+            RmeSecondaryButton(
                 modifier = Modifier.fillMaxWidth(),
                 enabled = previousEnabled,
                 onClick = onPrevious,
             ) {
                 Text(stringResource(R.string.ocr_review_previous_page))
             }
-            OutlinedButton(
+            RmeSecondaryButton(
                 modifier = Modifier.fillMaxWidth(),
                 enabled = nextEnabled,
                 onClick = onNext,

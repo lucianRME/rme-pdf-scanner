@@ -1,0 +1,200 @@
+{
+  "generator": "Segno 1.6.6 / independent ISO QR encoder; Python standard-library PNG writer",
+  "fixtureOnly": true,
+  "noPrivateInputs": true,
+  "cases": [
+    {
+      "name": "web",
+      "expected": true,
+      "width": 246,
+      "height": 246,
+      "pngSha256": "465262804eef6c384471b389c6be8f3d53c1a36f0edd71268347d5ae44050139",
+      "payloadSha256": "6df2c11fa4220211127d0d7d06501ad3b11e5612ed7708a7b1bc1efe8a80e6ff",
+      "generator": "Segno 1.6.6",
+      "qrVersion": 4
+    },
+    {
+      "name": "web-90",
+      "expected": true,
+      "width": 246,
+      "height": 246,
+      "pngSha256": "dc413b01eed4366c55d2b876ea597640f9aae8ea38c9d3c915745b1dca09fdf0",
+      "payloadSha256": "6df2c11fa4220211127d0d7d06501ad3b11e5612ed7708a7b1bc1efe8a80e6ff",
+      "generator": "Segno 1.6.6",
+      "qrVersion": 4
+    },
+    {
+      "name": "web-180",
+      "expected": true,
+      "width": 246,
+      "height": 246,
+      "pngSha256": "0a1d49ead22d5235fe8d21dbe56ce0243babd0173ce674fcbba6881e4d6240eb",
+      "payloadSha256": "6df2c11fa4220211127d0d7d06501ad3b11e5612ed7708a7b1bc1efe8a80e6ff",
+      "generator": "Segno 1.6.6",
+      "qrVersion": 4
+    },
+    {
+      "name": "web-270",
+      "expected": true,
+      "width": 246,
+      "height": 246,
+      "pngSha256": "67651ebe531bcb12b662078ab892b48b7d8240cdac8375f5753b0bd888b57349",
+      "payloadSha256": "6df2c11fa4220211127d0d7d06501ad3b11e5612ed7708a7b1bc1efe8a80e6ff",
+      "generator": "Segno 1.6.6",
+      "qrVersion": 4
+    },
+    {
+      "name": "web-inverted",
+      "expected": true,
+      "width": 246,
+      "height": 246,
+      "pngSha256": "686baffbaeb03bf378d3d7f797d51f5c7fbf7a7df7e99044f3eccedfd3cb4457",
+      "payloadSha256": "6df2c11fa4220211127d0d7d06501ad3b11e5612ed7708a7b1bc1efe8a80e6ff",
+      "generator": "Segno 1.6.6",
+      "qrVersion": 4
+    },
+    {
+      "name": "corrupt",
+      "expected": false,
+      "width": 246,
+      "height": 246,
+      "pngSha256": "96cd9babfd2443c3d5c8bc3599de743df8444ec359e93382cfa2042f5e6e0dba",
+      "payloadSha256": null,
+      "generator": "Segno 1.6.6",
+      "qrVersion": 4
+    },
+    {
+      "name": "unicode",
+      "expected": true,
+      "width": 270,
+      "height": 270,
+      "pngSha256": "8eac150bc68188a57a2cf96bc4b4eadbb682e6e2181329881c0cff6ed5d0483d",
+      "payloadSha256": "22d84c3ae924d463d2cc561802adc7ca979ed5b93ff48a535cb79eeb303bab5c",
+      "generator": "Segno 1.6.6",
+      "qrVersion": 5
+    },
+    {
+      "name": "lines",
+      "expected": true,
+      "width": 198,
+      "height": 198,
+      "pngSha256": "a958cb85e09835c5827cd70d55ec8fb57a2fc4045dc4fa5ff0669766cc60e88e",
+      "payloadSha256": "8caeacc72cbe4e65c919dc9499c401f3c41a4f30410d8243eddf96a597542185",
+      "generator": "Segno 1.6.6",
+      "qrVersion": 2
+    },
+    {
+      "name": "unsupported",
+      "expected": true,
+      "width": 222,
+      "height": 222,
+      "pngSha256": "097099b6f6baafa5b75f76da78ec95c60b0b1df2ad45a978778f6be923191035",
+      "payloadSha256": "34dd9db533021dd28a7bcfc2e7a217222ce7e3541778edc7a820c5fc829c0a03",
+      "generator": "Segno 1.6.6",
+      "qrVersion": 3
+    },
+    {
+      "name": "userinfo",
+      "expected": true,
+      "width": 246,
+      "height": 246,
+      "pngSha256": "258c3a50711e47fa4a456b0b5284f1c985a0ff784a433a5b217bc52d222efd85",
+      "payloadSha256": "4fde5486f29c68c4b6cff34edaf48cf52ed7a498f48764a9c6289d3b4d3c8592",
+      "generator": "Segno 1.6.6",
+      "qrVersion": 4
+    },
+    {
+      "name": "wifi",
+      "expected": true,
+      "width": 222,
+      "height": 222,
+      "pngSha256": "f524718341e07df2f09bd4fdc8d2a14439b4794b5f037ec94724664f19f2a48b",
+      "payloadSha256": "91f2fa7ef02d96f70371c4142f2da87772a3e318199a3ff4f8776f3ab65dab06",
+      "generator": "Segno 1.6.6",
+      "qrVersion": 3
+    },
+    {
+      "name": "controls",
+      "expected": true,
+      "width": 222,
+      "height": 222,
+      "pngSha256": "8beea49e256c0ddd2e678ac38496b5dcf25f4943228c049766135592c087b082",
+      "payloadSha256": "9946504df2168dfbf56a88ac5eee3f02c5a160db4b5c1111c08a9fed77c588e0",
+      "generator": "Segno 1.6.6",
+      "qrVersion": 3
+    },
+    {
+      "name": "dense",
+      "expected": true,
+      "width": 1110,
+      "height": 1110,
+      "pngSha256": "d43e3bdb709b314037fe0fc6e103791760278de99b19151dae87bb7b71de7e17",
+      "payloadSha256": "57fec0df4e7a8062087f3d08b7a2e98cd9441639c7f8d0d4da69239d819dc051",
+      "generator": "Segno 1.6.6",
+      "qrVersion": 40
+    },
+    {
+      "name": "dense-90",
+      "expected": true,
+      "width": 1110,
+      "height": 1110,
+      "pngSha256": "aa5f5011799abe3d2de343f5f4f2886462cb1d1159a1599b29761d99c1490bad",
+      "payloadSha256": "57fec0df4e7a8062087f3d08b7a2e98cd9441639c7f8d0d4da69239d819dc051",
+      "generator": "Segno 1.6.6",
+      "qrVersion": 40
+    },
+    {
+      "name": "dense-180",
+      "expected": true,
+      "width": 1110,
+      "height": 1110,
+      "pngSha256": "614b073ec8691e61582365719473e9a77e6d579424950098821259698534576b",
+      "payloadSha256": "57fec0df4e7a8062087f3d08b7a2e98cd9441639c7f8d0d4da69239d819dc051",
+      "generator": "Segno 1.6.6",
+      "qrVersion": 40
+    },
+    {
+      "name": "dense-270",
+      "expected": true,
+      "width": 1110,
+      "height": 1110,
+      "pngSha256": "1fefe90ab6f1050737cbc7543495a32537f8bea73689cb7a084ed34b7698f195",
+      "payloadSha256": "57fec0df4e7a8062087f3d08b7a2e98cd9441639c7f8d0d4da69239d819dc051",
+      "generator": "Segno 1.6.6",
+      "qrVersion": 40
+    },
+    {
+      "name": "structured-0",
+      "expected": false,
+      "reason": "Structured append is deliberately rejected, not silently treated as a complete payload",
+      "width": 486,
+      "height": 486,
+      "pngSha256": "4b6ed14c02f53b294f1d93ec98b74eebc73e7c33f32b943edd2087b5ef7987c1"
+    },
+    {
+      "name": "structured-1",
+      "expected": false,
+      "reason": "Structured append is deliberately rejected, not silently treated as a complete payload",
+      "width": 486,
+      "height": 486,
+      "pngSha256": "2a91e0b51a61873eb69b1e19124d3b7b9850648d6bfc76468147cd9e3de55425"
+    },
+    {
+      "name": "blank",
+      "expected": false,
+      "width": 144,
+      "height": 144,
+      "pngSha256": "b26a9a53157fba7907dc7c1a475b54ec9fdb4ba540b77072bc38ededce9b5128"
+    },
+    {
+      "name": "oversized.png",
+      "expected": false,
+      "sha256": "e305cd233b59c7c8ccbebe98bafc7b9e53b074fb624690b1a1f209545abb5d3a"
+    },
+    {
+      "name": "malformed.bin",
+      "expected": false,
+      "sha256": "f8f465f8fa8e2ba506d50232da96786913c558e1d1c4296703dd6fb3b2dd9f69"
+    }
+  ]
+}

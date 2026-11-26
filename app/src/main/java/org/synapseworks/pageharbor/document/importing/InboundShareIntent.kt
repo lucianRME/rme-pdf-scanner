@@ -12,6 +12,12 @@ sealed interface InboundShareInput {
     data object NotShareIntent : InboundShareInput
 }
 
+/** The MIME is a routing hint. The byte signature is checked inside the normal importer. */
+internal fun InboundShareInput.Ready.isSinglePhotoShare(action: String?): Boolean =
+    action == Intent.ACTION_SEND && resources.singleOrNull()?.declaredContentType.let { type ->
+        type?.startsWith("image/") == true && isSupportedDeclaredShareType(type)
+    }
+
 data class InboundShareResource(
     val uri: Uri,
     /** A routing hint only. Importers must validate the stream signature before decoding. */
@@ -20,7 +26,7 @@ data class InboundShareResource(
 )
 
 /** Extracts stream references without reading or recording display names or document data. */
-fun extractInboundShareInput(intent: Intent): InboundShareInput {
+fun extractInboundShareInput(intent: Intent, privateAuthorities: Set<String> = emptySet()): InboundShareInput {
     if (intent.action != Intent.ACTION_SEND && intent.action != Intent.ACTION_SEND_MULTIPLE) {
         return InboundShareInput.NotShareIntent
     }
@@ -32,12 +38,16 @@ fun extractInboundShareInput(intent: Intent): InboundShareInput {
         intent.clipData?.let { clipData ->
             repeat(clipData.itemCount) { index ->
                 val item = clipData.getItemAt(index)
-                val itemType = item.intent?.type.normalizedContentType() ?: declaredType
-                item.uri?.let { uri -> add(uri to itemType) }
-                item.intent?.data?.let { uri -> add(uri to itemType) }
+                item.uri?.let { uri -> add(uri to declaredType) }
             }
         }
     }
+    // Public share input may name only another provider's content. Internal capture, picker and
+    // saved-document URLs do not pass through this external Android entry point.
+    if (candidates.any { (uri, _) ->
+            val authority = uri.authority.orEmpty().substringAfterLast('@')
+            uri.scheme != "content" || authority.isBlank() || authority in privateAuthorities
+        }) return InboundShareInput.Failure(DocumentImportError.UNREADABLE_SOURCE)
     val resources = linkedMapOf<String, InboundShareResource>()
     candidates.forEach { (uri, type) ->
         val key = uri.toString()

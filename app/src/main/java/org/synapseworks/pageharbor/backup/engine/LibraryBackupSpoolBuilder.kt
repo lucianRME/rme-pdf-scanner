@@ -37,6 +37,7 @@ import org.synapseworks.pageharbor.backup.format.jsonString
 internal class LibraryBackupSpoolBuilder(
     private val spoolRoot: File,
     private val limits: BackupFormatLimits,
+    private val tags: List<org.synapseworks.pageharbor.backup.format.BackupTagRecord> = emptyList(),
 ) : AutoCloseable {
     private val entriesRoot = File(spoolRoot, FilePreparedBackupArchiveSource.ENTRIES_DIRECTORY)
     private val outputs = LinkedHashMap<String, CountingOutputStream>()
@@ -237,6 +238,7 @@ internal class LibraryBackupSpoolBuilder(
         val stats = LibraryBackupSnapshotStats(
             summary = summary,
             ocrManifest = ocr,
+            tags = tags.toList(),
             serializedMetadataBytes = metadataBytes,
             spoolBytes = spoolBytes,
             zipEntryCount = addExact(

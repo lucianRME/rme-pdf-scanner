@@ -15,6 +15,7 @@ enum class LibraryOcrStatus {
 enum class LibraryDocumentState {
     ACTIVE,
     PENDING,
+    TRASHED,
 }
 
 enum class LibrarySortOrder {
@@ -62,6 +63,7 @@ enum class LibrarySearchMatch {
     TITLE,
     FOLDER,
     OCR,
+    TAG,
 }
 
 enum class LibraryOcrArtifactVerification {
@@ -130,6 +132,7 @@ data class LibraryDocumentSummary(
     val searchSnippet: String? = null,
     val matchingPageId: String? = null,
     val matchingPagePosition: Int? = null,
+    val isFavorite: Boolean = false,
 )
 
 data class LibraryPageRecord(

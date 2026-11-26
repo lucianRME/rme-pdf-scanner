@@ -9,18 +9,18 @@ internal data class OcrReadingOrderResolution(
 )
 
 /**
- * Resolves OCR reading order without flattening ML Kit's semantic hierarchy.
- *
- * Block order, line order inside each block, and element order inside a line are recognizer-owned.
- * The sole ordering correction is reversing an entire horizontally coherent vertical sequence
- * when every geometric step is strongly bottom-to-top (observed from ML Kit at 180 degrees).
- * Geometry is otherwise used only for paragraph breaks. This prevents coordinate noise from
- * reversing words, interleaving columns, or moving indented continuation lines.
+ * Keeps the recognizer's prose hierarchy and within-line text. A supported grid can read
+ * across each row while retaining the bounds of each cell. Clearly reversed vertical sequences
+ * also retain the existing bottom-to-top correction.
  */
 internal object OcrReadingOrderResolver {
     private val inlineWhitespace = "\\s+".toRegex()
 
-    fun resolve(layout: OcrPageLayout): OcrReadingOrderResolution {
+    fun resolve(
+        layout: OcrPageLayout,
+        angleDegrees: Float = 0f,
+        tableRecovery: OcrTableCellRecovery? = null,
+    ): OcrReadingOrderResolution {
         val hasBlockHierarchy = layout.blocks.isNotEmpty()
         val sourceBlocks = if (hasBlockHierarchy) {
             layout.blocks
@@ -39,13 +39,19 @@ internal object OcrReadingOrderResolver {
             }
             if (lines.isEmpty()) null else block.copy(lines = lines)
         }
-        val orderedLines = resolvedBlocks.flatMap(OcrTextBlock::lines)
-        val canonicalText = renderBlocks(resolvedBlocks)
+        val spatialOrder = if (layout.rotationDegrees == 0 && layout.placementMode == OcrTextPlacementMode.POSITIONED_LINES) {
+            OcrTableReadingOrder.order(resolvedBlocks, angleDegrees, tableRecovery)
+                ?: OcrDisplayReadingOrder.order(resolvedBlocks, layout.imageHeightPx, angleDegrees)
+        } else null
+        val rendered = spatialOrder ?: resolvedBlocks.map { OrderedOcrBlock(it) }
+        val orderedBlocks = rendered.map(OrderedOcrBlock::geometry)
+        val orderedLines = orderedBlocks.flatMap(OcrTextBlock::lines)
+        val canonicalText = renderBlocks(rendered)
         return OcrReadingOrderResolution(
             canonicalText = canonicalText,
             layout = layout.copy(
                 lines = orderedLines,
-                blocks = if (hasBlockHierarchy) resolvedBlocks else emptyList(),
+                blocks = if (hasBlockHierarchy) orderedBlocks else emptyList(),
             ),
         )
     }
@@ -58,20 +64,20 @@ internal object OcrReadingOrderResolver {
             .takeIf(String::isNotBlank)
     }
 
-    private fun renderBlocks(blocks: List<OcrTextBlock>): String {
+    private fun renderBlocks(blocks: List<OrderedOcrBlock>): String {
         if (blocks.isEmpty()) return ""
         val typicalLineHeight = median(
             blocks.asSequence()
-                .flatMap { block -> block.lines.asSequence() }
+                .flatMap { block -> block.geometry.lines.asSequence() }
                 .mapNotNull { line -> line.bounds?.height?.takeIf { it > 0f } }
                 .toList(),
         )
         return buildString {
             blocks.forEachIndexed { index, block ->
                 if (index > 0) {
-                    append(if (isParagraphGap(blocks[index - 1], block, typicalLineHeight)) "\n\n" else "\n")
+                    append(if (isParagraphGap(blocks[index - 1].geometry, block.geometry, typicalLineHeight)) "\n\n" else "\n")
                 }
-                append(block.lines.joinToString("\n", transform = OcrTextLine::text))
+                append(block.tableText ?: block.geometry.lines.joinToString("\n", transform = OcrTextLine::text))
             }
         }
     }
@@ -146,4 +152,4 @@ internal object OcrReadingOrderResolver {
 
 /** In-memory and persisted OCR already use canonical text; layout resolution is only a fallback. */
 internal fun OcrPageResult.displayText(): String = text.takeIf(String::isNotBlank)
-    ?: layout?.let(OcrReadingOrderResolver::resolve)?.canonicalText.orEmpty()
+    ?: layout?.let { OcrReadingOrderResolver.resolve(it).canonicalText }.orEmpty()

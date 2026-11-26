@@ -1,0 +1,4 @@
+<resources>
+    <string name="capture_add_scan">Scan pages</string>
+    <string name="google_auto_scan">Google auto scan</string>
+</resources>

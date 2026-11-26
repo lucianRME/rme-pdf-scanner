@@ -19,16 +19,21 @@ Privacy-first, local-first, open-source Android document scanning with multiling
 ## Screenshots
 
 <p align="center">
-  <img src="assets/play-store/screenshots/phone/01-scan-save-done.png" width="30%" alt="RME PDF Scanner home screen: Scan, Save, Done">
-  <img src="assets/play-store/screenshots/phone/02-document-library.png" width="30%" alt="RME PDF Scanner local document library">
-  <img src="assets/play-store/screenshots/phone/03-pdf-export.png" width="30%" alt="RME PDF Scanner PDF export actions">
+  <img src="assets/play-store/1.8.0/phone/01-scan.png" width="30%" alt="Camera with a coastal field guide in view">
+  <img src="assets/play-store/1.8.0/phone/02-straighten.png" width="30%" alt="Four crop handles around a photographed page">
+  <img src="assets/play-store/1.8.0/phone/03-ocr.png" width="30%" alt="Recognized text ready for review">
 </p>
 <p align="center">
-  <img src="assets/play-store/screenshots/phone/04-pdf-tools.png" width="30%" alt="RME PDF Scanner PDF tools">
-  <img src="assets/play-store/screenshots/phone/05-private-by-design.png" width="30%" alt="RME PDF Scanner privacy and backup tools">
+  <img src="assets/play-store/1.8.0/phone/04-book.png" width="30%" alt="Separate left and right book pages">
+  <img src="assets/play-store/1.8.0/phone/05-annotate.png" width="30%" alt="Highlighted passage in the annotation editor">
+  <img src="assets/play-store/1.8.0/phone/06-export.png" width="30%" alt="Straightened page ready to save or export">
 </p>
 
 ## What you can do
+
+- **Capture and clean up paper.** Batch-scan loose sheets, split an open book, straighten a tilted page and review changes to shadows, glare and brightness. A guided camera handles both sides of an ID.
+- **Put scanned information to work.** Export supported content as editable Word documents, Excel receipt reports, CSV tables or PowerPoint slides. Fill compatible PDF forms, highlight text, add a handwritten signature or make a password-protected PDF copy.
+- **Check text against its source.** Tap a recognized passage to see it on the scan and review offline spelling suggestions. Downloadable translation packs use Google Play delivery on supported devices. The standalone APK can import compatible local packs through the advanced option.
 
 - **Scan and import:** Scan multi-page paper documents; import PDF, JPEG, PNG, or WebP files through Android's system picker; or receive supported files through Android sharing.
 - **Recognize and search:** Run on-device Latin OCR or optional Chinese, Japanese, Korean, and Devanagari models delivered through Google Play services. Review and correct text, re-run OCR for one page or a whole document, use batch OCR, search recognized text across the full library, and jump to the matching page.
@@ -43,7 +48,7 @@ Privacy-first, local-first, open-source Android document scanning with multiling
 
 ## Install
 
-The current stable GitHub release is **[v1.7.2](https://github.com/lucianRME/rme-pdf-scanner/releases/tag/v1.7.2)**. Google Play is the primary installation method; its publication is handled separately. You can also download the latest stable APK from GitHub Releases or use Obtainium to follow stable GitHub releases. See the [v1.7.2 validation report](docs/releases/v1.7.2-validation.md) for completed checks and deferred coverage.
+The current stable GitHub release is **[v1.8.0 (23)](https://github.com/lucianRME/rme-pdf-scanner/releases/tag/v1.8.0)**. Download the signed APK and checksum there or use Obtainium. Google Play handles its own rollout. See the [release notes and verification](docs/releases/v1.8.0.md).
 
 <p>
   <a href="https://play.google.com/store/apps/details?id=org.synapseworks.pageharbor"><img src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" alt="Get RME PDF Scanner on Google Play" width="161"></a>
@@ -65,7 +70,7 @@ RME uses Google ML Kit Document Scanner and ML Kit text recognition; these Googl
 
 The app is written in Kotlin with Jetpack Compose and Material 3. Its local library and search use Room/FTS; document workflows use Android system pickers and sharing, Google ML Kit, and PdfBox Android. RME's source is Apache-2.0 licensed; not every dependency is open source. See the [architecture overview](docs/ARCHITECTURE.md) for more detail. Minimum Android API level: 26; target API level: 36.
 
-To build from source, use JDK 17 and an Android SDK with API 36. The repository includes the Gradle 8.14.3 wrapper and uses Android Gradle Plugin 8.13.0; use an Android Studio version that supports that toolchain.
+To build from source, use JDK 17 and an Android SDK with API 36. The repository includes the Gradle 9.1.0 wrapper and uses Android Gradle Plugin 9.0.1; use an Android Studio version that supports that toolchain.
 
 ```sh
 git clone https://github.com/lucianRME/rme-pdf-scanner.git

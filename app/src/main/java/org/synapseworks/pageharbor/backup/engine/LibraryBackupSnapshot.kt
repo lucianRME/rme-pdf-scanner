@@ -35,6 +35,7 @@ data class LibraryBackupSnapshotStats(
     val serializedMetadataBytes: Long,
     val spoolBytes: Long,
     val zipEntryCount: Long,
+    val tags: List<org.synapseworks.pageharbor.backup.format.BackupTagRecord> = emptyList(),
 )
 
 internal class SpoolLibraryBackupSnapshot(

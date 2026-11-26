@@ -9,6 +9,12 @@
         android:name="android.permission.INTERNET"
         tools:node="remove" />
 
+    <!-- Optional: only the explicit continuous-camera workflow asks at runtime. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
     <application
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -33,6 +39,7 @@
             android:exported="true"
             android:label="@string/app_name_short"
             android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.PageHarbor">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -60,6 +67,15 @@
                 <data android:mimeType="application/pdf" />
             </intent-filter>
         </activity>
+        <activity android:name=".resourcepack.ResourcePackActivity" android:exported="false" android:theme="@style/Theme.PageHarbor" />
+        <!-- Qualified local ARM64 bundle only; no exported coordinator or native parser. -->
+        <activity android:name=".office.OfficeImportActivity" android:exported="false"
+            android:launchMode="singleTop" android:theme="@style/Theme.PageHarbor" />
+        <service android:name="org.synapseworks.m35.workerprobe.ProductionCoordinator" android:exported="false" android:process=":officehost" />
+        <service android:name="org.synapseworks.m35.workerprobe.NativeService" android:exported="false"
+            android:isolatedProcess="true" android:process=":officeengine" android:stopWithTask="true" />
+        <service android:name="org.synapseworks.m35.workerprobe.OfficePreviewService" android:exported="false"
+            android:isolatedProcess="true" android:process=":officepreview" android:stopWithTask="true" />
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

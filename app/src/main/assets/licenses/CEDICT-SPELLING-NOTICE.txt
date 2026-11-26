@@ -1,0 +1,32 @@
+CC-CEDICT
+Community maintained free Chinese-English dictionary.
+
+Published by MDBG
+
+License:
+Creative Commons Attribution-ShareAlike 4.0 International License
+https://creativecommons.org/licenses/by-sa/4.0/
+
+Referenced works:
+CEDICT - Copyright (C) 1997, 1998 Paul Andrew Denisowski
+
+CC-CEDICT can be downloaded from:
+https://www.mdbg.net/chinese/dictionary?page=cc-cedict
+
+Additions and corrections can be sent through:
+https://cc-cedict.org/editor/editor.php
+
+For more information about CC-CEDICT see:
+https://cc-cedict.org/wiki/
+
+ version=1
+ subversion=0
+ format=ts
+ charset=UTF-8
+ entries=125474
+ publisher=MDBG
+ license=https://creativecommons.org/licenses/by-sa/4.0/
+ date=2026-11-24T20:43:35Z
+ time=1795553015
+
+RME retained traditional headwords whose simplified form appears in its compact wordfreq word list. Data is distributed under CC BY-SA 4.0. Source SHA-256 3a0e7ed8bf97c5cf58a039f9a431e052171a558d8d86d551e6c896d52a2cc706

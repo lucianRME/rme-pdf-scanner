@@ -1,6 +1,7 @@
 package org.synapseworks.pageharbor.portability.export
 
 import android.content.Context
+import org.synapseworks.pageharbor.image.ManualImageAdjustments
 import android.net.Uri
 import androidx.core.content.FileProvider
 import java.io.File
@@ -141,7 +142,8 @@ internal class RoomPortableExportPdfSource(
     override suspend fun writePdf(
         documentId: String,
         destination: OutputStream,
-    ): PortableExportPdfWriteResult = withContext(Dispatchers.IO) {
+    ): PortableExportPdfWriteResult = org.synapseworks.pageharbor.library.LibraryOperationCoordinator.gate.withStableSnapshot { writePdfWhileLocked(documentId,destination) }
+    private suspend fun writePdfWhileLocked(documentId:String,destination:OutputStream):PortableExportPdfWriteResult = withContext(Dispatchers.IO) {
         val document = try {
             dao.document(documentId)
         } catch (cancelled: CancellationException) {
@@ -152,7 +154,7 @@ internal class RoomPortableExportPdfSource(
 
         val pages = readAllPages(document)
             ?: return@withContext PortableExportPdfWriteResult.SOURCE_UNAVAILABLE
-        val directPdf = findExactDirectPdf(documentId)
+        val directPdf = if (pages.all { it.paperSize.isEmpty() && it.brightness == 0 && it.contrast == 0 }) findExactDirectPdf(documentId) else null
         if (directPdf != null) {
             return@withContext copyFileToDestination(directPdf, destination)
         }
@@ -175,7 +177,7 @@ internal class RoomPortableExportPdfSource(
             }
             pages.takeIf { candidates ->
                 candidates.size == document.pageCount &&
-                    candidates.isNotEmpty() &&
+                    candidates.isNotEmpty() && candidates.all { it.brightness in -100..100 && it.contrast in -100..100 } &&
                     candidates.map(LibraryPageEntity::position) == candidates.indices.toList()
             }
         } catch (cancelled: CancellationException) {
@@ -287,10 +289,14 @@ internal class RoomPortableExportPdfSource(
             path = file.path,
             rootPath = fileStore.root.path,
         ) ?: return null
+        val physical=runCatching { org.synapseworks.pageharbor.document.session.DocumentPaperSize.decode(paperSize) };if(physical.isFailure||physical.getOrNull()?.matchesPixels(width,height)==false)return null
         return NormalPdfPage(
             pageId = runtimeId,
             source = resource,
             filter = filter,
+            adjustments = ManualImageAdjustments(brightness, contrast),
+            paperSize = physical.getOrNull(),
+            annotations = runCatching { org.synapseworks.pageharbor.document.annotation.AnnotationLayer.decode(annotations) }.getOrNull() ?: return null,
             rotation = rotation,
             contentType = contentType,
             imageMetadata = DocumentImageMetadata(sourceByteCount, width, height),

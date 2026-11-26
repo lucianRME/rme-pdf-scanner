@@ -1,5 +1,8 @@
 package org.synapseworks.pageharbor.ui.portability
 
+import org.synapseworks.pageharbor.ui.theme.RmeIconButton
+import org.synapseworks.pageharbor.ui.theme.RmeTextField
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,9 +17,7 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -244,7 +245,7 @@ private fun BackupEncryptionCard(
         }
 
         if (state.enabled) {
-            OutlinedTextField(
+            RmeTextField(
                 modifier = Modifier.fillMaxWidth(),
                 value = state.password,
                 enabled = enabled,
@@ -258,7 +259,7 @@ private fun BackupEncryptionCard(
                     PasswordVisualTransformation()
                 },
                 trailingIcon = {
-                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                    RmeIconButton(onClick = { passwordVisible = !passwordVisible }) {
                         Icon(
                             imageVector = if (passwordVisible) {
                                 Icons.Default.VisibilityOff
@@ -270,7 +271,7 @@ private fun BackupEncryptionCard(
                     }
                 },
             )
-            OutlinedTextField(
+            RmeTextField(
                 modifier = Modifier.fillMaxWidth(),
                 value = state.confirmation,
                 enabled = enabled,
@@ -332,7 +333,8 @@ fun RestorePreviewScreen(
 
         if (preview.fullyVerified) {
             InformationCallout(
-                text = "Backup validation completed successfully. RME will still stage and activate " +
+                text = "New backups contain active documents only. This installation blocks known deleted identities; restore them from Recycle bin first. Purged identities remain blocked. Unrelated IDs or app-data removal cannot be recognized; older archives may import those copies. " +
+                    "Backup validation completed successfully. RME will still stage and activate " +
                     "the restore as one recoverable operation.",
             )
         } else {
@@ -344,6 +346,7 @@ fun RestorePreviewScreen(
 
         if (preview.existingLibraryHasContent) {
             PortabilitySection(title = "Duplicate handling") {
+                Text("Import anyway restores each copy’s tags and favorite. Skip exact duplicates keeps the existing document’s tags and favorite. The backup tag catalog is merged in either case.", style = MaterialTheme.typography.bodySmall)
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()

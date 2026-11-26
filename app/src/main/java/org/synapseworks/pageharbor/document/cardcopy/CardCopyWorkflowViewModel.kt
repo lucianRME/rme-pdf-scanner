@@ -30,6 +30,7 @@ class CardCopyWorkflowViewModel(
     private var acquisitionJob: Job? = null
     private var preparationJob: Job? = null
     private var saveJob: Job? = null
+    private var cameraFile: java.io.File? = null
     private var generation = 0L
     private var shareSafeHandoff = false
 
@@ -69,7 +70,54 @@ class CardCopyWorkflowViewModel(
         return true
     }
 
-    fun onAcquisitionResult(uri: Uri?) {
+    fun retake(side: CardCopySide) {
+        val current = state as? CardCopyWorkflowState.ReviewSides ?: return
+        state = CardCopyWorkflowState.AcquireSides(current.front, current.back, retaking = side)
+    }
+
+    fun captureSide(side: CardCopySide, takePicture: CardCopyShutter) {
+        val current = state as? CardCopyWorkflowState.AcquireSides ?: return
+        val expected = current.retaking ?: if (current.front.readySource() == null) CardCopySide.FRONT else CardCopySide.BACK
+        if (expected != side || cameraFile != null || !beginAcquisition(side, CardCopyAcquisition.SCAN)) return
+        val file = try {
+            val root = java.io.File(getApplication<Application>().cacheDir, CARD_COPY_SOURCE_DIRECTORY)
+            root.mkdirs()
+            java.io.File.createTempFile("capture-", ".jpg", root)
+        } catch (_: java.io.IOException) {
+            onAcquisitionFailure()
+            return
+        }
+        cameraFile = file
+        var delivered = false
+        val finish: (Boolean) -> Unit = finish@{ succeeded ->
+            if (delivered) return@finish
+            delivered = true
+            if (cameraFile !== file) {
+                // A late callback may have re-created its own cancelled temporary file.
+                file.delete()
+            } else {
+                cameraFile = null
+                if (succeeded) {
+                    stageAcquisition(Uri.fromFile(file), file)
+                } else {
+                    file.delete()
+                    onAcquisitionFailure()
+                }
+            }
+        }
+        try { takePicture(file, finish) } catch (_: RuntimeException) { finish(false) }
+    }
+
+    fun cancelCameraCapture() {
+        val file = cameraFile ?: return
+        cameraFile = null
+        file.delete()
+        onAcquisitionResult(null)
+    }
+
+    fun onAcquisitionResult(uri: Uri?) = stageAcquisition(uri, null)
+
+    private fun stageAcquisition(uri: Uri?, temporaryCameraFile: java.io.File?) {
         val pending = pendingAcquisition() ?: return
         if (uri == null) {
             updateSideState(pending.first, pending.second.previous?.let(CardCopySideState::Ready)
@@ -92,6 +140,7 @@ class CardCopyWorkflowViewModel(
                 is CardCopyStageResult.Success -> {
                     previous?.let(::discardCardCopySource)
                     updateSideState(side, CardCopySideState.Ready(result.source))
+                    if ((state as? CardCopyWorkflowState.AcquireSides)?.retaking != null) continueToReview()
                 }
                 is CardCopyStageResult.Failure -> updateSideState(
                     side,
@@ -99,6 +148,7 @@ class CardCopyWorkflowViewModel(
                 )
             }
         }
+        if (temporaryCameraFile != null) acquisitionJob?.invokeOnCompletion { temporaryCameraFile.delete() }
     }
 
     fun onAcquisitionFailure(reason: CardCopyFailure = CardCopyFailure.INVALID_SOURCE) {
@@ -417,7 +467,18 @@ class CardCopyWorkflowViewModel(
     fun back() {
         when (val current = state) {
             CardCopyWorkflowState.Hidden -> Unit
-            is CardCopyWorkflowState.AcquireSides -> close()
+            is CardCopyWorkflowState.AcquireSides -> {
+                if (current.retaking == null) close() else {
+                    cancelCameraCapture()
+                    generation++
+                    acquisitionJob?.cancel()
+                    val front = current.front.readySource()
+                    val back = current.back.readySource()
+                    if (front != null && back != null) state = CardCopyWorkflowState.ReviewSides(
+                        CardCopySideState.Ready(front), CardCopySideState.Ready(back),
+                    ) else close()
+                }
+            }
             is CardCopyWorkflowState.ReviewSides ->
                 state = CardCopyWorkflowState.AcquireSides(current.front, current.back)
             is CardCopyWorkflowState.RedactSide -> state = CardCopyWorkflowState.ReviewSides(
@@ -460,6 +521,7 @@ class CardCopyWorkflowViewModel(
     }
 
     fun close() {
+        cancelCameraCapture()
         generation++
         acquisitionJob?.cancel()
         preparationJob?.cancel()
@@ -472,6 +534,7 @@ class CardCopyWorkflowViewModel(
     }
 
     override fun onCleared() {
+        cancelCameraCapture()
         generation++
         ownedPrepared()?.let(composer::discard)
         ownedSources().distinctBy { it.ownedDirectory.path }.forEach(::discardCardCopySource)

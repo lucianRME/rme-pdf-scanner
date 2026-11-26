@@ -25,6 +25,7 @@ class ScriptedOcrEngine(
                         pageIndex = index,
                         text = outcome.rawText,
                         layout = outcome.layout,
+                        actualScript = outcome.provenance.actualScript,
                     )
                     is OcrPageRecognitionOutcome.Failure -> OcrPageResult(
                         pageIndex = index,

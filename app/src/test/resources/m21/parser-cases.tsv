@@ -1,0 +1,15 @@
+basic	"HARBOR MARKET\nDate: 2026-10-24\nCurrency: EUR\nSubtotal 10.00\nTax 2.00\nTotal 12.00\nCash 20.00\nChange 8.00"	{"MERCHANT": "HARBOR MARKET", "DATE": "2026-10-24", "CURRENCY": "EUR", "SUBTOTAL": "10.00", "TAX": "2.00", "TOTAL": "12.00", "TENDER": "20.00", "CHANGE": "8.00"}
+comma_discount	"Merchant: SAMPLE SHOP\nDate: 24/10/2026\nEUR\nSubtotal 20,00\nDiscount -2,00\nTax 1,80\nTotal 19,80"	{"MERCHANT": "SAMPLE SHOP", "DATE": "2026-10-24", "CURRENCY": "EUR", "SUBTOTAL": "20.00", "DISCOUNT": "-2.00", "TAX": "1.80", "TOTAL": "19.80"}
+ambiguous	"RECEIPT\nDate: 03/04/2026\nTotal $12.00"	{"TOTAL": "12.00"}
+competing	"Merchant: TEST STORE\nDate: 2026-10-24\nUSD\nTotal 12.00\nTotal 14.00\nCash 20.00\nChange 6.00"	{"MERCHANT": "TEST STORE", "DATE": "2026-10-24", "CURRENCY": "USD", "TENDER": "20.00", "CHANGE": "6.00"}
+repeated	"Merchant: TEST STORE\nTotal EUR 12.00\nTotal EUR 12.00"	{"MERCHANT": "TEST STORE", "CURRENCY": "EUR", "TOTAL": "12.00"}
+refund	"Merchant: TEST STORE\nDate: 10/24/2026\nUSD\nRefund -5.20\nTotal -5.20\nCard -5.20"	{"MERCHANT": "TEST STORE", "DATE": "2026-10-24", "CURRENCY": "USD", "REFUND": "-5.20", "TOTAL": "-5.20", "TENDER": "-5.20"}
+sparse	"RECEIPT\nThank you"	{}
+noisy	"Merchant: TEST STORE\nDate: 2026-02-30\nSubtotal 10.00\nTax 2.OO\nTotal 12.OO"	{"MERCHANT": "TEST STORE", "SUBTOTAL": "10.00"}
+grouped	"Merchant: TEST STORE\nGBP\nSubtotal 1,000.00\nTax 200.00\nTotal 1,200.00"	{"MERCHANT": "TEST STORE", "CURRENCY": "GBP", "SUBTOTAL": "1000.00", "TAX": "200.00", "TOTAL": "1200.00"}
+currency_conflict	"Merchant: TEST STORE\nUSD\nEUR\nTotal 10.00"	{"MERCHANT": "TEST STORE", "TOTAL": "10.00"}
+separator_uncertain	"Merchant: TEST STORE\nTotal 1,234"	{"MERCHANT": "TEST STORE"}
+arithmetic_warning	"Merchant: TEST STORE\nSubtotal 10.00\nTax 2.00\nTotal 13.00"	{"MERCHANT": "TEST STORE", "SUBTOTAL": "10.00", "TAX": "2.00", "TOTAL": "13.00"}
+competing_amounts	"Merchant: TEST STORE\nTotal 10.00 20.00\nTax 10% 2.00"	{"MERCHANT": "TEST STORE", "TAX": "2.00"}
+unlabelled_money	"TEST STORE\n2026-10-24\nProduct 8.00\n8.00"	{"MERCHANT": "TEST STORE", "DATE": "2026-10-24"}
+multiple_tax	"Merchant: TEST STORE\nTax 1.00\nTax 2.00\nTotal 13.00"	{"MERCHANT": "TEST STORE", "TOTAL": "13.00"}

@@ -1,13 +1,20 @@
 package org.synapseworks.pageharbor.ui.theme
 
+import org.synapseworks.pageharbor.ui.SensitiveDocumentClipboard
+
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 
 internal val DarkColorScheme = darkColorScheme(
@@ -128,7 +135,19 @@ fun PageHarborTheme(
             colorScheme = colorScheme,
             typography = PageHarborTypography,
             shapes = PageHarborShapes,
-            content = content,
+            content = { SensitiveDocumentClipboard(content) },
         )
+    }
+}
+
+internal fun ComponentActivity.setPageHarborContent(content: @Composable () -> Unit) {
+    setContent {
+        PageHarborTheme {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background,
+                content = content,
+            )
+        }
     }
 }

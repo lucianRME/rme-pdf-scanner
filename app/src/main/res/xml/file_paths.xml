@@ -15,4 +15,10 @@
     <files-path
         name="document_library"
         path="document-library/" />
+    <cache-path name="continuous_scans" path="continuous-scans/" />
+    <cache-path name="book-splits" path="book-splits/" />
+    <cache-path name="page_curvature" path="page-curvature/" />
+    <cache-path name="page_crops" path="page-crops/" />
+    <cache-path name="document_collages" path="document-collages/" />
+    <cache-path name="object_removal" path="object-removal/" />
 </paths>

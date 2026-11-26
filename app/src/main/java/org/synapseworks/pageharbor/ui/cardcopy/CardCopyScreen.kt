@@ -1,6 +1,10 @@
 package org.synapseworks.pageharbor.ui.cardcopy
 
+import org.synapseworks.pageharbor.ui.theme.RmeIconButton
+import org.synapseworks.pageharbor.ui.theme.RmeTextButton
+
 import android.graphics.Bitmap
+import org.synapseworks.pageharbor.image.renderDisplayBitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
@@ -24,6 +28,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -41,7 +46,6 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
@@ -49,12 +53,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -146,14 +150,20 @@ fun CardCopyScreen(
     onUndoRedaction: () -> Unit = {},
     onRedoRedaction: () -> Unit = {},
     onApplyRedactions: () -> Unit = {},
+    onCameraCapture: (CardCopySide, org.synapseworks.pageharbor.document.cardcopy.CardCopyShutter) -> Unit = { _, _ -> },
+    onCancelCamera: () -> Unit = {},
 ) {
     BackHandler(onBack = onBack)
+    if (state is CardCopyWorkflowState.AcquireSides) {
+        GuidedCardCapture(state, onCameraCapture, onImport, onContinueReview, onCancelCamera, onBack)
+        return
+    }
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
                 title = { Text(stringResource(R.string.card_copy_title)) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    RmeIconButton(onClick = onBack) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = stringResource(R.string.card_copy_close),
@@ -164,14 +174,12 @@ fun CardCopyScreen(
         },
     ) { padding ->
         Box(
-            Modifier.fillMaxSize().padding(padding),
+            Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding),
             contentAlignment = Alignment.TopCenter,
         ) {
             when (state) {
                 CardCopyWorkflowState.Hidden -> Unit
-                is CardCopyWorkflowState.AcquireSides -> AcquireContent(
-                    state.front, state.back, onScan, onImport, onContinueReview,
-                )
+                is CardCopyWorkflowState.AcquireSides -> Unit
                 is CardCopyWorkflowState.ReviewSides -> ReviewContent(
                     state.front, state.back, onScan, onImport, onRotate, onRemove,
                     onSwap, onOpenRedaction, onContinueLayout,
@@ -200,37 +208,6 @@ fun CardCopyScreen(
                 is CardCopyWorkflowState.Failed -> FailedContent(state.reason, onRetry)
             }
         }
-    }
-}
-
-@Composable
-private fun AcquireContent(
-    front: CardCopySideState,
-    back: CardCopySideState,
-    onScan: (CardCopySide) -> Unit,
-    onImport: (CardCopySide) -> Unit,
-    onContinue: () -> Unit,
-) {
-    val frontReady = front.readySource() != null
-    val backReady = back.readySource() != null
-    Column(
-        Modifier.widthIn(max = PageHarborLayout.homeContentMaxWidth).fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .padding(PageHarborLayout.compactScreenHorizontalPadding),
-        verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.medium),
-    ) {
-        Text(stringResource(R.string.card_copy_tool_description), style = MaterialTheme.typography.bodyLarge)
-        SideCard(CardCopySide.FRONT, front, onScan, onImport, null, null, null)
-        SideCard(CardCopySide.BACK, back, onScan, onImport, null, null, null)
-        if (!frontReady) Notice(stringResource(R.string.card_copy_add_front))
-        else if (!backReady) Notice(stringResource(R.string.card_copy_add_back))
-        Text(stringResource(R.string.card_copy_processed_locally), color = MaterialTheme.colorScheme.primary)
-        RmePrimaryButton(
-            onClick = onContinue,
-            enabled = frontReady && backReady,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-        ) { Text(stringResource(R.string.card_copy_continue)) }
-        Spacer(Modifier.height(PageHarborSpacing.large))
     }
 }
 
@@ -344,17 +321,17 @@ private fun RedactionEditorContent(
                 modifier = Modifier.heightIn(min = 48.dp),
                 onClick = { onAdd(defaultRedactionBounds()) },
             ) { Text(stringResource(R.string.card_copy_add_redaction)) }
-            TextButton(
+            RmeTextButton(
                 modifier = Modifier.heightIn(min = 48.dp),
                 enabled = state.editor.canUndo,
                 onClick = onUndo,
             ) { Text(stringResource(R.string.card_copy_redaction_undo)) }
-            TextButton(
+            RmeTextButton(
                 modifier = Modifier.heightIn(min = 48.dp),
                 enabled = state.editor.canRedo,
                 onClick = onRedo,
             ) { Text(stringResource(R.string.card_copy_redaction_redo)) }
-            TextButton(
+            RmeTextButton(
                 modifier = Modifier.heightIn(min = 48.dp),
                 enabled = selected != null,
                 onClick = onDelete,
@@ -689,7 +666,7 @@ private fun SideCard(
     onRedact: ((CardCopySide) -> Unit)?,
 ) {
     val source = state.readySource()
-    var replaceExpanded by remember(source?.sourceId) { mutableStateOf(false) }
+    var replaceExpanded by rememberSaveable(source?.sourceId) { mutableStateOf(false) }
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
@@ -774,7 +751,7 @@ private fun SideCard(
                         Text(stringResource(R.string.card_copy_replace))
                     }
                     if (onRotate != null) {
-                        IconButton(
+                        RmeIconButton(
                             modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
                             onClick = { onRotate(side, true) },
                         ) {
@@ -785,7 +762,7 @@ private fun SideCard(
                         }
                     }
                     if (onRemove != null) {
-                        IconButton(
+                        RmeIconButton(
                             modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
                             onClick = { onRemove(side) },
                         ) {
@@ -798,7 +775,7 @@ private fun SideCard(
                     }
                 }
                 if (onRedact != null) {
-                    TextButton(
+                    RmeTextButton(
                         modifier = Modifier.heightIn(min = 48.dp),
                         onClick = { onRedact(side) },
                     ) {
@@ -822,6 +799,7 @@ private fun SideCard(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp)
                     .padding(bottom = PageHarborSpacing.large),
             ) {
@@ -859,7 +837,7 @@ private fun SideCard(
                     leadingContent = { Icon(Icons.Default.UploadFile, contentDescription = null) },
                     headlineContent = { Text(stringResource(R.string.card_copy_import)) },
                 )
-                TextButton(
+                RmeTextButton(
                     modifier = Modifier.align(Alignment.End),
                     onClick = { replaceExpanded = false },
                 ) {
@@ -1026,7 +1004,7 @@ private fun PreparedContent(
                 ) { Icon(Icons.Default.Share, null); Text(stringResource(R.string.card_copy_share)) }
             }
         }
-        TextButton(
+        RmeTextButton(
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
             enabled = !saving,
             onClick = onChangeLayout,
@@ -1102,7 +1080,7 @@ private fun LivePagePreview(
     val previewDescription = stringResource(R.string.card_copy_preview_description)
     Box(modifier, contentAlignment = Alignment.Center) {
         Surface(
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
                 .aspectRatio(settings.pageSize.widthPoints / settings.pageSize.heightPoints)
                 .graphicsLayer(scaleX = scale, scaleY = scale, translationX = offsetX, translationY = offsetY)
                 .pointerInput(settings) {
@@ -1212,10 +1190,11 @@ private fun renderPdf(file: File): Bitmap? = try {
     ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
         PdfRenderer(descriptor).use { renderer ->
             renderer.openPage(0).use { page ->
-                val bitmap = createBitmap(page.width.coerceAtMost(1_200), page.height.coerceAtMost(1_600))
-                bitmap.eraseColor(Color.WHITE)
-                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                bitmap
+                val scale = minOf(1_200f / page.width, 1_600f / page.height, 1f)
+                renderDisplayBitmap((page.width * scale).toInt().coerceAtLeast(1), (page.height * scale).toInt().coerceAtLeast(1)) { bitmap ->
+                    bitmap.eraseColor(Color.WHITE)
+                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                }
             }
         }
     }

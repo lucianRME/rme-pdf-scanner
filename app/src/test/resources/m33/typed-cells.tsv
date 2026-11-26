@@ -1,0 +1,21 @@
+identifier	TEXT	MDAxMjM=	AUTO		MDAxMjM=	true
+formula	TEXT	PTErMQ==	AUTO		PTErMQ==	true
+at	TEXT	QFNVTShBMTpBMik=	AUTO		QFNVTShBMTpBMik=	true
+url	TEXT	IAk9SFlQRVJMSU5LKCJodHRwczovL2V4YW1wbGUuaW52YWxpZCIsIngiKQ==	AUTO		IAk9SFlQRVJMSU5LKCJodHRwczovL2V4YW1wbGUuaW52YWxpZCIsIngiKQ==	true
+multiline	TEXT	Rmlyc3QgbGluZQpTZWNvbmQgbGluZQ==	AUTO		Rmlyc3QgbGluZQpTZWNvbmQgbGluZQ==	true
+unicode	TEXT	Q2Fmw6kgzpXOu867zrfOvc65zrrOrCDOvCDCtSDkuK3mloc=	AUTO		Q2Fmw6kgzpXOu867zrfOvc65zrrOrCDOvCDCtSDkuK3mloc=	true
+negative	NUMBER	LTEyLjM0NTY=	DOT		LTEyLjM0NTY=	true
+localized	MONEY	MS4yMzQsNTY=	COMMA	EUR	MTIzNC41Ng==	true
+refund	MONEY	KDEwLjAwKQ==	DOT	USD	LTEwLjAw	true
+zero	MONEY	MA==	DOT	EUR	MC4wMA==	true
+date	DATE	MDQvMDUvMjAyNg==	DMY		MjAyNi0wNS0wNA==	true
+date-ambiguous	DATE	MDQvMDUvMjAyNg==	AUTO			false
+missing	BLANK		AUTO			true
+number-leading-zero	NUMBER	MDAxMjM=	DOT			false
+too-precise	NUMBER	MTIzNDU2Nzg5MC4xMjM=	DOT			false
+scale	NUMBER	MC4wMDAwMDAx	DOT			false
+number-max	NUMBER	OTk5OTk5OTk5OTk5	DOT		OTk5OTk5OTk5OTk5	true
+date-min	DATE	MTkwMC0wMy0wMQ==	AUTO		MTkwMC0wMy0wMQ==	true
+old-date	DATE	MTkwMC0wMi0yOA==	AUTO			false
+money-rounding	MONEY	MS4wMDU=	DOT	EUR		false
+number-ambiguous	NUMBER	MSwyMzQ=	AUTO			false

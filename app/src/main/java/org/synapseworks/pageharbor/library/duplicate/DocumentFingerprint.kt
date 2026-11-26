@@ -14,6 +14,9 @@ data class FingerprintPage(
     val byteLength: Long,
     val rotationDegrees: Int,
     val filterName: String,
+    val brightness: Int = 0, val contrast: Int = 0,
+    val annotations:String = "",
+    val paperSize:String = "",
 )
 
 data class DocumentFingerprint(
@@ -29,17 +32,17 @@ object DocumentFingerprintV1 {
 
     fun calculate(pages: List<FingerprintPage>): DocumentFingerprint {
         require(pages.isNotEmpty()) { "A document fingerprint requires at least one page." }
-        return Builder(pages.size).apply { pages.forEach(::addPage) }.finish()
+        return Builder(pages.size, manual = pages.any { it.brightness != 0 || it.contrast != 0 }, annotated = pages.any { it.annotations.isNotEmpty() }, physical = pages.any{it.paperSize.isNotEmpty()}).apply { pages.forEach(::addPage) }.finish()
     }
 
-    class Builder(private val expectedPageCount: Int) {
+    class Builder(private val expectedPageCount: Int, private val manual: Boolean = false, private val annotated:Boolean=false,private val physical:Boolean=false) {
         val digest = MessageDigest.getInstance("SHA-256")
         private var pageCount = 0
         private var finished = false
 
         init {
             require(expectedPageCount > 0) { "A document fingerprint requires at least one page." }
-            digest.update(domain)
+            digest.update(if(physical) "RME-DOCUMENT-FINGERPRINT-V4\u0000".toByteArray(StandardCharsets.US_ASCII) else if(annotated) "RME-DOCUMENT-FINGERPRINT-V3\u0000".toByteArray(StandardCharsets.US_ASCII) else if (manual) "RME-DOCUMENT-FINGERPRINT-V2\u0000".toByteArray(StandardCharsets.US_ASCII) else domain)
             digest.updateInt(expectedPageCount)
         }
 
@@ -58,13 +61,22 @@ object DocumentFingerprintV1 {
             digest.updateLong(page.byteLength)
             digest.updateInt(page.rotationDegrees)
             digest.updateLengthPrefixed(page.filterName)
+            if (manual || annotated || physical) {
+                require(page.brightness in -100..100 && page.contrast in -100..100)
+                digest.updateInt(page.brightness); digest.updateInt(page.contrast)
+            }
+            if(annotated || physical) {
+                val canonical=org.synapseworks.pageharbor.document.annotation.AnnotationLayer.decode(page.annotations).encode()
+                digest.updateLengthPrefixed(canonical)
+            }
+            if(physical)digest.updateLengthPrefixed(org.synapseworks.pageharbor.document.session.DocumentPaperSize.decode(page.paperSize)?.encode().orEmpty())
             pageCount += 1
         }
 
         fun finish(): DocumentFingerprint {
             check(!finished && pageCount == expectedPageCount)
             finished = true
-            return DocumentFingerprint(VERSION, digest.digest().toHex())
+            return DocumentFingerprint(if(physical) 4 else if(annotated) 3 else if (manual) 2 else VERSION, digest.digest().toHex())
         }
     }
 }

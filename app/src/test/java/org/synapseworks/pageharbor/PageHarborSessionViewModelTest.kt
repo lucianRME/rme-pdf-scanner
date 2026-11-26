@@ -11,6 +11,7 @@ import org.synapseworks.pageharbor.document.importing.DocumentImportUiState
 import org.synapseworks.pageharbor.document.session.AcquiredDocumentPage
 import org.synapseworks.pageharbor.document.session.AcquiredResource
 import org.synapseworks.pageharbor.document.session.DocumentAcquisitionCoordinator
+import org.synapseworks.pageharbor.document.session.DocumentInputLimits
 import org.synapseworks.pageharbor.document.session.DocumentAcquisitionError
 import org.synapseworks.pageharbor.document.session.DocumentImageMetadata
 import org.synapseworks.pageharbor.document.session.DocumentPage
@@ -30,6 +31,8 @@ import org.synapseworks.pageharbor.ocr.OcrResult
 import org.synapseworks.pageharbor.ocr.OcrUiState
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.ui.PageHarborScreen
+
+private const val LEGACY_TEST_PAGE_COUNT = 20
 
 class PageHarborSessionViewModelTest {
     @Test
@@ -135,16 +138,16 @@ class PageHarborSessionViewModelTest {
     @Test
     fun fileImportMayExceedTheScannerTwentyPageLimitWithoutTruncation() {
         val session = PageHarborSessionViewModel()
-        val references = pageTokens(MAX_DOCUMENT_PAGES + 5)
+        val references = pageTokens(LEGACY_TEST_PAGE_COUNT + 5)
 
         assertEquals(true, session.beginImportRequest(DocumentImportOrigin.PICKER))
         session.completeImportRequest(importSuccess(*references.toTypedArray()))
 
         assertEquals(references, session.pageReferences())
-        assertEquals(MAX_DOCUMENT_PAGES + 5, session.documentPages.size)
+        assertEquals(LEGACY_TEST_PAGE_COUNT + 5, session.documentPages.size)
         assertEquals(
             DocumentImportUiState.Completed(
-                importedPages = MAX_DOCUMENT_PAGES + 5,
+                importedPages = LEGACY_TEST_PAGE_COUNT + 5,
                 skippedItems = 0,
                 appended = false,
             ),
@@ -543,13 +546,13 @@ class PageHarborSessionViewModelTest {
 
     @Test
     fun twentyPageScanRetainsOrderFiltersAndConfigurationState() {
-        val tokens = (1..MAX_DOCUMENT_PAGES).map { "page-$it" }
+        val tokens = (1..LEGACY_TEST_PAGE_COUNT).map { "page-$it" }
         val session = completedSession(*tokens.toTypedArray())
         val first = session.documentPages.first()
         val twentieth = session.documentPages.last()
 
-        assertEquals(MAX_DOCUMENT_PAGES, session.documentPages.size)
-        assertEquals((0L until MAX_DOCUMENT_PAGES).toList(), session.documentPages.map { it.id.value })
+        assertEquals(LEGACY_TEST_PAGE_COUNT, session.documentPages.size)
+        assertEquals((0L until LEGACY_TEST_PAGE_COUNT).toList(), session.documentPages.map { it.id.value })
         assertEquals(true, session.setPageFilter(first.id.value, DocumentFilter.GRAYSCALE))
         assertEquals(true, session.setPageFilter(twentieth.id.value, DocumentFilter.HIGH_CONTRAST))
         assertEquals(true, session.reorderPages(session.documentPages.map { it.id.value }.reversed()))
@@ -560,7 +563,7 @@ class PageHarborSessionViewModelTest {
         assertEquals(DocumentFilter.HIGH_CONTRAST, session.documentPages.first().filter)
         assertEquals(first.id, session.documentPages.last().id)
         assertEquals(DocumentFilter.GRAYSCALE, session.documentPages.last().filter)
-        assertEquals(0, session.remainingPageCapacity())
+        assertEquals(Int.MAX_VALUE - session.documentPages.size, session.remainingPageCapacity())
     }
 
     @Test
@@ -568,21 +571,21 @@ class PageHarborSessionViewModelTest {
         listOf(10 to 10, 15 to 5, 19 to 1).forEach { (existingCount, addedCount) ->
             val session = completedSession(*pageTokens(existingCount).toTypedArray())
 
-            assertEquals(MAX_DOCUMENT_PAGES - existingCount, session.remainingPageCapacity())
+            assertEquals(Int.MAX_VALUE - existingCount, session.remainingPageCapacity())
             assertEquals(ScannerRequestMode.ADD_PAGES, session.beginScannerRequest())
             session.completeScannerReferencesForTest(
                 scannerState = scanSummary(pageCount = addedCount),
                 scannedPageReferences = pageTokens(addedCount, startAt = existingCount + 1),
             )
 
-            assertEquals(MAX_DOCUMENT_PAGES, session.documentPages.size)
-            assertEquals(MAX_DOCUMENT_PAGES, (session.scannerState as ScannerSpikeState.ResultSummary).jpegPageCount)
+            assertEquals(LEGACY_TEST_PAGE_COUNT, session.documentPages.size)
+            assertEquals(LEGACY_TEST_PAGE_COUNT, (session.scannerState as ScannerSpikeState.ResultSummary).jpegPageCount)
         }
     }
 
     @Test
     fun addPagesRejectsAnExternalResultThatExceedsTheSessionMaximum() {
-        val session = completedSession(*pageTokens(19).toTypedArray())
+        val session = completedSession(*pageTokens(19).toTypedArray(), limits = DocumentInputLimits(maxPages = 20))
         val before = session.documentPages
 
         assertEquals(ScannerRequestMode.ADD_PAGES, session.beginScannerRequest())
@@ -597,22 +600,27 @@ class PageHarborSessionViewModelTest {
     }
 
     @Test
-    fun addPagesIsBlockedWhenTheSessionAlreadyHasTwentyPages() {
-        val session = completedSession(*pageTokens(MAX_DOCUMENT_PAGES).toTypedArray())
+    fun addPagesRemainsAvailableAfterTwentyPages() {
+        val session = completedSession(*pageTokens(LEGACY_TEST_PAGE_COUNT).toTypedArray())
         val pagesBefore = session.documentPages
 
-        assertEquals(null, session.beginScannerRequest())
-        assertEquals(pagesBefore, session.documentPages)
-        assertEquals(0, session.remainingPageCapacity())
+        assertEquals(ScannerRequestMode.ADD_PAGES, session.beginScannerRequest())
+        session.completeScannerReferencesForTest(
+            scannerState = scanSummary(pageCount = 1),
+            scannedPageReferences = listOf("page-21"),
+        )
+        assertEquals(pagesBefore, session.documentPages.take(20))
+        assertEquals(21, session.documentPages.size)
+        assertEquals(Int.MAX_VALUE - 21, session.remainingPageCapacity())
     }
 
     @Test
-    fun anUnexpectedOversizedInitialResultIsRejectedWithATypedError() {
-        val session = PageHarborSessionViewModel()
+    fun explicitlyConfiguredAcquisitionLimitIsStillEnforced() {
+        val session = PageHarborSessionViewModel(DocumentAcquisitionCoordinator(DocumentInputLimits(maxPages = 20)))
 
         session.replaceScannerReferencesForTest(
-            scannerState = scanSummary(pageCount = MAX_DOCUMENT_PAGES + 1),
-            scannedPageReferences = pageTokens(MAX_DOCUMENT_PAGES + 1),
+            scannerState = scanSummary(pageCount = LEGACY_TEST_PAGE_COUNT + 1),
+            scannedPageReferences = pageTokens(LEGACY_TEST_PAGE_COUNT + 1),
         )
 
         assertEquals(emptyList<DocumentPage>(), session.documentPages)
@@ -812,8 +820,27 @@ class PageHarborSessionViewModelTest {
         pdfPageCount = pdfPageCount,
     )
 
-    private fun completedSession(vararg pageTokens: String): PageHarborSessionViewModel =
-        PageHarborSessionViewModel().also { session ->
+    @Test
+    fun consecutiveScansAppendToOneThousandPagesAndPreserveExistingEdits() {
+        val session = completedSession(*pageTokens(20).toTypedArray())
+        val firstId = session.documentPages.first().id.value
+        assertEquals(true, session.setPageFilter(firstId, DocumentFilter.GRAYSCALE))
+        repeat(49) { batch ->
+            assertEquals(ScannerRequestMode.ADD_PAGES, session.beginScannerRequest())
+            session.completeScannerReferencesForTest(
+                scannerState = scanSummary(pageCount = 20),
+                scannedPageReferences = pageTokens(20, startAt = (batch + 1) * 20 + 1),
+            )
+        }
+        assertEquals(1000, session.documentPages.size)
+        assertEquals(1000, session.documentPages.map { it.id }.distinct().size)
+        assertEquals(DocumentFilter.GRAYSCALE, session.documentPages.first().filter)
+        assertEquals("page-1000", session.documentPages.last().source.reference)
+        assertEquals(Int.MAX_VALUE - 1000, session.remainingPageCapacity())
+    }
+
+    private fun completedSession(vararg pageTokens: String, limits: DocumentInputLimits = DocumentInputLimits()): PageHarborSessionViewModel =
+        PageHarborSessionViewModel(DocumentAcquisitionCoordinator(limits)).also { session ->
             session.replaceScannerReferencesForTest(
                 scannerState = scanSummary(pageTokens.size),
                 scannedPageReferences = pageTokens.toList(),

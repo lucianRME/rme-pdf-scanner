@@ -1,6 +1,7 @@
 package org.synapseworks.pageharbor.library
 
 import android.content.Context
+import org.synapseworks.pageharbor.image.ManualImageAdjustments
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
@@ -41,6 +42,9 @@ internal data class LibraryPageSource(
     val ocrText: String?,
     val ocrError: String?,
     val openStream: () -> InputStream,
+    val adjustments: ManualImageAdjustments = ManualImageAdjustments(),
+    val annotations: org.synapseworks.pageharbor.document.annotation.AnnotationLayer = org.synapseworks.pageharbor.document.annotation.AnnotationLayer.EMPTY,
+    val paperSize: org.synapseworks.pageharbor.document.session.DocumentPaperSize? = null,
 )
 
 internal data class LibrarySourceAssetSource(
@@ -64,6 +68,9 @@ internal data class PreparedLibraryPage(
     val ocrText: String?,
     val ocrError: String?,
     val contentSha256: String,
+    val adjustments: ManualImageAdjustments = ManualImageAdjustments(),
+    val annotations: org.synapseworks.pageharbor.document.annotation.AnnotationLayer = org.synapseworks.pageharbor.document.annotation.AnnotationLayer.EMPTY,
+    val paperSize: org.synapseworks.pageharbor.document.session.DocumentPaperSize? = null,
 )
 
 internal data class PreparedLibrarySourceAsset(
@@ -158,6 +165,9 @@ internal open class LibraryFileStore(
                     imageMetadata = source.imageMetadata.copy(sourceByteCount = copied.byteCount),
                     rotation = source.rotation,
                     filter = source.filter,
+                    adjustments = source.adjustments,
+                    annotations = source.annotations,
+                    paperSize = source.paperSize,
                     ocrText = source.ocrText,
                     ocrError = source.ocrError,
                     contentSha256 = copied.sha256,
@@ -203,6 +213,8 @@ internal open class LibraryFileStore(
                 destination = thumbnail,
                 rotation = prepared.first().rotation,
                 filter = prepared.first().filter,
+                adjustments = prepared.first().adjustments,
+                annotations = prepared.first().annotations,
             )
             if (!staging.renameTo(completed)) {
                 staging.deleteRecursivelySafely(root)
@@ -489,11 +501,15 @@ internal open class LibraryFileStore(
         destination: File,
         rotationDegrees: Int,
         filterName: String,
+        brightness: Int = 0, contrast: Int = 0,
+        annotations: org.synapseworks.pageharbor.document.annotation.AnnotationLayer = org.synapseworks.pageharbor.document.annotation.AnnotationLayer.EMPTY,
     ): Boolean = createThumbnail(
         source = source,
         destination = destination,
         rotation = DocumentPageRotation.entries.single { it.degrees == rotationDegrees },
         filter = DocumentFilter.valueOf(filterName),
+        adjustments = ManualImageAdjustments(brightness, contrast),
+        annotations = annotations,
     )
 
     private fun createThumbnail(
@@ -501,6 +517,8 @@ internal open class LibraryFileStore(
         destination: File,
         rotation: DocumentPageRotation,
         filter: DocumentFilter,
+        adjustments: ManualImageAdjustments = ManualImageAdjustments(),
+        annotations: org.synapseworks.pageharbor.document.annotation.AnnotationLayer = org.synapseworks.pageharbor.document.annotation.AnnotationLayer.EMPTY,
     ): Boolean {
         if (!source.isFile) return false
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -519,18 +537,9 @@ internal open class LibraryFileStore(
         ) ?: return false
         var transformed: Bitmap = decoded
         return try {
-            if (rotation != DocumentPageRotation.DEGREES_0) {
-                transformed = Bitmap.createBitmap(
-                    transformed,
-                    0,
-                    0,
-                    transformed.width,
-                    transformed.height,
-                    Matrix().apply { setRotate(rotation.degrees.toFloat()) },
-                    true,
-                ).also { if (transformed !== decoded) transformed.recycle() }
-            }
-            if (filter != DocumentFilter.ORIGINAL) {
+            transformed=org.synapseworks.pageharbor.document.transform(decoded,
+                org.synapseworks.pageharbor.document.readOrientation { source.inputStream() },rotation)
+            if (filter != DocumentFilter.ORIGINAL || !adjustments.isNeutral) {
                 val pixels = IntArray(transformed.width * transformed.height)
                 transformed.getPixels(
                     pixels,
@@ -543,7 +552,7 @@ internal open class LibraryFileStore(
                 )
                 val filtered = DocumentImageFilterEngine.apply(
                     ArgbImage(transformed.width, transformed.height, pixels),
-                    filter,
+                    filter, adjustments,
                 )
                 val replacement = Bitmap.createBitmap(
                     filtered.pixels,
@@ -553,6 +562,14 @@ internal open class LibraryFileStore(
                 )
                 if (transformed !== decoded) transformed.recycle()
                 transformed = replacement
+            }
+            if (!annotations.isEmpty) {
+                if (!transformed.isMutable) {
+                    val mutable=transformed.copy(Bitmap.Config.ARGB_8888,true) ?: return false
+                    if(transformed!==decoded)transformed.recycle()
+                    transformed=mutable
+                }
+                org.synapseworks.pageharbor.document.annotation.AnnotationRenderer.draw(transformed,annotations,rotation)
             }
             val scale = minOf(
                 1f,

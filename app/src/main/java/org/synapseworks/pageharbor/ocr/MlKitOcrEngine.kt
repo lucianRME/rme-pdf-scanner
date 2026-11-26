@@ -10,7 +10,7 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
  * opens and processes exactly one session page at a time. ML Kit types and failures remain inside
  * this class; callers receive only RME PDF Scanner's in-memory OCR models.
  */
-class MlKitOcrEngine : OcrEngine {
+class MlKitOcrEngine(private val recoverTableCells: Boolean = true) : OcrEngine {
     override fun recognize(pages: List<OcrPage>): OcrResult {
         val recognizer = try {
             TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
@@ -42,7 +42,7 @@ class MlKitOcrEngine : OcrEngine {
         pageIndex: Int,
         page: OcrPage,
     ): OcrPageResult {
-        return when (val result = MlKitTextRecognitionPipeline.recognize(recognizer, page)) {
+        return when (val result = MlKitTextRecognitionPipeline.recognize(recognizer, page, recoverTableCells)) {
             MlKitPageRecognitionResult.ImageUnreadable -> OcrPageResult(
                 pageIndex = pageIndex,
                 text = "",
@@ -57,6 +57,7 @@ class MlKitOcrEngine : OcrEngine {
                 pageIndex = pageIndex,
                 text = result.text,
                 layout = result.layout,
+                actualScript = OcrScript.LATIN,
             )
         }
     }

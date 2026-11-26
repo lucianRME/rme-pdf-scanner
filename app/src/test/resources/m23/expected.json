@@ -1,0 +1,72 @@
+{
+  "initial": {
+    "customer.name": [
+      "Alex 0012"
+    ],
+    "notes": [
+      "Existing\nsecond"
+    ],
+    "reference": [
+      "KEEP 0010"
+    ],
+    "consent": [
+      "Off"
+    ],
+    "contact": [
+      "Email"
+    ],
+    "country": [
+      "ro"
+    ],
+    "topics": [
+      "B"
+    ]
+  },
+  "filled": {
+    "customer.name": [
+      "Zoë €123"
+    ],
+    "notes": [
+      "Line 1\nCafé €20"
+    ],
+    "reference": [
+      "KEEP 0010"
+    ],
+    "consent": [
+      "Yes"
+    ],
+    "contact": [
+      "Phone"
+    ],
+    "country": [
+      "gb"
+    ],
+    "topics": [
+      "A",
+      "C"
+    ]
+  },
+  "widgetCounts": {
+    "customer.name": 2,
+    "notes": 1,
+    "reference": 1,
+    "consent": 2,
+    "contact": 2,
+    "country": 1,
+    "topics": 1
+  },
+  "declined": [
+    "xfa",
+    "encrypted",
+    "signed",
+    "signature-field",
+    "actions",
+    "pushbutton",
+    "orphan",
+    "duplicate",
+    "cycle",
+    "restricted",
+    "unsupported-unicode",
+    "malformed"
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "status": "FROZEN before tiled-preview implementation; unchanged independent PDF references",
+  "pixelGate": "Exact ARGB pixels versus a full-page Android PdfRenderer on the same API at1280 maximum dimension, white background; no registration or relaxed tolerance",
+  "managedPixelBytes": 8388608,
+  "cases": [
+    {
+      "id": "docx-columns",
+      "file": "docx-columns.pdf",
+      "sha256": "002e4c7ad2af6ae38bbb9a27528b08375ccce5da2830d87a624fd9e5f0bcfe99"
+    },
+    {
+      "id": "pptx-portrait",
+      "file": "pptx-portrait.pdf",
+      "sha256": "21df12943355b8729938a65a08ceaf898d9bed5566f4d79569f2f373c85b7f42"
+    },
+    {
+      "id": "xlsx-print-merge",
+      "file": "xlsx-print-merge.pdf",
+      "sha256": "f3c13db127f3f8074d2e0fd7f7868fa438deaf1f81f97ac18a44bc5637666188"
+    }
+  ]
+}

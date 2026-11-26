@@ -1,6 +1,8 @@
 package org.synapseworks.pageharbor.document
 
+import org.synapseworks.pageharbor.document.session.imageConstraintViolation
 import android.content.Context
+import org.synapseworks.pageharbor.image.ManualImageAdjustments
 import android.net.Uri
 import java.io.File
 import java.io.FileNotFoundException
@@ -9,6 +11,8 @@ import java.io.IOException
 import java.io.InputStream
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.withContext
 import org.synapseworks.pageharbor.document.searchablepdf.PdfBoxSearchablePdfGenerator
 import org.synapseworks.pageharbor.document.searchablepdf.SearchablePdfGenerationResult
@@ -43,7 +47,8 @@ suspend fun recomposeNormalPdf(
     }
     val outputFile = createTemporaryNormalPdf(context.cacheDir)
         ?: return@withContext NormalPdfRecompositionResult.Failed
-    val streamProvider = NormalPdfVisualStreamProvider(context)
+    val job=coroutineContext
+    val streamProvider = NormalPdfVisualStreamProvider(context,isCancellationRequested={ !job.isActive })
 
     try {
         when (
@@ -54,6 +59,7 @@ suspend fun recomposeNormalPdf(
                             openJpegStream = { streamProvider.open(page) },
                             // This is deliberately a normal PDF, with no OCR/searchable layer.
                             ocrResult = null,
+                            paperSize = physicalPdfPageSize(page.paperSize,page.rotation),
                         )
                     },
                     outputFile = outputFile,
@@ -115,10 +121,15 @@ fun deleteStaleNormalPdfs(
     }
 }
 
-private class NormalPdfVisualStreamProvider(private val context: Context) {
+internal class NormalPdfVisualStreamProvider(
+    private val context: Context,
+    private val workspaceDirectory: File? = null,
+    private val flattenToSrgb: Boolean = false,
+    private val isCancellationRequested:()->Boolean = { false },
+) {
     fun open(page: NormalPdfPage): InputStream = when (page.filter) {
         DocumentFilter.ORIGINAL -> if (
-            page.rotation.degrees == 0 && page.contentType == "image/jpeg"
+            !flattenToSrgb && org.synapseworks.pageharbor.document.session.DEFAULT_DOCUMENT_INPUT_LIMITS.imageConstraintViolation(page.imageMetadata)==null && readOrientation { context.contentResolver.openInputStream(page.source.toAndroidUri()) } == androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL && page.annotations.isEmpty && page.adjustments.isNeutral && page.rotation.degrees == 0 && page.contentType == "image/jpeg"
         ) {
             pageSourcePreflight(page.imageMetadata)?.let { throw PageExportFailureException(it) }
             openOriginal(page.source.toAndroidUri())
@@ -128,6 +139,8 @@ private class NormalPdfVisualStreamProvider(private val context: Context) {
                 page.filter,
                 page.rotation,
                 page.imageMetadata,
+                page.adjustments,
+                page.annotations,
             )
         }
         else -> openFiltered(
@@ -135,6 +148,8 @@ private class NormalPdfVisualStreamProvider(private val context: Context) {
             page.filter,
             page.rotation,
             page.imageMetadata,
+            page.adjustments,
+            page.annotations,
         )
     }
 
@@ -146,8 +161,14 @@ private class NormalPdfVisualStreamProvider(private val context: Context) {
         filter: DocumentFilter,
         rotation: org.synapseworks.pageharbor.document.session.DocumentPageRotation,
         imageMetadata: org.synapseworks.pageharbor.document.session.DocumentImageMetadata,
+        adjustments: ManualImageAdjustments,
+        annotations: org.synapseworks.pageharbor.document.annotation.AnnotationLayer,
     ): InputStream {
-        val temporaryImage = createTemporaryNormalVisual(context.cacheDir) ?: throw FileNotFoundException()
+        val temporaryImage = if (workspaceDirectory == null) {
+            createTemporaryNormalVisual(context.cacheDir) ?: throw FileNotFoundException()
+        } else {
+            File.createTempFile(NormalPdfVisualPrefix, ".jpg", workspaceDirectory)
+        }
         val destination = try {
             temporaryImage.outputStream()
         } catch (_: IOException) {
@@ -157,13 +178,17 @@ private class NormalPdfVisualStreamProvider(private val context: Context) {
             temporaryImage.deleteSafely()
             throw FileNotFoundException()
         }
-        val result = writeFilteredJpegToDestination(
+        val result = try { writeFilteredJpegToDestination(
             openSource = { context.contentResolver.openInputStream(sourceUri) },
             destination = destination,
             filter = filter,
             rotation = rotation,
             imageMetadata = imageMetadata,
-        )
+            adjustments = adjustments,
+            annotations = annotations,
+            isCancellationRequested = isCancellationRequested,
+            flattenToSrgb = flattenToSrgb,
+        ) }catch(error:Throwable){temporaryImage.deleteSafely();throw error}
         when (result) {
             PageExportResult.Success -> Unit
             PageExportResult.SourceTooLarge -> {

@@ -1,0 +1,268 @@
+[
+  {
+    "id": "dark-spot-512",
+    "profile": "dark-spot",
+    "width": 512,
+    "height": 384,
+    "control": null
+  },
+  {
+    "id": "faint-spot-512",
+    "profile": "faint-spot",
+    "width": 512,
+    "height": 384,
+    "control": null
+  },
+  {
+    "id": "colored-spot-512",
+    "profile": "colored-spot",
+    "width": 512,
+    "height": 384,
+    "control": null
+  },
+  {
+    "id": "rectangle-512",
+    "profile": "rectangle",
+    "width": 512,
+    "height": 384,
+    "control": null
+  },
+  {
+    "id": "left-edge-512",
+    "profile": "left-edge",
+    "width": 512,
+    "height": 384,
+    "control": null
+  },
+  {
+    "id": "top-edge-512",
+    "profile": "top-edge",
+    "width": 512,
+    "height": 384,
+    "control": null
+  },
+  {
+    "id": "corner-512",
+    "profile": "corner",
+    "width": 512,
+    "height": 384,
+    "control": null
+  },
+  {
+    "id": "gradient-512",
+    "profile": "gradient",
+    "width": 512,
+    "height": 384,
+    "control": null
+  },
+  {
+    "id": "tinted-512",
+    "profile": "tinted",
+    "width": 512,
+    "height": 384,
+    "control": null
+  },
+  {
+    "id": "two-spots-512",
+    "profile": "two-spots",
+    "width": 512,
+    "height": 384,
+    "control": null
+  },
+  {
+    "id": "near-text-512",
+    "profile": "near-text",
+    "width": 512,
+    "height": 384,
+    "control": null
+  },
+  {
+    "id": "cross-line-512",
+    "profile": "cross-line",
+    "width": 512,
+    "height": 384,
+    "control": "reject"
+  },
+  {
+    "id": "touch-text-512",
+    "profile": "touch-text",
+    "width": 512,
+    "height": 384,
+    "control": "reject"
+  },
+  {
+    "id": "texture-512",
+    "profile": "texture",
+    "width": 512,
+    "height": 384,
+    "control": "reject"
+  },
+  {
+    "id": "ambiguous-front-512",
+    "profile": "ambiguous-front",
+    "width": 512,
+    "height": 384,
+    "control": "reject"
+  },
+  {
+    "id": "ambiguous-artifact-512",
+    "profile": "ambiguous-artifact",
+    "width": 512,
+    "height": 384,
+    "control": "reject"
+  },
+  {
+    "id": "empty-512",
+    "profile": "empty",
+    "width": 512,
+    "height": 384,
+    "control": "empty"
+  },
+  {
+    "id": "oversize-512",
+    "profile": "oversize",
+    "width": 512,
+    "height": 384,
+    "control": "reject"
+  },
+  {
+    "id": "clean-painted-512",
+    "profile": "clean-painted",
+    "width": 512,
+    "height": 384,
+    "control": "unchanged"
+  },
+  {
+    "id": "dark-spot-1024",
+    "profile": "dark-spot",
+    "width": 1024,
+    "height": 768,
+    "control": null
+  },
+  {
+    "id": "faint-spot-1024",
+    "profile": "faint-spot",
+    "width": 1024,
+    "height": 768,
+    "control": null
+  },
+  {
+    "id": "colored-spot-1024",
+    "profile": "colored-spot",
+    "width": 1024,
+    "height": 768,
+    "control": null
+  },
+  {
+    "id": "rectangle-1024",
+    "profile": "rectangle",
+    "width": 1024,
+    "height": 768,
+    "control": null
+  },
+  {
+    "id": "left-edge-1024",
+    "profile": "left-edge",
+    "width": 1024,
+    "height": 768,
+    "control": null
+  },
+  {
+    "id": "top-edge-1024",
+    "profile": "top-edge",
+    "width": 1024,
+    "height": 768,
+    "control": null
+  },
+  {
+    "id": "corner-1024",
+    "profile": "corner",
+    "width": 1024,
+    "height": 768,
+    "control": null
+  },
+  {
+    "id": "gradient-1024",
+    "profile": "gradient",
+    "width": 1024,
+    "height": 768,
+    "control": null
+  },
+  {
+    "id": "tinted-1024",
+    "profile": "tinted",
+    "width": 1024,
+    "height": 768,
+    "control": null
+  },
+  {
+    "id": "two-spots-1024",
+    "profile": "two-spots",
+    "width": 1024,
+    "height": 768,
+    "control": null
+  },
+  {
+    "id": "near-text-1024",
+    "profile": "near-text",
+    "width": 1024,
+    "height": 768,
+    "control": null
+  },
+  {
+    "id": "cross-line-1024",
+    "profile": "cross-line",
+    "width": 1024,
+    "height": 768,
+    "control": "reject"
+  },
+  {
+    "id": "touch-text-1024",
+    "profile": "touch-text",
+    "width": 1024,
+    "height": 768,
+    "control": "reject"
+  },
+  {
+    "id": "texture-1024",
+    "profile": "texture",
+    "width": 1024,
+    "height": 768,
+    "control": "reject"
+  },
+  {
+    "id": "ambiguous-front-1024",
+    "profile": "ambiguous-front",
+    "width": 1024,
+    "height": 768,
+    "control": "reject"
+  },
+  {
+    "id": "ambiguous-artifact-1024",
+    "profile": "ambiguous-artifact",
+    "width": 1024,
+    "height": 768,
+    "control": "reject"
+  },
+  {
+    "id": "empty-1024",
+    "profile": "empty",
+    "width": 1024,
+    "height": 768,
+    "control": "empty"
+  },
+  {
+    "id": "oversize-1024",
+    "profile": "oversize",
+    "width": 1024,
+    "height": 768,
+    "control": "reject"
+  },
+  {
+    "id": "clean-painted-1024",
+    "profile": "clean-painted",
+    "width": 1024,
+    "height": 768,
+    "control": "unchanged"
+  }
+]

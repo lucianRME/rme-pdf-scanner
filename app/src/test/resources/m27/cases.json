@@ -1,0 +1,740 @@
+[
+  {
+    "id": "band-16-0-512",
+    "profile": "band-16-0",
+    "width": 512,
+    "height": 384,
+    "components": [
+      [
+        16,
+        0,
+        6,
+        0.2
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-16-1-512",
+    "profile": "band-16-1",
+    "width": 512,
+    "height": 384,
+    "components": [
+      [
+        0,
+        16,
+        12,
+        1.17
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-16-2-512",
+    "profile": "band-16-2",
+    "width": 512,
+    "height": 384,
+    "components": [
+      [
+        16,
+        16,
+        18,
+        2.3
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-16-3-512",
+    "profile": "band-16-3",
+    "width": 512,
+    "height": 384,
+    "components": [
+      [
+        16,
+        -16,
+        6,
+        0.2
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-24-0-512",
+    "profile": "band-24-0",
+    "width": 512,
+    "height": 384,
+    "components": [
+      [
+        24,
+        0,
+        12,
+        2.3
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-24-1-512",
+    "profile": "band-24-1",
+    "width": 512,
+    "height": 384,
+    "components": [
+      [
+        0,
+        24,
+        18,
+        0.2
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-24-2-512",
+    "profile": "band-24-2",
+    "width": 512,
+    "height": 384,
+    "components": [
+      [
+        24,
+        24,
+        6,
+        1.17
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-24-3-512",
+    "profile": "band-24-3",
+    "width": 512,
+    "height": 384,
+    "components": [
+      [
+        24,
+        -24,
+        12,
+        2.3
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-32-0-512",
+    "profile": "band-32-0",
+    "width": 512,
+    "height": 384,
+    "components": [
+      [
+        32,
+        0,
+        18,
+        1.17
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-32-1-512",
+    "profile": "band-32-1",
+    "width": 512,
+    "height": 384,
+    "components": [
+      [
+        0,
+        32,
+        6,
+        2.3
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-32-2-512",
+    "profile": "band-32-2",
+    "width": 512,
+    "height": 384,
+    "components": [
+      [
+        32,
+        32,
+        12,
+        0.2
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-32-3-512",
+    "profile": "band-32-3",
+    "width": 512,
+    "height": 384,
+    "components": [
+      [
+        32,
+        -32,
+        18,
+        1.17
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-48-0-512",
+    "profile": "band-48-0",
+    "width": 512,
+    "height": 384,
+    "components": [
+      [
+        48,
+        0,
+        6,
+        0.2
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-48-1-512",
+    "profile": "band-48-1",
+    "width": 512,
+    "height": 384,
+    "components": [
+      [
+        0,
+        48,
+        12,
+        1.17
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-48-2-512",
+    "profile": "band-48-2",
+    "width": 512,
+    "height": 384,
+    "components": [
+      [
+        48,
+        48,
+        18,
+        2.3
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-48-3-512",
+    "profile": "band-48-3",
+    "width": 512,
+    "height": 384,
+    "components": [
+      [
+        48,
+        -48,
+        6,
+        0.2
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "cross-axis-512",
+    "profile": "cross-axis",
+    "width": 512,
+    "height": 384,
+    "components": [
+      [
+        24,
+        0,
+        8,
+        0.3
+      ],
+      [
+        0,
+        32,
+        6,
+        1.7
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "cross-diagonal-512",
+    "profile": "cross-diagonal",
+    "width": 512,
+    "height": 384,
+    "components": [
+      [
+        16,
+        16,
+        8,
+        0.9
+      ],
+      [
+        24,
+        -24,
+        6,
+        2.1
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "clean-512",
+    "profile": "clean",
+    "width": 512,
+    "height": 384,
+    "components": [],
+    "exactControl": true
+  },
+  {
+    "id": "intentional-lines-512",
+    "profile": "intentional-lines",
+    "width": 512,
+    "height": 384,
+    "components": [],
+    "exactControl": true
+  },
+  {
+    "id": "colored-repeat-512",
+    "profile": "colored-repeat",
+    "width": 512,
+    "height": 384,
+    "components": [],
+    "exactControl": true
+  },
+  {
+    "id": "chromatic-512",
+    "profile": "chromatic",
+    "width": 512,
+    "height": 384,
+    "components": [],
+    "exactControl": true
+  },
+  {
+    "id": "off-bank-512",
+    "profile": "off-bank",
+    "width": 512,
+    "height": 384,
+    "components": [
+      [
+        20,
+        0,
+        12,
+        0.7
+      ]
+    ],
+    "exactControl": true
+  },
+  {
+    "id": "drift-512",
+    "profile": "drift",
+    "width": 512,
+    "height": 384,
+    "components": [],
+    "exactControl": true
+  },
+  {
+    "id": "tinted-512",
+    "profile": "tinted",
+    "width": 512,
+    "height": 384,
+    "components": [],
+    "exactControl": true
+  },
+  {
+    "id": "dark-512",
+    "profile": "dark",
+    "width": 512,
+    "height": 384,
+    "components": [],
+    "exactControl": true
+  },
+  {
+    "id": "ambiguous-front-512",
+    "profile": "ambiguous-front",
+    "width": 512,
+    "height": 384,
+    "components": [],
+    "exactControl": true
+  },
+  {
+    "id": "ambiguous-interference-512",
+    "profile": "ambiguous-interference",
+    "width": 512,
+    "height": 384,
+    "components": [],
+    "exactControl": true
+  },
+  {
+    "id": "band-16-0-1024",
+    "profile": "band-16-0",
+    "width": 1024,
+    "height": 768,
+    "components": [
+      [
+        16,
+        0,
+        6,
+        0.2
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-16-1-1024",
+    "profile": "band-16-1",
+    "width": 1024,
+    "height": 768,
+    "components": [
+      [
+        0,
+        16,
+        12,
+        1.17
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-16-2-1024",
+    "profile": "band-16-2",
+    "width": 1024,
+    "height": 768,
+    "components": [
+      [
+        16,
+        16,
+        18,
+        2.3
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-16-3-1024",
+    "profile": "band-16-3",
+    "width": 1024,
+    "height": 768,
+    "components": [
+      [
+        16,
+        -16,
+        6,
+        0.2
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-24-0-1024",
+    "profile": "band-24-0",
+    "width": 1024,
+    "height": 768,
+    "components": [
+      [
+        24,
+        0,
+        12,
+        2.3
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-24-1-1024",
+    "profile": "band-24-1",
+    "width": 1024,
+    "height": 768,
+    "components": [
+      [
+        0,
+        24,
+        18,
+        0.2
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-24-2-1024",
+    "profile": "band-24-2",
+    "width": 1024,
+    "height": 768,
+    "components": [
+      [
+        24,
+        24,
+        6,
+        1.17
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-24-3-1024",
+    "profile": "band-24-3",
+    "width": 1024,
+    "height": 768,
+    "components": [
+      [
+        24,
+        -24,
+        12,
+        2.3
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-32-0-1024",
+    "profile": "band-32-0",
+    "width": 1024,
+    "height": 768,
+    "components": [
+      [
+        32,
+        0,
+        18,
+        1.17
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-32-1-1024",
+    "profile": "band-32-1",
+    "width": 1024,
+    "height": 768,
+    "components": [
+      [
+        0,
+        32,
+        6,
+        2.3
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-32-2-1024",
+    "profile": "band-32-2",
+    "width": 1024,
+    "height": 768,
+    "components": [
+      [
+        32,
+        32,
+        12,
+        0.2
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-32-3-1024",
+    "profile": "band-32-3",
+    "width": 1024,
+    "height": 768,
+    "components": [
+      [
+        32,
+        -32,
+        18,
+        1.17
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-48-0-1024",
+    "profile": "band-48-0",
+    "width": 1024,
+    "height": 768,
+    "components": [
+      [
+        48,
+        0,
+        6,
+        0.2
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-48-1-1024",
+    "profile": "band-48-1",
+    "width": 1024,
+    "height": 768,
+    "components": [
+      [
+        0,
+        48,
+        12,
+        1.17
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-48-2-1024",
+    "profile": "band-48-2",
+    "width": 1024,
+    "height": 768,
+    "components": [
+      [
+        48,
+        48,
+        18,
+        2.3
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "band-48-3-1024",
+    "profile": "band-48-3",
+    "width": 1024,
+    "height": 768,
+    "components": [
+      [
+        48,
+        -48,
+        6,
+        0.2
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "cross-axis-1024",
+    "profile": "cross-axis",
+    "width": 1024,
+    "height": 768,
+    "components": [
+      [
+        24,
+        0,
+        8,
+        0.3
+      ],
+      [
+        0,
+        32,
+        6,
+        1.7
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "cross-diagonal-1024",
+    "profile": "cross-diagonal",
+    "width": 1024,
+    "height": 768,
+    "components": [
+      [
+        16,
+        16,
+        8,
+        0.9
+      ],
+      [
+        24,
+        -24,
+        6,
+        2.1
+      ]
+    ],
+    "exactControl": false
+  },
+  {
+    "id": "clean-1024",
+    "profile": "clean",
+    "width": 1024,
+    "height": 768,
+    "components": [],
+    "exactControl": true
+  },
+  {
+    "id": "intentional-lines-1024",
+    "profile": "intentional-lines",
+    "width": 1024,
+    "height": 768,
+    "components": [],
+    "exactControl": true
+  },
+  {
+    "id": "colored-repeat-1024",
+    "profile": "colored-repeat",
+    "width": 1024,
+    "height": 768,
+    "components": [],
+    "exactControl": true
+  },
+  {
+    "id": "chromatic-1024",
+    "profile": "chromatic",
+    "width": 1024,
+    "height": 768,
+    "components": [],
+    "exactControl": true
+  },
+  {
+    "id": "off-bank-1024",
+    "profile": "off-bank",
+    "width": 1024,
+    "height": 768,
+    "components": [
+      [
+        20,
+        0,
+        12,
+        0.7
+      ]
+    ],
+    "exactControl": true
+  },
+  {
+    "id": "drift-1024",
+    "profile": "drift",
+    "width": 1024,
+    "height": 768,
+    "components": [],
+    "exactControl": true
+  },
+  {
+    "id": "tinted-1024",
+    "profile": "tinted",
+    "width": 1024,
+    "height": 768,
+    "components": [],
+    "exactControl": true
+  },
+  {
+    "id": "dark-1024",
+    "profile": "dark",
+    "width": 1024,
+    "height": 768,
+    "components": [],
+    "exactControl": true
+  },
+  {
+    "id": "ambiguous-front-1024",
+    "profile": "ambiguous-front",
+    "width": 1024,
+    "height": 768,
+    "components": [],
+    "exactControl": true
+  },
+  {
+    "id": "ambiguous-interference-1024",
+    "profile": "ambiguous-interference",
+    "width": 1024,
+    "height": 768,
+    "components": [],
+    "exactControl": true
+  }
+]

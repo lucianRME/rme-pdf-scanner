@@ -18,6 +18,7 @@ data class OcrPageResult(
     val error: OcrPageError? = null,
     /** Null only for an engine result that cannot safely supply positioned text yet. */
     val layout: OcrPageLayout? = null,
+    val actualScript: OcrScript? = null,
 )
 
 /**

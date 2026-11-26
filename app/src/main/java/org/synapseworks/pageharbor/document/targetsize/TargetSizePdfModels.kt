@@ -1,6 +1,7 @@
 package org.synapseworks.pageharbor.document.targetsize
 
 import android.net.Uri
+import org.synapseworks.pageharbor.image.ManualImageAdjustments
 import org.synapseworks.pageharbor.document.session.DocumentImageMetadata
 import org.synapseworks.pageharbor.document.session.DocumentPageRotation
 import org.synapseworks.pageharbor.document.session.DocumentSourceCategory
@@ -193,6 +194,9 @@ data class TargetSizePdfPage(
     /** Must already be the effective corrected/imported OCR result for this page. */
     val effectiveOcr: OcrPageResult? = null,
     val contentProfile: TargetSizePageContentProfile = TargetSizePageContentProfile.MIXED_TEXT_PHOTO,
+    val adjustments: ManualImageAdjustments = ManualImageAdjustments(),
+    val annotations: org.synapseworks.pageharbor.document.annotation.AnnotationLayer = org.synapseworks.pageharbor.document.annotation.AnnotationLayer.EMPTY,
+    val paperSize: org.synapseworks.pageharbor.document.session.DocumentPaperSize? = null,
 )
 
 data class TargetSizePdfRequest(

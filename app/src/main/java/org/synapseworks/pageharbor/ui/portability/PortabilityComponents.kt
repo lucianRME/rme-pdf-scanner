@@ -1,5 +1,10 @@
 package org.synapseworks.pageharbor.ui.portability
 
+import org.synapseworks.pageharbor.ui.theme.RmeIconButton
+import org.synapseworks.pageharbor.ui.theme.RmePrimaryButton
+import org.synapseworks.pageharbor.ui.theme.RmeSecondaryButton
+import org.synapseworks.pageharbor.ui.theme.RmeTextButton
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -9,24 +14,22 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,7 +59,7 @@ internal fun PortabilityScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    RmeIconButton(onClick = onBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
@@ -69,7 +72,7 @@ internal fun PortabilityScreen(
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding).consumeWindowInsets(innerPadding).imePadding(),
         ) {
             val horizontalPadding = when {
                 maxWidth >= 840.dp -> PageHarborLayout.expandedScreenHorizontalPadding
@@ -297,7 +300,7 @@ private fun PortabilityActionButton(
     modifier: Modifier,
 ) {
     when (action.style) {
-        PortabilityActionStyle.PRIMARY -> Button(
+        PortabilityActionStyle.PRIMARY -> RmePrimaryButton(
             modifier = modifier,
             enabled = action.enabled,
             onClick = action.onClick,
@@ -305,7 +308,7 @@ private fun PortabilityActionButton(
             Text(action.label)
         }
 
-        PortabilityActionStyle.OUTLINED -> OutlinedButton(
+        PortabilityActionStyle.OUTLINED -> RmeSecondaryButton(
             modifier = modifier,
             enabled = action.enabled,
             onClick = action.onClick,
@@ -313,7 +316,7 @@ private fun PortabilityActionButton(
             Text(action.label)
         }
 
-        PortabilityActionStyle.TEXT -> TextButton(
+        PortabilityActionStyle.TEXT -> RmeTextButton(
             modifier = modifier,
             enabled = action.enabled,
             onClick = action.onClick,

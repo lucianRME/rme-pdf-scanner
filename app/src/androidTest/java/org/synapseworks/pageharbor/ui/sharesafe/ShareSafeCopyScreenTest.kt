@@ -7,6 +7,7 @@ import android.net.Uri
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.recalculateWindowInsets
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,6 +35,9 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import java.io.FileOutputStream
@@ -70,6 +74,22 @@ class ShareSafeCopyScreenTest {
     val composeRule = createComposeRule()
 
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
+    private var viewportSize = IntSize.Zero
+
+    @Composable
+    private fun FixedInsetViewport(width: Dp, height: Dp, content: @Composable () -> Unit) {
+        // Keep the host window-sized. The fixed panel consumes space outside its bounds,
+        // so real window-relative IME insets describe only overlap with that panel.
+        Box(Modifier.fillMaxSize()) {
+            Box(
+                Modifier.size(width, height)
+                    .recalculateWindowInsets()
+                    .onSizeChanged { viewportSize = it },
+            ) {
+                content()
+            }
+        }
+    }
 
     @Test
     fun recipeSelectionKeepsIdAvailableWithoutDocumentAndExplainsEveryTask() {
@@ -108,7 +128,7 @@ class ShareSafeCopyScreenTest {
         composeRule.setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f, 2f)) {
                 PageHarborTheme(darkTheme = true) {
-                    Box(Modifier.size(400.dp, 700.dp)) {
+                    FixedInsetViewport(400.dp, 700.dp) {
                         screen(
                             state = state,
                             onPurpose = {
@@ -122,6 +142,7 @@ class ShareSafeCopyScreenTest {
             }
         }
 
+        composeRule.runOnIdle { assertEquals(IntSize(400, 700), viewportSize) }
         composeRule.onNodeWithText("Purpose").performTextInput("For school registration")
         composeRule.onNodeWithText("Repeated").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Strong").performScrollTo().assertIsDisplayed()
@@ -170,7 +191,7 @@ class ShareSafeCopyScreenTest {
         composeRule.setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f, 2f)) {
                 PageHarborTheme(darkTheme = true) {
-                    Box(Modifier.size(320.dp, 600.dp)) {
+                    FixedInsetViewport(320.dp, 600.dp) {
                         screen(
                             state = ShareSafeCopyWorkflowState.Configure(
                                 title = "Synthetic",
@@ -191,6 +212,7 @@ class ShareSafeCopyScreenTest {
             }
         }
 
+        composeRule.runOnIdle { assertEquals(IntSize(320, 600), viewportSize) }
         composeRule.onNodeWithText("Next").assertIsDisplayed().assertIsNotEnabled()
         composeRule.onNodeWithText("Maximum size value").performScrollTo().performTextInput("750")
         composeRule.onNodeWithText("Next").assertIsDisplayed().assertIsEnabled().performClick()

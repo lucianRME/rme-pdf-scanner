@@ -63,7 +63,11 @@ internal class RoomLibraryBackupSnapshotSource(
         val startingRevision = dao.metadata()?.libraryRevision ?: 0L
         val spoolRoot = createPrivateSpoolDirectory(spoolParent)
         val builder = try {
-            LibraryBackupSpoolBuilder(spoolRoot, limits)
+            val tags = dao.organizationTags()
+            require(tags.size <= 256)
+            LibraryBackupSpoolBuilder(spoolRoot, limits, tags.map {
+                org.synapseworks.pageharbor.backup.format.BackupTagRecord(it.tagId, it.name)
+            })
         } catch (failure: Throwable) {
             throwAfterBackupCaptureCleanup(failure) {
                 deleteSpoolDirectory(spoolParent, spoolRoot)
@@ -128,6 +132,10 @@ internal class RoomLibraryBackupSnapshotSource(
             currentCoroutineContext().ensureActive()
             val page = dao.activeBackupDocumentsPage(afterRowId, DATABASE_PAGE_SIZE)
             if (page.isEmpty()) break
+            val assignments=dao.backupDocumentTagsPage(afterRowId,page.last().document.rowId)
+            require(assignments.size<=DATABASE_PAGE_SIZE*32)
+            val tagsByDocument=assignments.groupBy{it.documentId}
+            require(tagsByDocument.values.all{it.size<=32})
             page.forEach { row ->
                 currentCoroutineContext().ensureActive()
                 if (row.document.pageCount != row.actualPageCount) {
@@ -137,7 +145,7 @@ internal class RoomLibraryBackupSnapshotSource(
                     )
                 }
                 builder.appendDocument(
-                    row.document.toBackupRecord(row.actualPageCount, row.actualSourceAssetCount),
+                    row.document.toBackupRecord(row.actualPageCount, row.actualSourceAssetCount, tagsByDocument[row.document.documentId].orEmpty().map{it.tagId}),
                 )
                 builder.appendOcrDocumentState(
                     BackupOcrDocumentStateRecord(
@@ -358,6 +366,9 @@ internal class RoomLibraryBackupSnapshotSource(
             ocrText = ocrText,
             ocrError = ocrError,
             sourcePageIndex = null,
+            brightness = brightness, contrast = contrast,
+            annotations = org.synapseworks.pageharbor.document.annotation.AnnotationLayer.decode(annotations).encode(),
+            paperSize = org.synapseworks.pageharbor.document.session.DocumentPaperSize.decode(paperSize)?.encode().orEmpty(),
         ) to file
     }
 
@@ -392,6 +403,7 @@ internal class RoomLibraryBackupSnapshotSource(
     private fun LibraryDocumentEntity.toBackupRecord(
         actualPageCount: Int,
         actualSourceAssetCount: Int,
+        assignedTags: List<String>,
     ): BackupDocumentRecord = BackupDocumentRecord(
         documentId = documentId,
         folderId = folderId,
@@ -412,6 +424,8 @@ internal class RoomLibraryBackupSnapshotSource(
         importedAtEpochMillis = importedAtMillis,
         sourceProvenanceKind = sourceProvenanceKind,
         sourceProvenanceLabel = sourceProvenanceLabel,
+        favorite = isFavorite,
+        tagIds = assignedTags,
     )
 
     private fun org.synapseworks.pageharbor.library.LibraryPageOcrArtifactEntity.toBackupRecord(

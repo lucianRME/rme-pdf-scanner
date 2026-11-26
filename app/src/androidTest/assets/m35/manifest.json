@@ -1,0 +1,1776 @@
+{
+  "schema": 1,
+  "status": "FROZEN before Android product-corpus execution and product implementation",
+  "authoring": "Independent @oai/artifact-tool and python-docx host implementations; no RME M32/M33/M34 writer or Android output used",
+  "sourceSha256": "f91dee81ead7ec43daacd40aa0ea169f3fd0c0fb3158d707f78556c2f8c99840",
+  "profileSha256": "391c78cf1f64f7ad7d64adac41c5616c5fc793431ca55a826faf1b7728ee93fc",
+  "cases": [
+    {
+      "id": "docx-columns",
+      "kind": "docx",
+      "sha256": "54935105d8ad3d5df01ac28bf67251c339164c65d389a04270e3451a76c12a3b",
+      "bytes": 36780,
+      "expectedAdmission": "ADMITTED",
+      "expectedProduct": "ADMITTED",
+      "coverage": [
+        "docx-columns"
+      ],
+      "assertions": {},
+      "parts": [
+        {
+          "name": "[Content_Types].xml",
+          "sha256": "66c84fb7a6aa3c4ead49f895e4a7044df1fb57de1ed76d09b2686e91f5bed5b4",
+          "bytes": 1738
+        },
+        {
+          "name": "_rels/.rels",
+          "sha256": "a9ae57efe9186f07d48303bcac5d54c7e359bf3f503939c03ad2954e5c59a5c4",
+          "bytes": 734
+        },
+        {
+          "name": "customXml/_rels/item1.xml.rels",
+          "sha256": "1ca6c9a64edcebe24ee703a54403611b322d96da33371779e742d2d3f7ed7a6c",
+          "bytes": 295
+        },
+        {
+          "name": "customXml/item1.xml",
+          "sha256": "a86086ffc5d8e83ebd6c71a55d1d2efaa31b137977f5f3a752366e1023612144",
+          "bytes": 262
+        },
+        {
+          "name": "customXml/itemProps1.xml",
+          "sha256": "c542307b13ec29a8b546217bb37936ab4822e044b265d2952985ec3d6afed24e",
+          "bytes": 354
+        },
+        {
+          "name": "docProps/app.xml",
+          "sha256": "1d0f15d9f69d73146aba018de6e01afa8a36280983df75b0229c1b2f9f6bebe9",
+          "bytes": 1292
+        },
+        {
+          "name": "docProps/core.xml",
+          "sha256": "84117e5a90f0d0f31e19057ff5c628957fb95027afb5b101ab585f940d78eeef",
+          "bytes": 662
+        },
+        {
+          "name": "docProps/thumbnail.jpeg",
+          "sha256": "96367138dc44ce09bf2c8f0f8e49348a1478d2c5c0af69bbc2bbc38b63cdcead",
+          "bytes": 8324
+        },
+        {
+          "name": "word/_rels/document.xml.rels",
+          "sha256": "1e7f0eb144a98e199249314f61ff32a8de2a27e56d8e9ee6b524e1c6b235d377",
+          "bytes": 1227
+        },
+        {
+          "name": "word/document.xml",
+          "sha256": "ca2198f85f7eab2162833e013d99498279d1bdc91c7caeb274aa0193c47b3c85",
+          "bytes": 2550
+        },
+        {
+          "name": "word/fontTable.xml",
+          "sha256": "79385fb7f60247507ecaffc292e9ebd52ea0657b8634f629ba6fccc54011d6bb",
+          "bytes": 2811
+        },
+        {
+          "name": "word/numbering.xml",
+          "sha256": "70976f19cbcd896e51890859fe6ecb3467a5a7ad0c040160fedc5a1993cb09ce",
+          "bytes": 5513
+        },
+        {
+          "name": "word/settings.xml",
+          "sha256": "51a0d348fe85965c66e4748a03c3c0d055d78455514f03cb121c334af7d73689",
+          "bytes": 2535
+        },
+        {
+          "name": "word/styles.xml",
+          "sha256": "07011a29936617f7dd2af735497a1be7f0f25aceb13ab41995d6fdb07665c5f4",
+          "bytes": 349609
+        },
+        {
+          "name": "word/stylesWithEffects.xml",
+          "sha256": "463ae0928cf0d84775dbf8cf18d6c3029f6707c81bf590f6d6dd8757a5e93f15",
+          "bytes": 438131
+        },
+        {
+          "name": "word/theme/theme1.xml",
+          "sha256": "e3a8ab7db9ca7afca56f5f2820a56e8b660016c647773555b060b0a02ac76941",
+          "bytes": 10939
+        },
+        {
+          "name": "word/webSettings.xml",
+          "sha256": "349d36de7434d09f86987ff671d8814964a0588c1e630c06e562cda7e75e9f95",
+          "bytes": 438
+        }
+      ]
+    },
+    {
+      "id": "docx-pagination",
+      "kind": "docx",
+      "sha256": "057b02b5d49b69a87683942748bbf38f514a129773ac4c23b32a3c83df1f51b0",
+      "bytes": 37036,
+      "expectedAdmission": "ADMITTED",
+      "expectedProduct": "ADMITTED",
+      "coverage": [
+        "docx-pagination"
+      ],
+      "assertions": {
+        "exactPages": 2
+      },
+      "parts": [
+        {
+          "name": "[Content_Types].xml",
+          "sha256": "66c84fb7a6aa3c4ead49f895e4a7044df1fb57de1ed76d09b2686e91f5bed5b4",
+          "bytes": 1738
+        },
+        {
+          "name": "_rels/.rels",
+          "sha256": "a9ae57efe9186f07d48303bcac5d54c7e359bf3f503939c03ad2954e5c59a5c4",
+          "bytes": 734
+        },
+        {
+          "name": "customXml/_rels/item1.xml.rels",
+          "sha256": "1ca6c9a64edcebe24ee703a54403611b322d96da33371779e742d2d3f7ed7a6c",
+          "bytes": 295
+        },
+        {
+          "name": "customXml/item1.xml",
+          "sha256": "a86086ffc5d8e83ebd6c71a55d1d2efaa31b137977f5f3a752366e1023612144",
+          "bytes": 262
+        },
+        {
+          "name": "customXml/itemProps1.xml",
+          "sha256": "c542307b13ec29a8b546217bb37936ab4822e044b265d2952985ec3d6afed24e",
+          "bytes": 354
+        },
+        {
+          "name": "docProps/app.xml",
+          "sha256": "1d0f15d9f69d73146aba018de6e01afa8a36280983df75b0229c1b2f9f6bebe9",
+          "bytes": 1292
+        },
+        {
+          "name": "docProps/core.xml",
+          "sha256": "84117e5a90f0d0f31e19057ff5c628957fb95027afb5b101ab585f940d78eeef",
+          "bytes": 662
+        },
+        {
+          "name": "docProps/thumbnail.jpeg",
+          "sha256": "96367138dc44ce09bf2c8f0f8e49348a1478d2c5c0af69bbc2bbc38b63cdcead",
+          "bytes": 8324
+        },
+        {
+          "name": "word/_rels/document.xml.rels",
+          "sha256": "1e7f0eb144a98e199249314f61ff32a8de2a27e56d8e9ee6b524e1c6b235d377",
+          "bytes": 1227
+        },
+        {
+          "name": "word/document.xml",
+          "sha256": "33d8fa3c98df13d8b86895f55003758e3a3524ca3b1c988b87f6b6beca681cc9",
+          "bytes": 3277
+        },
+        {
+          "name": "word/fontTable.xml",
+          "sha256": "79385fb7f60247507ecaffc292e9ebd52ea0657b8634f629ba6fccc54011d6bb",
+          "bytes": 2811
+        },
+        {
+          "name": "word/numbering.xml",
+          "sha256": "70976f19cbcd896e51890859fe6ecb3467a5a7ad0c040160fedc5a1993cb09ce",
+          "bytes": 5513
+        },
+        {
+          "name": "word/settings.xml",
+          "sha256": "51a0d348fe85965c66e4748a03c3c0d055d78455514f03cb121c334af7d73689",
+          "bytes": 2535
+        },
+        {
+          "name": "word/styles.xml",
+          "sha256": "07011a29936617f7dd2af735497a1be7f0f25aceb13ab41995d6fdb07665c5f4",
+          "bytes": 349609
+        },
+        {
+          "name": "word/stylesWithEffects.xml",
+          "sha256": "463ae0928cf0d84775dbf8cf18d6c3029f6707c81bf590f6d6dd8757a5e93f15",
+          "bytes": 438131
+        },
+        {
+          "name": "word/theme/theme1.xml",
+          "sha256": "e3a8ab7db9ca7afca56f5f2820a56e8b660016c647773555b060b0a02ac76941",
+          "bytes": 10939
+        },
+        {
+          "name": "word/webSettings.xml",
+          "sha256": "349d36de7434d09f86987ff671d8814964a0588c1e630c06e562cda7e75e9f95",
+          "bytes": 438
+        }
+      ]
+    },
+    {
+      "id": "docx-substitution",
+      "kind": "docx",
+      "sha256": "086ec1a1f33ffdf3dad5ea58aa1ec32e9e96b293d73e8a60a09a2956ccfc3f73",
+      "bytes": 36807,
+      "expectedAdmission": "ADMITTED",
+      "expectedProduct": "ADMITTED",
+      "coverage": [
+        "docx-substitution"
+      ],
+      "assertions": {},
+      "parts": [
+        {
+          "name": "[Content_Types].xml",
+          "sha256": "66c84fb7a6aa3c4ead49f895e4a7044df1fb57de1ed76d09b2686e91f5bed5b4",
+          "bytes": 1738
+        },
+        {
+          "name": "_rels/.rels",
+          "sha256": "a9ae57efe9186f07d48303bcac5d54c7e359bf3f503939c03ad2954e5c59a5c4",
+          "bytes": 734
+        },
+        {
+          "name": "customXml/_rels/item1.xml.rels",
+          "sha256": "1ca6c9a64edcebe24ee703a54403611b322d96da33371779e742d2d3f7ed7a6c",
+          "bytes": 295
+        },
+        {
+          "name": "customXml/item1.xml",
+          "sha256": "a86086ffc5d8e83ebd6c71a55d1d2efaa31b137977f5f3a752366e1023612144",
+          "bytes": 262
+        },
+        {
+          "name": "customXml/itemProps1.xml",
+          "sha256": "c542307b13ec29a8b546217bb37936ab4822e044b265d2952985ec3d6afed24e",
+          "bytes": 354
+        },
+        {
+          "name": "docProps/app.xml",
+          "sha256": "1d0f15d9f69d73146aba018de6e01afa8a36280983df75b0229c1b2f9f6bebe9",
+          "bytes": 1292
+        },
+        {
+          "name": "docProps/core.xml",
+          "sha256": "84117e5a90f0d0f31e19057ff5c628957fb95027afb5b101ab585f940d78eeef",
+          "bytes": 662
+        },
+        {
+          "name": "docProps/thumbnail.jpeg",
+          "sha256": "96367138dc44ce09bf2c8f0f8e49348a1478d2c5c0af69bbc2bbc38b63cdcead",
+          "bytes": 8324
+        },
+        {
+          "name": "word/_rels/document.xml.rels",
+          "sha256": "1e7f0eb144a98e199249314f61ff32a8de2a27e56d8e9ee6b524e1c6b235d377",
+          "bytes": 1227
+        },
+        {
+          "name": "word/document.xml",
+          "sha256": "bfea2a9615d9b2b6545b13ee6525bccf87b21ed07eb3e7624712f6c3caae0ae2",
+          "bytes": 1920
+        },
+        {
+          "name": "word/fontTable.xml",
+          "sha256": "79385fb7f60247507ecaffc292e9ebd52ea0657b8634f629ba6fccc54011d6bb",
+          "bytes": 2811
+        },
+        {
+          "name": "word/numbering.xml",
+          "sha256": "70976f19cbcd896e51890859fe6ecb3467a5a7ad0c040160fedc5a1993cb09ce",
+          "bytes": 5513
+        },
+        {
+          "name": "word/settings.xml",
+          "sha256": "51a0d348fe85965c66e4748a03c3c0d055d78455514f03cb121c334af7d73689",
+          "bytes": 2535
+        },
+        {
+          "name": "word/styles.xml",
+          "sha256": "07011a29936617f7dd2af735497a1be7f0f25aceb13ab41995d6fdb07665c5f4",
+          "bytes": 349609
+        },
+        {
+          "name": "word/stylesWithEffects.xml",
+          "sha256": "463ae0928cf0d84775dbf8cf18d6c3029f6707c81bf590f6d6dd8757a5e93f15",
+          "bytes": 438131
+        },
+        {
+          "name": "word/theme/theme1.xml",
+          "sha256": "e3a8ab7db9ca7afca56f5f2820a56e8b660016c647773555b060b0a02ac76941",
+          "bytes": 10939
+        },
+        {
+          "name": "word/webSettings.xml",
+          "sha256": "349d36de7434d09f86987ff671d8814964a0588c1e630c06e562cda7e75e9f95",
+          "bytes": 438
+        }
+      ]
+    },
+    {
+      "id": "pptx-chart",
+      "kind": "pptx",
+      "sha256": "b1f5ad6420712f035b973bbf31c0e64f7251eec69de70be303df70ae40d54848",
+      "bytes": 20193,
+      "expectedAdmission": "ADMITTED",
+      "expectedProduct": "ADMITTED",
+      "coverage": [
+        "pptx-chart"
+      ],
+      "assertions": {},
+      "parts": [
+        {
+          "name": "[Content_Types].xml",
+          "sha256": "1f21b211bdd2c6714a92d4b18753883a218a9ab8101951e9799c8e2e476e727d",
+          "bytes": 2920
+        },
+        {
+          "name": "_rels/.rels",
+          "sha256": "1a32987bc86126583d6970b90338ce11af413ad3c9e48c50d3fcf8102f557ef2",
+          "bytes": 622
+        },
+        {
+          "name": "docProps/app.xml",
+          "sha256": "df36e472fdf35de2316c1458e41c32af3b697201d913d0d64c3f2c1379e2ad1b",
+          "bytes": 439
+        },
+        {
+          "name": "docProps/core.xml",
+          "sha256": "9582d7657b13a9cdbad09dfb4f9bfb1643fdc7d73609ff1359415df34cdc1801",
+          "bytes": 517
+        },
+        {
+          "name": "ppt/_rels/presentation.xml.rels",
+          "sha256": "020b2808a558e4efc998f8478457855aee55714c6646b945687eca2ca8b44972",
+          "bytes": 1092
+        },
+        {
+          "name": "ppt/notesMasters/_rels/notesMaster1.xml.rels",
+          "sha256": "6952374759bc9777ebcb7010995abf0b0f35ff817da96efed55adf282714ab60",
+          "bytes": 305
+        },
+        {
+          "name": "ppt/notesMasters/notesMaster1.xml",
+          "sha256": "67e34238b0ae378d2b06825cab5051767fe5c55010ccc2f8c4bc250056068e22",
+          "bytes": 4047
+        },
+        {
+          "name": "ppt/notesMasters/theme/theme3.xml",
+          "sha256": "e86eeee157d8ac86cea9c9381818189a75a293a49a68aeb88ea83be6f9b96b88",
+          "bytes": 4575
+        },
+        {
+          "name": "ppt/notesSlides/_rels/notesSlide1.xml.rels",
+          "sha256": "b491791d305bfd1c5e4264a9461be154c52a9c133ff7e9ac098b60402efe7db3",
+          "bytes": 463
+        },
+        {
+          "name": "ppt/notesSlides/notesSlide1.xml",
+          "sha256": "233d7373f5475366a75fa5605a96451fcbd17626d9c7a38d8f4e4c0d8bfefd50",
+          "bytes": 1694
+        },
+        {
+          "name": "ppt/presProps.xml",
+          "sha256": "1db4fc10ae1c50c0bf989e54950b4489fbe1ce68105fa850073337ef8e043f5f",
+          "bytes": 660
+        },
+        {
+          "name": "ppt/presentation.xml",
+          "sha256": "2581fc7fc9ab2d22e12aece9aca8cacbd38bbfc966ef9b51ac1265c6486d70b8",
+          "bytes": 701
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout1.xml.rels",
+          "sha256": "8f563330145ebf41d5fa416a81213487e06b85a4bbd129b316fd6d74ade1a74a",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout2.xml.rels",
+          "sha256": "88776f2ba7350462cf3f9a83870819fb05423468db4182b4eff92a9adf4bf594",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout3.xml.rels",
+          "sha256": "47384f0b3b9df43204ed9d8b1093ac0aad0b9107b6037c0c7084f10916bd2740",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout4.xml.rels",
+          "sha256": "e6d97bbbaf22171d4d37342134a86bacfc928629a34e2282df47d6985fc7122a",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout5.xml.rels",
+          "sha256": "be33ea8646ef5478d46c6816e76d894232a71a5abd9178a1cdcfdf95c44d900a",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout6.xml.rels",
+          "sha256": "ab3f19e6034a447e682331485ab3c027b3aa401ab9d002e1cc96687f6f7ffa49",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout1.xml",
+          "sha256": "855080abe46485c9d8a4c981b1a3e2ca8b1b16a41ad54ee172a316f1e5e4d973",
+          "bytes": 9938
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout2.xml",
+          "sha256": "c05d22ce0456a8a1377675f6498fd3171ed07dd3b2719801367278abd6097aac",
+          "bytes": 5155
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout3.xml",
+          "sha256": "249e7d2f2b3d034690d5a66251b355cd0322d205793e1079b1ea331f6a2ebb8d",
+          "bytes": 10107
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout4.xml",
+          "sha256": "81b76660edc4e1dcbb5ddeddc9baed0ae3edaec4a67e304d3d009437b82ce3cf",
+          "bytes": 15111
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout5.xml",
+          "sha256": "82e57eea90c88a0c2e109efa83670bb5586e540debb3ce687743bc09be2795b6",
+          "bytes": 10119
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout6.xml",
+          "sha256": "7d71d8b9ad64cf423d1eed42e4e72d6b5945ffd55f7dca20019cd5bc20b163c0",
+          "bytes": 374
+        },
+        {
+          "name": "ppt/slideMasters/_rels/slideMaster1.xml.rels",
+          "sha256": "523118605ab9cf2374cd003330d6e5bc7edcd1e2fafb97ed73fd7e872929506f",
+          "bytes": 1325
+        },
+        {
+          "name": "ppt/slideMasters/slideMaster1.xml",
+          "sha256": "3c5229c4a58a73ddb680b7692972456795ccd20ef7899faab07d8e21d9d3e0e1",
+          "bytes": 8190
+        },
+        {
+          "name": "ppt/slideMasters/theme/theme2.xml",
+          "sha256": "e86eeee157d8ac86cea9c9381818189a75a293a49a68aeb88ea83be6f9b96b88",
+          "bytes": 4575
+        },
+        {
+          "name": "ppt/slides/_rels/slide1.xml.rels",
+          "sha256": "d4790e2a24713e34fc421987fb90acd75bcfca5ef0ed309a1b1a4041fc0c0a90",
+          "bytes": 637
+        },
+        {
+          "name": "ppt/slides/charts/chart1.xml",
+          "sha256": "81702e351ef41709ca5d33840d7e504a020058d211a296a78db5439fd25822d8",
+          "bytes": 2754
+        },
+        {
+          "name": "ppt/slides/slide1.xml",
+          "sha256": "1c5a6f3abfe8244826d3f28b40c5c3ff218725e5f59ae71c1ab187ac9a2ec31b",
+          "bytes": 6586
+        },
+        {
+          "name": "ppt/tableStyles.xml",
+          "sha256": "eefe8607728a909fd3cf65c0e18a5abf20526c77e5d206950696a268edd823c8",
+          "bytes": 164
+        },
+        {
+          "name": "ppt/theme/theme1.xml",
+          "sha256": "e86eeee157d8ac86cea9c9381818189a75a293a49a68aeb88ea83be6f9b96b88",
+          "bytes": 4575
+        }
+      ]
+    },
+    {
+      "id": "pptx-masters",
+      "kind": "pptx",
+      "sha256": "3c81fd69ce5436930f9e6aa710fc7da05d3c098ef53e4430fc0ff76d9b85b6f5",
+      "bytes": 21832,
+      "expectedAdmission": "ADMITTED",
+      "expectedProduct": "ADMITTED",
+      "coverage": [
+        "pptx-masters"
+      ],
+      "assertions": {
+        "requiredText": [
+          "Inherited master footer"
+        ],
+        "exactPages": 2
+      },
+      "parts": [
+        {
+          "name": "[Content_Types].xml",
+          "sha256": "dddae2b13642262a795dd790cdd116ea7803bf239d447b898e4073bd0aae30d2",
+          "bytes": 2974
+        },
+        {
+          "name": "_rels/.rels",
+          "sha256": "f8b75561e529ba7156c6be2a61bbd065df231f24e2057607de14cf41adf22b18",
+          "bytes": 622
+        },
+        {
+          "name": "docProps/app.xml",
+          "sha256": "df36e472fdf35de2316c1458e41c32af3b697201d913d0d64c3f2c1379e2ad1b",
+          "bytes": 439
+        },
+        {
+          "name": "docProps/core.xml",
+          "sha256": "9582d7657b13a9cdbad09dfb4f9bfb1643fdc7d73609ff1359415df34cdc1801",
+          "bytes": 517
+        },
+        {
+          "name": "ppt/_rels/presentation.xml.rels",
+          "sha256": "4177c5c5e8aeac05f9a777cbeb23c58af6cc5e19d50ab3eb289936899336d9b2",
+          "bytes": 1244
+        },
+        {
+          "name": "ppt/notesMasters/_rels/notesMaster1.xml.rels",
+          "sha256": "e2c7fcc64fc35d16801abe5178d3798e48ee7052766512341fecc72f797ac5ec",
+          "bytes": 305
+        },
+        {
+          "name": "ppt/notesMasters/notesMaster1.xml",
+          "sha256": "67e34238b0ae378d2b06825cab5051767fe5c55010ccc2f8c4bc250056068e22",
+          "bytes": 4047
+        },
+        {
+          "name": "ppt/notesMasters/theme/theme3.xml",
+          "sha256": "e86eeee157d8ac86cea9c9381818189a75a293a49a68aeb88ea83be6f9b96b88",
+          "bytes": 4575
+        },
+        {
+          "name": "ppt/notesSlides/_rels/notesSlide1.xml.rels",
+          "sha256": "037aeafd4c48a622e028c4e66dd7a78a7a5fbb749b2d1199978174631a0a5720",
+          "bytes": 463
+        },
+        {
+          "name": "ppt/notesSlides/_rels/notesSlide2.xml.rels",
+          "sha256": "73aba85b14e7240e86d99a87e1b26a38b7e053c1fca6683fd8639494d8251c3b",
+          "bytes": 463
+        },
+        {
+          "name": "ppt/notesSlides/notesSlide1.xml",
+          "sha256": "233d7373f5475366a75fa5605a96451fcbd17626d9c7a38d8f4e4c0d8bfefd50",
+          "bytes": 1694
+        },
+        {
+          "name": "ppt/notesSlides/notesSlide2.xml",
+          "sha256": "233d7373f5475366a75fa5605a96451fcbd17626d9c7a38d8f4e4c0d8bfefd50",
+          "bytes": 1694
+        },
+        {
+          "name": "ppt/presProps.xml",
+          "sha256": "1db4fc10ae1c50c0bf989e54950b4489fbe1ce68105fa850073337ef8e043f5f",
+          "bytes": 660
+        },
+        {
+          "name": "ppt/presentation.xml",
+          "sha256": "f2a6136f72f718942cff4862973f37b07457ce6ea08826b383732206156d5f5e",
+          "bytes": 824
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout1.xml.rels",
+          "sha256": "876c055a476ce97a36b69350f34364a34131aa21795bc71526dc2a3677535449",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout2.xml.rels",
+          "sha256": "2ad34bdce43db7908292bfd25773eedaa1ca1db17eb9311f44b47c704e22f8d7",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout3.xml.rels",
+          "sha256": "437aa3011b9345d0d1189becfa8c574b01f82a68ea5a815edc296a2d031b5e47",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout4.xml.rels",
+          "sha256": "a016e8b92f1d8a8401a7adbdd032207548fb0af41643d073772356a66f2ce4bf",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout5.xml.rels",
+          "sha256": "807fdb0afb935635f08187cfb6b8010f8feb22dee2d965e2131eff0a8f0dcf45",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout6.xml.rels",
+          "sha256": "e2cce3fb1f0da0aadcd1c82b3a61a645feb95358330f8fd307aae9a6d6ff2195",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout1.xml",
+          "sha256": "69f6adcc4e2534840a20504eb7a3e2912b1d010360cb093cbfaa85ad52a42573",
+          "bytes": 9938
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout2.xml",
+          "sha256": "0d77239b6352328f9f2bbfd5758b4ff849061312fc218884aca6ed06eefd81a4",
+          "bytes": 5155
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout3.xml",
+          "sha256": "c741da4434f72dd1e30e272c6591c231e7d214bcd5a8f715c59c1fd5c45b112f",
+          "bytes": 10107
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout4.xml",
+          "sha256": "be58658aec55b61fc700d3c862f307549f93594699878b30a12d179b82c0de58",
+          "bytes": 15111
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout5.xml",
+          "sha256": "012d5808718675ac61c6f99fa2030db99db1795a78f0c7475c8c33de45abb477",
+          "bytes": 10119
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout6.xml",
+          "sha256": "7d71d8b9ad64cf423d1eed42e4e72d6b5945ffd55f7dca20019cd5bc20b163c0",
+          "bytes": 374
+        },
+        {
+          "name": "ppt/slideMasters/_rels/slideMaster1.xml.rels",
+          "sha256": "a87a2b30f5b113aa00b919a93f9f52a27361a383dadeb5ee43cf58649a6fb867",
+          "bytes": 1325
+        },
+        {
+          "name": "ppt/slideMasters/slideMaster1.xml",
+          "sha256": "a05bc70c396e75183e6bdde7b5b2d380eed4d165023cd91ed7997f2ca3cadb11",
+          "bytes": 6911
+        },
+        {
+          "name": "ppt/slideMasters/theme/theme2.xml",
+          "sha256": "e86eeee157d8ac86cea9c9381818189a75a293a49a68aeb88ea83be6f9b96b88",
+          "bytes": 4575
+        },
+        {
+          "name": "ppt/slides/_rels/slide1.xml.rels",
+          "sha256": "a316af6d7d8e0d34f0421500929bb020cd3b79fe0b988738a6b4c61d2402036e",
+          "bytes": 478
+        },
+        {
+          "name": "ppt/slides/_rels/slide2.xml.rels",
+          "sha256": "6aa9b6b638f1f98109c3f3970fd4653a5a0baf640f5bfa8411248f5e7a6b6385",
+          "bytes": 478
+        },
+        {
+          "name": "ppt/slides/slide1.xml",
+          "sha256": "4d3f147edae81d8b0dfb82d58933b4d7eed95725bfad1ca24883b9642cc7238f",
+          "bytes": 8078
+        },
+        {
+          "name": "ppt/slides/slide2.xml",
+          "sha256": "dead6dac1b4f32377c89fea29da1c973f7152457b326363b247aec04402d5ff2",
+          "bytes": 8078
+        },
+        {
+          "name": "ppt/tableStyles.xml",
+          "sha256": "eefe8607728a909fd3cf65c0e18a5abf20526c77e5d206950696a268edd823c8",
+          "bytes": 164
+        },
+        {
+          "name": "ppt/theme/theme1.xml",
+          "sha256": "e86eeee157d8ac86cea9c9381818189a75a293a49a68aeb88ea83be6f9b96b88",
+          "bytes": 4575
+        }
+      ]
+    },
+    {
+      "id": "pptx-portrait",
+      "kind": "pptx",
+      "sha256": "38a1e6461360f75eaef1d69a30fad433fd73c0a5f7ea1ef8063390d59a2f7884",
+      "bytes": 19696,
+      "expectedAdmission": "ADMITTED",
+      "expectedProduct": "ADMITTED",
+      "coverage": [
+        "pptx-portrait"
+      ],
+      "assertions": {
+        "portrait": true,
+        "squarePicture": true
+      },
+      "parts": [
+        {
+          "name": "[Content_Types].xml",
+          "sha256": "a5c568c0d743332b1779e1dc9507e25c52ddab7edb83fbbf6bfb9c24349611c9",
+          "bytes": 2748
+        },
+        {
+          "name": "_rels/.rels",
+          "sha256": "d2c724fbb5443809ead1ecab612924cf0647b0d59ab572ec88c66e6d7f46308f",
+          "bytes": 622
+        },
+        {
+          "name": "docProps/app.xml",
+          "sha256": "df36e472fdf35de2316c1458e41c32af3b697201d913d0d64c3f2c1379e2ad1b",
+          "bytes": 439
+        },
+        {
+          "name": "docProps/core.xml",
+          "sha256": "9582d7657b13a9cdbad09dfb4f9bfb1643fdc7d73609ff1359415df34cdc1801",
+          "bytes": 517
+        },
+        {
+          "name": "ppt/_rels/presentation.xml.rels",
+          "sha256": "4a2c9cbc375e154d3e29dc5494c5ae2ab62d8388414cbca53275e82cc854b62c",
+          "bytes": 1092
+        },
+        {
+          "name": "ppt/media/image.png",
+          "sha256": "b1ff9c8ea3a780bad09b346c423d2d0e46815926879b18e841d928376a946640",
+          "bytes": 69
+        },
+        {
+          "name": "ppt/notesMasters/_rels/notesMaster1.xml.rels",
+          "sha256": "d7ccfc99759730a625b77880c238384530d4e54e147e18c2fabcfdaf97acda4d",
+          "bytes": 305
+        },
+        {
+          "name": "ppt/notesMasters/notesMaster1.xml",
+          "sha256": "67e34238b0ae378d2b06825cab5051767fe5c55010ccc2f8c4bc250056068e22",
+          "bytes": 4047
+        },
+        {
+          "name": "ppt/notesMasters/theme/theme3.xml",
+          "sha256": "e86eeee157d8ac86cea9c9381818189a75a293a49a68aeb88ea83be6f9b96b88",
+          "bytes": 4575
+        },
+        {
+          "name": "ppt/notesSlides/_rels/notesSlide1.xml.rels",
+          "sha256": "4ac8ec252972069e2643c625f1857ea68e716df6c31218d48a1abeb40ce6b285",
+          "bytes": 463
+        },
+        {
+          "name": "ppt/notesSlides/notesSlide1.xml",
+          "sha256": "233d7373f5475366a75fa5605a96451fcbd17626d9c7a38d8f4e4c0d8bfefd50",
+          "bytes": 1694
+        },
+        {
+          "name": "ppt/presProps.xml",
+          "sha256": "1db4fc10ae1c50c0bf989e54950b4489fbe1ce68105fa850073337ef8e043f5f",
+          "bytes": 660
+        },
+        {
+          "name": "ppt/presentation.xml",
+          "sha256": "d9ae081737bafd82196ae97e4bd8c7f90390b7b2e540d7c2bf00a84019bcff46",
+          "bytes": 700
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout1.xml.rels",
+          "sha256": "9c7f66befc8d946863bc71b407bd78cdc741da178e365cb5c65d2735cf1626c4",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout2.xml.rels",
+          "sha256": "a03f6ea4e3726f5bd31ebe315761bb747ef037bf153a7346bfe6bb574ff0c77b",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout3.xml.rels",
+          "sha256": "1160566c7b6c1088cba6b9a071523df91f3dcbeafdc3461f5decb2caae04167f",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout4.xml.rels",
+          "sha256": "1ebf09f07f20ff993ad0fed1e45204baac0b946e5537ac9196b4745b3e922911",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout5.xml.rels",
+          "sha256": "5ca011168adae1f12ccdc995cfcbed4d8af8c1fdd3841bb16dfd331f975a44de",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout6.xml.rels",
+          "sha256": "043407a523716432eb231e276ddd29792d59aa77aa9171e6280927aa6dc65dc9",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout1.xml",
+          "sha256": "0c356f2a74735dd516db27f26ca20d066f8f00cfe36ad564eba038d535d65d8d",
+          "bytes": 9939
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout2.xml",
+          "sha256": "7234d9b88a59aea5ea9be628a1e94eec5b73b209a76950b49cfbeedfe1bcd3b8",
+          "bytes": 5154
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout3.xml",
+          "sha256": "bbe81f101b90c9e2e1b6546cefb2f3aa45364e449b0b96448ee0924fd6e4fa30",
+          "bytes": 10094
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout4.xml",
+          "sha256": "5c87b62e1452c0da240bca4e9c028e19ef109ee5d4fb48d8d05bbe31c317ea5b",
+          "bytes": 15087
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout5.xml",
+          "sha256": "7c3405cda0d12206860efe42b58d8abfef511dc235536d2bf7d62a7dd2515f73",
+          "bytes": 10107
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout6.xml",
+          "sha256": "7d71d8b9ad64cf423d1eed42e4e72d6b5945ffd55f7dca20019cd5bc20b163c0",
+          "bytes": 374
+        },
+        {
+          "name": "ppt/slideMasters/_rels/slideMaster1.xml.rels",
+          "sha256": "1badbc93f3a3a519d8c8d0541860c0173867f5fc72a4725db644358c5ca4e351",
+          "bytes": 1325
+        },
+        {
+          "name": "ppt/slideMasters/slideMaster1.xml",
+          "sha256": "c95b45a3c18f7145a027da4dc23915d22c4a9fbe9f35846025e9ef3b0fb33eb8",
+          "bytes": 8190
+        },
+        {
+          "name": "ppt/slideMasters/theme/theme2.xml",
+          "sha256": "e86eeee157d8ac86cea9c9381818189a75a293a49a68aeb88ea83be6f9b96b88",
+          "bytes": 4575
+        },
+        {
+          "name": "ppt/slides/_rels/slide1.xml.rels",
+          "sha256": "db102b9d3590f0f8183ec6d6e732103da2e2577b66940ed650671fc448f24607",
+          "bytes": 628
+        },
+        {
+          "name": "ppt/slides/slide1.xml",
+          "sha256": "a74e5206d962bdc367c8f88f765cfb0d2e64ae6064b231106a05598fb9d52c3b",
+          "bytes": 9113
+        },
+        {
+          "name": "ppt/tableStyles.xml",
+          "sha256": "eefe8607728a909fd3cf65c0e18a5abf20526c77e5d206950696a268edd823c8",
+          "bytes": 164
+        },
+        {
+          "name": "ppt/theme/theme1.xml",
+          "sha256": "e86eeee157d8ac86cea9c9381818189a75a293a49a68aeb88ea83be6f9b96b88",
+          "bytes": 4575
+        }
+      ]
+    },
+    {
+      "id": "pptx-substitution",
+      "kind": "pptx",
+      "sha256": "31a201088f39676ac5ac39c44132c35672d759f6ff2bfb9c17157c4ffa1d8754",
+      "bytes": 19162,
+      "expectedAdmission": "ADMITTED",
+      "expectedProduct": "ADMITTED",
+      "coverage": [
+        "pptx-substitution"
+      ],
+      "assertions": {},
+      "parts": [
+        {
+          "name": "[Content_Types].xml",
+          "sha256": "41efbec427e638180fa8475b02b90991ba91516ae0d8a1c37f779f89775f7a52",
+          "bytes": 2697
+        },
+        {
+          "name": "_rels/.rels",
+          "sha256": "6e400f724997a08440d0bdbae243168de766c3042a855c501160921bca654d87",
+          "bytes": 622
+        },
+        {
+          "name": "docProps/app.xml",
+          "sha256": "df36e472fdf35de2316c1458e41c32af3b697201d913d0d64c3f2c1379e2ad1b",
+          "bytes": 439
+        },
+        {
+          "name": "docProps/core.xml",
+          "sha256": "9582d7657b13a9cdbad09dfb4f9bfb1643fdc7d73609ff1359415df34cdc1801",
+          "bytes": 517
+        },
+        {
+          "name": "ppt/_rels/presentation.xml.rels",
+          "sha256": "2ce3521e1324472f6e7ee8d0597aaee42cc5f708f109ef3e619887525198d986",
+          "bytes": 1092
+        },
+        {
+          "name": "ppt/notesMasters/_rels/notesMaster1.xml.rels",
+          "sha256": "1413f037fd9700681a1825cb88bdd575a08a540bd4b85bf01324e82de695b13b",
+          "bytes": 305
+        },
+        {
+          "name": "ppt/notesMasters/notesMaster1.xml",
+          "sha256": "67e34238b0ae378d2b06825cab5051767fe5c55010ccc2f8c4bc250056068e22",
+          "bytes": 4047
+        },
+        {
+          "name": "ppt/notesMasters/theme/theme3.xml",
+          "sha256": "e86eeee157d8ac86cea9c9381818189a75a293a49a68aeb88ea83be6f9b96b88",
+          "bytes": 4575
+        },
+        {
+          "name": "ppt/notesSlides/_rels/notesSlide1.xml.rels",
+          "sha256": "3ff07772ccfbea735ee50802c703b854223204b1bc25df1eb8d3ee88b3bf2f86",
+          "bytes": 463
+        },
+        {
+          "name": "ppt/notesSlides/notesSlide1.xml",
+          "sha256": "233d7373f5475366a75fa5605a96451fcbd17626d9c7a38d8f4e4c0d8bfefd50",
+          "bytes": 1694
+        },
+        {
+          "name": "ppt/presProps.xml",
+          "sha256": "1db4fc10ae1c50c0bf989e54950b4489fbe1ce68105fa850073337ef8e043f5f",
+          "bytes": 660
+        },
+        {
+          "name": "ppt/presentation.xml",
+          "sha256": "90d08ff12578663678218e821162fe351fa4b5248b6ac0ca0755324a3586570e",
+          "bytes": 701
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout1.xml.rels",
+          "sha256": "5bb1f3108e758ead0f8d52a51217ad5a56b46cc3982a164cf47654efa52f7c98",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout2.xml.rels",
+          "sha256": "1c205e29b2f7d6f00d31c24964f5ac3f6890391859c37de950dc395b5f63fa63",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout3.xml.rels",
+          "sha256": "fab9dc26ca5c66d42c75eebdfa2fefee83b66688998118b26fa46683abb83561",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout4.xml.rels",
+          "sha256": "5025e883a36ee886214ec14a2340ece7b976e0c8d4a98c887a79844987e9f09d",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout5.xml.rels",
+          "sha256": "1278cf822c2a84ebeab2643a272206e92cb76ce75a24511b19825147ece251a7",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout6.xml.rels",
+          "sha256": "86bc9ac826c34db3953deba95eada79475a619c6238cb783540bd8e298e1ccdb",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout1.xml",
+          "sha256": "d9ae035509080885bcb8891b470f84e6c982337c8b522c8218eb8898a656cba7",
+          "bytes": 9938
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout2.xml",
+          "sha256": "9fee8e97c45d9290c15e77ab9375bdd8c8917843e93d223575167c2f444829e2",
+          "bytes": 5155
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout3.xml",
+          "sha256": "9328113934f1e9128665bb3bd9353cbbaa2422d12f2d10ff684d7524b90b2ee6",
+          "bytes": 10107
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout4.xml",
+          "sha256": "4556450d20f3029bafaeae9acc9f9433a201d998813719b48b75496d314c0dab",
+          "bytes": 15111
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout5.xml",
+          "sha256": "6ba2709caa0479359375ec881559274da7bc55bde13786244d193e993aed9172",
+          "bytes": 10119
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout6.xml",
+          "sha256": "7d71d8b9ad64cf423d1eed42e4e72d6b5945ffd55f7dca20019cd5bc20b163c0",
+          "bytes": 374
+        },
+        {
+          "name": "ppt/slideMasters/_rels/slideMaster1.xml.rels",
+          "sha256": "cc3f9ffaa08908e45b24b47393d91ad9a64dcbcd60bc69f07ab13bc4137ebfb3",
+          "bytes": 1325
+        },
+        {
+          "name": "ppt/slideMasters/slideMaster1.xml",
+          "sha256": "be2e11414d97e05389b0bac4b952f1c4ddab958e9e4e09171658efa4fa53a3ad",
+          "bytes": 8190
+        },
+        {
+          "name": "ppt/slideMasters/theme/theme2.xml",
+          "sha256": "e86eeee157d8ac86cea9c9381818189a75a293a49a68aeb88ea83be6f9b96b88",
+          "bytes": 4575
+        },
+        {
+          "name": "ppt/slides/_rels/slide1.xml.rels",
+          "sha256": "031b66d61edbfcf80bf86d4d44b43a680ebd99a254d88229d9cb62709edd03fc",
+          "bytes": 478
+        },
+        {
+          "name": "ppt/slides/slide1.xml",
+          "sha256": "4aca907c61a1b626dd355148f8ef68fd5f52a864e77327f2c0c3787a46cf558c",
+          "bytes": 5603
+        },
+        {
+          "name": "ppt/tableStyles.xml",
+          "sha256": "eefe8607728a909fd3cf65c0e18a5abf20526c77e5d206950696a268edd823c8",
+          "bytes": 164
+        },
+        {
+          "name": "ppt/theme/theme1.xml",
+          "sha256": "e86eeee157d8ac86cea9c9381818189a75a293a49a68aeb88ea83be6f9b96b88",
+          "bytes": 4575
+        }
+      ]
+    },
+    {
+      "id": "xlsx-chart",
+      "kind": "xlsx",
+      "sha256": "dd3b59c44897112ee90ae3f3ec3e1a70371a6cf1b01093f01ab672e6c0e28ae3",
+      "bytes": 6060,
+      "expectedAdmission": "ADMITTED",
+      "expectedProduct": "ADMITTED",
+      "coverage": [
+        "xlsx-chart"
+      ],
+      "assertions": {},
+      "parts": [
+        {
+          "name": "[Content_Types].xml",
+          "sha256": "dae545ab1d31f8f7f1ddeabee48eab61abc734b2f76d01b6091789e0051e2e5e",
+          "bytes": 1106
+        },
+        {
+          "name": "_rels/.rels",
+          "sha256": "34de1cb6ccee7a56a2f62d0e7223bc0910aa933979f1d4145b0dac31431dd81e",
+          "bytes": 296
+        },
+        {
+          "name": "xl/_rels/workbook.xml.rels",
+          "sha256": "caf2586e208592e4b92eead14d8d32ce23ceaf8947937c17a5aac2b3db360523",
+          "bytes": 754
+        },
+        {
+          "name": "xl/drawings/_rels/drawing1.xml.rels",
+          "sha256": "4bc0b1c147837ff2cba1b8011cb5d867cffdb58f348a1d2da00ca6d615dbd08b",
+          "bytes": 301
+        },
+        {
+          "name": "xl/drawings/charts/chart1.xml",
+          "sha256": "b86c51067134580d2370dd2bbcd64733798a7a7ce06b4fec20090067709932d2",
+          "bytes": 3565
+        },
+        {
+          "name": "xl/drawings/drawing1.xml",
+          "sha256": "9f08c1a7ca8f27797102fbd28a63df31c04a874fcebda28258c2fce801616e59",
+          "bytes": 1120
+        },
+        {
+          "name": "xl/sharedStrings.xml",
+          "sha256": "188ef751ff00440752511a2b19781b8f4c4f53a52560765fc3c0cbef1fb25e4f",
+          "bytes": 115
+        },
+        {
+          "name": "xl/styles.xml",
+          "sha256": "9af72225223824d638a72c62e0d92b28da7eb3dca15ee67a31f587e004480c32",
+          "bytes": 1734
+        },
+        {
+          "name": "xl/theme/theme1.xml",
+          "sha256": "9e968b92413c2476890e4b0bd8d26b65f2062b211bde8ebb628ffdaafc6607b9",
+          "bytes": 3546
+        },
+        {
+          "name": "xl/workbook.xml",
+          "sha256": "ef923fe9a32e1b3eddc114cd7aa27e6c56a3d5ed2ada3c68c21b29bc45dc7b9d",
+          "bytes": 478
+        },
+        {
+          "name": "xl/worksheets/_rels/sheet1.xml.rels",
+          "sha256": "8951b51d9346bf8cfd33a9336430603139d70130f426d440dcda5c4893981f25",
+          "bytes": 298
+        },
+        {
+          "name": "xl/worksheets/sheet1.xml",
+          "sha256": "d9dc8e20e445e1291b0e0784136bad54c78a46e4fe55a2f87db7e0220b47a44b",
+          "bytes": 2937
+        }
+      ]
+    },
+    {
+      "id": "xlsx-formulas",
+      "kind": "xlsx",
+      "sha256": "c2c18e65dd57b718c331a3e1eac99a682c65baec06bc18fc0d952e07e6113dea",
+      "bytes": 3928,
+      "expectedAdmission": "ADMITTED",
+      "expectedProduct": "ADMITTED",
+      "coverage": [
+        "xlsx-formulas"
+      ],
+      "assertions": {
+        "requiredText": [
+          "100.25"
+        ],
+        "absentText": [
+          "9999"
+        ],
+        "cachedSourceValue": "9999",
+        "independentDecimalCalculation": "125.50 - 25.25 = 100.25"
+      },
+      "parts": [
+        {
+          "name": "[Content_Types].xml",
+          "sha256": "3075df9f387d734283477155c9d4b0d9512b92c7e13b8e93ee95d72f235e5326",
+          "bytes": 851
+        },
+        {
+          "name": "_rels/.rels",
+          "sha256": "33ea79d9f2e3b36e9fd287666b8f8200001ce77468266f36283e78e89749df90",
+          "bytes": 296
+        },
+        {
+          "name": "xl/_rels/workbook.xml.rels",
+          "sha256": "dc61dfd392d3cee462c2a0651eac905c59dfad5af5210e1cff2ce9ef31d414aa",
+          "bytes": 754
+        },
+        {
+          "name": "xl/sharedStrings.xml",
+          "sha256": "188ef751ff00440752511a2b19781b8f4c4f53a52560765fc3c0cbef1fb25e4f",
+          "bytes": 115
+        },
+        {
+          "name": "xl/styles.xml",
+          "sha256": "a6182167a7671943e5627e29cf1aca03db1dd90bd6586a80c301ef0ff0bf8969",
+          "bytes": 1867
+        },
+        {
+          "name": "xl/theme/theme1.xml",
+          "sha256": "9e968b92413c2476890e4b0bd8d26b65f2062b211bde8ebb628ffdaafc6607b9",
+          "bytes": 3546
+        },
+        {
+          "name": "xl/workbook.xml",
+          "sha256": "077e1e850dc06ac91229339c3994bd4926b030a41af814d62c0b844bf7465835",
+          "bytes": 477
+        },
+        {
+          "name": "xl/worksheets/sheet1.xml",
+          "sha256": "8efccd93b6b9357356db5fe7aeae9405e2d4bad7b17703e7398953d8f1a8dc9b",
+          "bytes": 2431
+        }
+      ]
+    },
+    {
+      "id": "xlsx-print-merge",
+      "kind": "xlsx",
+      "sha256": "415e7fdd11948506de5bc034222abaa2bd3827eace034eac343e098e0a59b727",
+      "bytes": 4619,
+      "expectedAdmission": "ADMITTED",
+      "expectedProduct": "ADMITTED",
+      "coverage": [
+        "xlsx-print-merge"
+      ],
+      "assertions": {
+        "absentText": [
+          "OUTSIDE PRINT AREA"
+        ],
+        "minimumPages": 2,
+        "mergedMultiline": true
+      },
+      "parts": [
+        {
+          "name": "[Content_Types].xml",
+          "sha256": "365886599e31d35a8bae7391e52929c61c3c2e87b6e8b3de16f08b075a504e81",
+          "bytes": 988
+        },
+        {
+          "name": "_rels/.rels",
+          "sha256": "52b4049832a05fb305f2761ea56295eb15231b2f769dd64ef5f3f96f630321f9",
+          "bytes": 296
+        },
+        {
+          "name": "xl/_rels/workbook.xml.rels",
+          "sha256": "090a071b2460d025b0ae03c0aae2ae580bcc75565ba1634caaf33c96006e5e08",
+          "bytes": 913
+        },
+        {
+          "name": "xl/sharedStrings.xml",
+          "sha256": "188ef751ff00440752511a2b19781b8f4c4f53a52560765fc3c0cbef1fb25e4f",
+          "bytes": 115
+        },
+        {
+          "name": "xl/styles.xml",
+          "sha256": "bf5302e3ca9685f130d7d41c3f7fc2d3e0a22fd2c997423e5673ecfa6ed7dc99",
+          "bytes": 1917
+        },
+        {
+          "name": "xl/theme/theme1.xml",
+          "sha256": "9e968b92413c2476890e4b0bd8d26b65f2062b211bde8ebb628ffdaafc6607b9",
+          "bytes": 3546
+        },
+        {
+          "name": "xl/workbook.xml",
+          "sha256": "b2b4a66ddfe7edf541eff9eff48e62f51db516afbbcd853e0c78500bf473cb5e",
+          "bytes": 637
+        },
+        {
+          "name": "xl/worksheets/sheet1.xml",
+          "sha256": "05d617ca7111bcd0f1f6db809c6797b79849f6d49c827906ceebffe263a6587b",
+          "bytes": 2499
+        },
+        {
+          "name": "xl/worksheets/sheet2.xml",
+          "sha256": "ef6acf735d74718088d273289c8f67a21bc90ccd3cde0804dff82e688132e8eb",
+          "bytes": 1203
+        }
+      ]
+    },
+    {
+      "id": "docx-embedded",
+      "kind": "docx",
+      "sha256": "6126b9c6e7c3d7cf55118b1e915035c0f892710a2552a3026352935a32e26973",
+      "bytes": 37190,
+      "expectedAdmission": "ACTIVE_CONTENT",
+      "expectedProduct": "ACTIVE_CONTENT",
+      "coverage": [
+        "embedded object refusal"
+      ],
+      "assertions": {},
+      "parts": [
+        {
+          "name": "[Content_Types].xml",
+          "sha256": "66c84fb7a6aa3c4ead49f895e4a7044df1fb57de1ed76d09b2686e91f5bed5b4",
+          "bytes": 1738
+        },
+        {
+          "name": "_rels/.rels",
+          "sha256": "a9ae57efe9186f07d48303bcac5d54c7e359bf3f503939c03ad2954e5c59a5c4",
+          "bytes": 734
+        },
+        {
+          "name": "customXml/_rels/item1.xml.rels",
+          "sha256": "1ca6c9a64edcebe24ee703a54403611b322d96da33371779e742d2d3f7ed7a6c",
+          "bytes": 295
+        },
+        {
+          "name": "customXml/item1.xml",
+          "sha256": "a86086ffc5d8e83ebd6c71a55d1d2efaa31b137977f5f3a752366e1023612144",
+          "bytes": 262
+        },
+        {
+          "name": "customXml/itemProps1.xml",
+          "sha256": "c542307b13ec29a8b546217bb37936ab4822e044b265d2952985ec3d6afed24e",
+          "bytes": 354
+        },
+        {
+          "name": "docProps/app.xml",
+          "sha256": "1d0f15d9f69d73146aba018de6e01afa8a36280983df75b0229c1b2f9f6bebe9",
+          "bytes": 1292
+        },
+        {
+          "name": "docProps/core.xml",
+          "sha256": "84117e5a90f0d0f31e19057ff5c628957fb95027afb5b101ab585f940d78eeef",
+          "bytes": 662
+        },
+        {
+          "name": "docProps/thumbnail.jpeg",
+          "sha256": "96367138dc44ce09bf2c8f0f8e49348a1478d2c5c0af69bbc2bbc38b63cdcead",
+          "bytes": 8324
+        },
+        {
+          "name": "word/_rels/document.xml.rels",
+          "sha256": "1e7f0eb144a98e199249314f61ff32a8de2a27e56d8e9ee6b524e1c6b235d377",
+          "bytes": 1227
+        },
+        {
+          "name": "word/document.xml",
+          "sha256": "33d8fa3c98df13d8b86895f55003758e3a3524ca3b1c988b87f6b6beca681cc9",
+          "bytes": 3277
+        },
+        {
+          "name": "word/embeddings/control.bin",
+          "sha256": "1ddf8105f28fb237dcb9ee2bf9818d0a5e4bac9f9d74571d1a1674b717016115",
+          "bytes": 22
+        },
+        {
+          "name": "word/fontTable.xml",
+          "sha256": "79385fb7f60247507ecaffc292e9ebd52ea0657b8634f629ba6fccc54011d6bb",
+          "bytes": 2811
+        },
+        {
+          "name": "word/numbering.xml",
+          "sha256": "70976f19cbcd896e51890859fe6ecb3467a5a7ad0c040160fedc5a1993cb09ce",
+          "bytes": 5513
+        },
+        {
+          "name": "word/settings.xml",
+          "sha256": "51a0d348fe85965c66e4748a03c3c0d055d78455514f03cb121c334af7d73689",
+          "bytes": 2535
+        },
+        {
+          "name": "word/styles.xml",
+          "sha256": "07011a29936617f7dd2af735497a1be7f0f25aceb13ab41995d6fdb07665c5f4",
+          "bytes": 349609
+        },
+        {
+          "name": "word/stylesWithEffects.xml",
+          "sha256": "463ae0928cf0d84775dbf8cf18d6c3029f6707c81bf590f6d6dd8757a5e93f15",
+          "bytes": 438131
+        },
+        {
+          "name": "word/theme/theme1.xml",
+          "sha256": "e3a8ab7db9ca7afca56f5f2820a56e8b660016c647773555b060b0a02ac76941",
+          "bytes": 10939
+        },
+        {
+          "name": "word/webSettings.xml",
+          "sha256": "349d36de7434d09f86987ff671d8814964a0588c1e630c06e562cda7e75e9f95",
+          "bytes": 438
+        }
+      ]
+    },
+    {
+      "id": "pptx-embedded",
+      "kind": "pptx",
+      "sha256": "25ed7f876680311a73094d81f312554354843e72c0a2275886297a3f52a11215",
+      "bytes": 21984,
+      "expectedAdmission": "ACTIVE_CONTENT",
+      "expectedProduct": "ACTIVE_CONTENT",
+      "coverage": [
+        "embedded object refusal"
+      ],
+      "assertions": {},
+      "parts": [
+        {
+          "name": "[Content_Types].xml",
+          "sha256": "dddae2b13642262a795dd790cdd116ea7803bf239d447b898e4073bd0aae30d2",
+          "bytes": 2974
+        },
+        {
+          "name": "_rels/.rels",
+          "sha256": "f8b75561e529ba7156c6be2a61bbd065df231f24e2057607de14cf41adf22b18",
+          "bytes": 622
+        },
+        {
+          "name": "docProps/app.xml",
+          "sha256": "df36e472fdf35de2316c1458e41c32af3b697201d913d0d64c3f2c1379e2ad1b",
+          "bytes": 439
+        },
+        {
+          "name": "docProps/core.xml",
+          "sha256": "9582d7657b13a9cdbad09dfb4f9bfb1643fdc7d73609ff1359415df34cdc1801",
+          "bytes": 517
+        },
+        {
+          "name": "ppt/_rels/presentation.xml.rels",
+          "sha256": "4177c5c5e8aeac05f9a777cbeb23c58af6cc5e19d50ab3eb289936899336d9b2",
+          "bytes": 1244
+        },
+        {
+          "name": "ppt/embeddings/control.bin",
+          "sha256": "1ddf8105f28fb237dcb9ee2bf9818d0a5e4bac9f9d74571d1a1674b717016115",
+          "bytes": 22
+        },
+        {
+          "name": "ppt/notesMasters/_rels/notesMaster1.xml.rels",
+          "sha256": "e2c7fcc64fc35d16801abe5178d3798e48ee7052766512341fecc72f797ac5ec",
+          "bytes": 305
+        },
+        {
+          "name": "ppt/notesMasters/notesMaster1.xml",
+          "sha256": "67e34238b0ae378d2b06825cab5051767fe5c55010ccc2f8c4bc250056068e22",
+          "bytes": 4047
+        },
+        {
+          "name": "ppt/notesMasters/theme/theme3.xml",
+          "sha256": "e86eeee157d8ac86cea9c9381818189a75a293a49a68aeb88ea83be6f9b96b88",
+          "bytes": 4575
+        },
+        {
+          "name": "ppt/notesSlides/_rels/notesSlide1.xml.rels",
+          "sha256": "037aeafd4c48a622e028c4e66dd7a78a7a5fbb749b2d1199978174631a0a5720",
+          "bytes": 463
+        },
+        {
+          "name": "ppt/notesSlides/_rels/notesSlide2.xml.rels",
+          "sha256": "73aba85b14e7240e86d99a87e1b26a38b7e053c1fca6683fd8639494d8251c3b",
+          "bytes": 463
+        },
+        {
+          "name": "ppt/notesSlides/notesSlide1.xml",
+          "sha256": "233d7373f5475366a75fa5605a96451fcbd17626d9c7a38d8f4e4c0d8bfefd50",
+          "bytes": 1694
+        },
+        {
+          "name": "ppt/notesSlides/notesSlide2.xml",
+          "sha256": "233d7373f5475366a75fa5605a96451fcbd17626d9c7a38d8f4e4c0d8bfefd50",
+          "bytes": 1694
+        },
+        {
+          "name": "ppt/presProps.xml",
+          "sha256": "1db4fc10ae1c50c0bf989e54950b4489fbe1ce68105fa850073337ef8e043f5f",
+          "bytes": 660
+        },
+        {
+          "name": "ppt/presentation.xml",
+          "sha256": "f2a6136f72f718942cff4862973f37b07457ce6ea08826b383732206156d5f5e",
+          "bytes": 824
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout1.xml.rels",
+          "sha256": "876c055a476ce97a36b69350f34364a34131aa21795bc71526dc2a3677535449",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout2.xml.rels",
+          "sha256": "2ad34bdce43db7908292bfd25773eedaa1ca1db17eb9311f44b47c704e22f8d7",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout3.xml.rels",
+          "sha256": "437aa3011b9345d0d1189becfa8c574b01f82a68ea5a815edc296a2d031b5e47",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout4.xml.rels",
+          "sha256": "a016e8b92f1d8a8401a7adbdd032207548fb0af41643d073772356a66f2ce4bf",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout5.xml.rels",
+          "sha256": "807fdb0afb935635f08187cfb6b8010f8feb22dee2d965e2131eff0a8f0dcf45",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/_rels/slideLayout6.xml.rels",
+          "sha256": "e2cce3fb1f0da0aadcd1c82b3a61a645feb95358330f8fd307aae9a6d6ff2195",
+          "bytes": 311
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout1.xml",
+          "sha256": "69f6adcc4e2534840a20504eb7a3e2912b1d010360cb093cbfaa85ad52a42573",
+          "bytes": 9938
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout2.xml",
+          "sha256": "0d77239b6352328f9f2bbfd5758b4ff849061312fc218884aca6ed06eefd81a4",
+          "bytes": 5155
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout3.xml",
+          "sha256": "c741da4434f72dd1e30e272c6591c231e7d214bcd5a8f715c59c1fd5c45b112f",
+          "bytes": 10107
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout4.xml",
+          "sha256": "be58658aec55b61fc700d3c862f307549f93594699878b30a12d179b82c0de58",
+          "bytes": 15111
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout5.xml",
+          "sha256": "012d5808718675ac61c6f99fa2030db99db1795a78f0c7475c8c33de45abb477",
+          "bytes": 10119
+        },
+        {
+          "name": "ppt/slideLayouts/slideLayout6.xml",
+          "sha256": "7d71d8b9ad64cf423d1eed42e4e72d6b5945ffd55f7dca20019cd5bc20b163c0",
+          "bytes": 374
+        },
+        {
+          "name": "ppt/slideMasters/_rels/slideMaster1.xml.rels",
+          "sha256": "a87a2b30f5b113aa00b919a93f9f52a27361a383dadeb5ee43cf58649a6fb867",
+          "bytes": 1325
+        },
+        {
+          "name": "ppt/slideMasters/slideMaster1.xml",
+          "sha256": "a05bc70c396e75183e6bdde7b5b2d380eed4d165023cd91ed7997f2ca3cadb11",
+          "bytes": 6911
+        },
+        {
+          "name": "ppt/slideMasters/theme/theme2.xml",
+          "sha256": "e86eeee157d8ac86cea9c9381818189a75a293a49a68aeb88ea83be6f9b96b88",
+          "bytes": 4575
+        },
+        {
+          "name": "ppt/slides/_rels/slide1.xml.rels",
+          "sha256": "a316af6d7d8e0d34f0421500929bb020cd3b79fe0b988738a6b4c61d2402036e",
+          "bytes": 478
+        },
+        {
+          "name": "ppt/slides/_rels/slide2.xml.rels",
+          "sha256": "6aa9b6b638f1f98109c3f3970fd4653a5a0baf640f5bfa8411248f5e7a6b6385",
+          "bytes": 478
+        },
+        {
+          "name": "ppt/slides/slide1.xml",
+          "sha256": "4d3f147edae81d8b0dfb82d58933b4d7eed95725bfad1ca24883b9642cc7238f",
+          "bytes": 8078
+        },
+        {
+          "name": "ppt/slides/slide2.xml",
+          "sha256": "dead6dac1b4f32377c89fea29da1c973f7152457b326363b247aec04402d5ff2",
+          "bytes": 8078
+        },
+        {
+          "name": "ppt/tableStyles.xml",
+          "sha256": "eefe8607728a909fd3cf65c0e18a5abf20526c77e5d206950696a268edd823c8",
+          "bytes": 164
+        },
+        {
+          "name": "ppt/theme/theme1.xml",
+          "sha256": "e86eeee157d8ac86cea9c9381818189a75a293a49a68aeb88ea83be6f9b96b88",
+          "bytes": 4575
+        }
+      ]
+    },
+    {
+      "id": "docx-field",
+      "kind": "docx",
+      "sha256": "f0b77f2873fd9c763e1b70e3a2859d724e2dd75eb7b96844719fe49c69ec2851",
+      "bytes": 36884,
+      "expectedAdmission": "UNSUPPORTED_FIELD",
+      "expectedProduct": "UNSUPPORTED_FIELD",
+      "coverage": [
+        "field refusal"
+      ],
+      "assertions": {},
+      "parts": [
+        {
+          "name": "[Content_Types].xml",
+          "sha256": "66c84fb7a6aa3c4ead49f895e4a7044df1fb57de1ed76d09b2686e91f5bed5b4",
+          "bytes": 1738
+        },
+        {
+          "name": "_rels/.rels",
+          "sha256": "a9ae57efe9186f07d48303bcac5d54c7e359bf3f503939c03ad2954e5c59a5c4",
+          "bytes": 734
+        },
+        {
+          "name": "customXml/_rels/item1.xml.rels",
+          "sha256": "1ca6c9a64edcebe24ee703a54403611b322d96da33371779e742d2d3f7ed7a6c",
+          "bytes": 295
+        },
+        {
+          "name": "customXml/item1.xml",
+          "sha256": "a86086ffc5d8e83ebd6c71a55d1d2efaa31b137977f5f3a752366e1023612144",
+          "bytes": 262
+        },
+        {
+          "name": "customXml/itemProps1.xml",
+          "sha256": "c542307b13ec29a8b546217bb37936ab4822e044b265d2952985ec3d6afed24e",
+          "bytes": 354
+        },
+        {
+          "name": "docProps/app.xml",
+          "sha256": "1d0f15d9f69d73146aba018de6e01afa8a36280983df75b0229c1b2f9f6bebe9",
+          "bytes": 1292
+        },
+        {
+          "name": "docProps/core.xml",
+          "sha256": "84117e5a90f0d0f31e19057ff5c628957fb95027afb5b101ab585f940d78eeef",
+          "bytes": 662
+        },
+        {
+          "name": "docProps/thumbnail.jpeg",
+          "sha256": "96367138dc44ce09bf2c8f0f8e49348a1478d2c5c0af69bbc2bbc38b63cdcead",
+          "bytes": 8324
+        },
+        {
+          "name": "word/_rels/document.xml.rels",
+          "sha256": "1e7f0eb144a98e199249314f61ff32a8de2a27e56d8e9ee6b524e1c6b235d377",
+          "bytes": 1227
+        },
+        {
+          "name": "word/document.xml",
+          "sha256": "23eee7a47ae79884a837dd727cab9c8210648a0f88f8e5c1da73f1bc5de5a4bc",
+          "bytes": 2763
+        },
+        {
+          "name": "word/fontTable.xml",
+          "sha256": "79385fb7f60247507ecaffc292e9ebd52ea0657b8634f629ba6fccc54011d6bb",
+          "bytes": 2811
+        },
+        {
+          "name": "word/numbering.xml",
+          "sha256": "70976f19cbcd896e51890859fe6ecb3467a5a7ad0c040160fedc5a1993cb09ce",
+          "bytes": 5513
+        },
+        {
+          "name": "word/settings.xml",
+          "sha256": "51a0d348fe85965c66e4748a03c3c0d055d78455514f03cb121c334af7d73689",
+          "bytes": 2535
+        },
+        {
+          "name": "word/styles.xml",
+          "sha256": "07011a29936617f7dd2af735497a1be7f0f25aceb13ab41995d6fdb07665c5f4",
+          "bytes": 349609
+        },
+        {
+          "name": "word/stylesWithEffects.xml",
+          "sha256": "463ae0928cf0d84775dbf8cf18d6c3029f6707c81bf590f6d6dd8757a5e93f15",
+          "bytes": 438131
+        },
+        {
+          "name": "word/theme/theme1.xml",
+          "sha256": "e3a8ab7db9ca7afca56f5f2820a56e8b660016c647773555b060b0a02ac76941",
+          "bytes": 10939
+        },
+        {
+          "name": "word/webSettings.xml",
+          "sha256": "349d36de7434d09f86987ff671d8814964a0588c1e630c06e562cda7e75e9f95",
+          "bytes": 438
+        }
+      ]
+    },
+    {
+      "id": "docx-script",
+      "kind": "docx",
+      "sha256": "efda5212f188742020831b2ff11f71d725feae804d94ac1f15acbb45dc9ccc10",
+      "bytes": 36648,
+      "expectedAdmission": "ADMITTED",
+      "expectedProduct": "UNSUPPORTED_SCRIPT",
+      "coverage": [
+        "unsupported script refusal before native load"
+      ],
+      "assertions": {},
+      "parts": [
+        {
+          "name": "[Content_Types].xml",
+          "sha256": "66c84fb7a6aa3c4ead49f895e4a7044df1fb57de1ed76d09b2686e91f5bed5b4",
+          "bytes": 1738
+        },
+        {
+          "name": "_rels/.rels",
+          "sha256": "a9ae57efe9186f07d48303bcac5d54c7e359bf3f503939c03ad2954e5c59a5c4",
+          "bytes": 734
+        },
+        {
+          "name": "customXml/_rels/item1.xml.rels",
+          "sha256": "1ca6c9a64edcebe24ee703a54403611b322d96da33371779e742d2d3f7ed7a6c",
+          "bytes": 295
+        },
+        {
+          "name": "customXml/item1.xml",
+          "sha256": "a86086ffc5d8e83ebd6c71a55d1d2efaa31b137977f5f3a752366e1023612144",
+          "bytes": 262
+        },
+        {
+          "name": "customXml/itemProps1.xml",
+          "sha256": "c542307b13ec29a8b546217bb37936ab4822e044b265d2952985ec3d6afed24e",
+          "bytes": 354
+        },
+        {
+          "name": "docProps/app.xml",
+          "sha256": "1d0f15d9f69d73146aba018de6e01afa8a36280983df75b0229c1b2f9f6bebe9",
+          "bytes": 1292
+        },
+        {
+          "name": "docProps/core.xml",
+          "sha256": "84117e5a90f0d0f31e19057ff5c628957fb95027afb5b101ab585f940d78eeef",
+          "bytes": 662
+        },
+        {
+          "name": "docProps/thumbnail.jpeg",
+          "sha256": "96367138dc44ce09bf2c8f0f8e49348a1478d2c5c0af69bbc2bbc38b63cdcead",
+          "bytes": 8324
+        },
+        {
+          "name": "word/_rels/document.xml.rels",
+          "sha256": "1e7f0eb144a98e199249314f61ff32a8de2a27e56d8e9ee6b524e1c6b235d377",
+          "bytes": 1227
+        },
+        {
+          "name": "word/document.xml",
+          "sha256": "16ed203c584ed8e3747a31658ce2cae310c294e9e89f48868f014043b5dfd258",
+          "bytes": 1020
+        },
+        {
+          "name": "word/fontTable.xml",
+          "sha256": "79385fb7f60247507ecaffc292e9ebd52ea0657b8634f629ba6fccc54011d6bb",
+          "bytes": 2811
+        },
+        {
+          "name": "word/numbering.xml",
+          "sha256": "70976f19cbcd896e51890859fe6ecb3467a5a7ad0c040160fedc5a1993cb09ce",
+          "bytes": 5513
+        },
+        {
+          "name": "word/settings.xml",
+          "sha256": "51a0d348fe85965c66e4748a03c3c0d055d78455514f03cb121c334af7d73689",
+          "bytes": 2535
+        },
+        {
+          "name": "word/styles.xml",
+          "sha256": "07011a29936617f7dd2af735497a1be7f0f25aceb13ab41995d6fdb07665c5f4",
+          "bytes": 349609
+        },
+        {
+          "name": "word/stylesWithEffects.xml",
+          "sha256": "463ae0928cf0d84775dbf8cf18d6c3029f6707c81bf590f6d6dd8757a5e93f15",
+          "bytes": 438131
+        },
+        {
+          "name": "word/theme/theme1.xml",
+          "sha256": "e3a8ab7db9ca7afca56f5f2820a56e8b660016c647773555b060b0a02ac76941",
+          "bytes": 10939
+        },
+        {
+          "name": "word/webSettings.xml",
+          "sha256": "349d36de7434d09f86987ff671d8814964a0588c1e630c06e562cda7e75e9f95",
+          "bytes": 438
+        }
+      ]
+    },
+    {
+      "id": "xlsx-external-formula",
+      "kind": "xlsx",
+      "sha256": "f23ef2951fe80fe3c4e9459c616195376aeff4f660c265881e729a6b03456c86",
+      "bytes": 3945,
+      "expectedAdmission": "UNSUPPORTED_FORMULA",
+      "expectedProduct": "UNSUPPORTED_FORMULA",
+      "coverage": [
+        "external formula pre-load refusal"
+      ],
+      "assertions": {},
+      "parts": [
+        {
+          "name": "[Content_Types].xml",
+          "sha256": "3075df9f387d734283477155c9d4b0d9512b92c7e13b8e93ee95d72f235e5326",
+          "bytes": 851
+        },
+        {
+          "name": "_rels/.rels",
+          "sha256": "33ea79d9f2e3b36e9fd287666b8f8200001ce77468266f36283e78e89749df90",
+          "bytes": 296
+        },
+        {
+          "name": "xl/_rels/workbook.xml.rels",
+          "sha256": "dc61dfd392d3cee462c2a0651eac905c59dfad5af5210e1cff2ce9ef31d414aa",
+          "bytes": 754
+        },
+        {
+          "name": "xl/sharedStrings.xml",
+          "sha256": "188ef751ff00440752511a2b19781b8f4c4f53a52560765fc3c0cbef1fb25e4f",
+          "bytes": 115
+        },
+        {
+          "name": "xl/styles.xml",
+          "sha256": "a6182167a7671943e5627e29cf1aca03db1dd90bd6586a80c301ef0ff0bf8969",
+          "bytes": 1867
+        },
+        {
+          "name": "xl/theme/theme1.xml",
+          "sha256": "9e968b92413c2476890e4b0bd8d26b65f2062b211bde8ebb628ffdaafc6607b9",
+          "bytes": 3546
+        },
+        {
+          "name": "xl/workbook.xml",
+          "sha256": "077e1e850dc06ac91229339c3994bd4926b030a41af814d62c0b844bf7465835",
+          "bytes": 477
+        },
+        {
+          "name": "xl/worksheets/sheet1.xml",
+          "sha256": "101e13c1e0da8138d4f0cf29696fc19b6dca88729b40cb0fc66f4a90561f0d73",
+          "bytes": 2457
+        }
+      ]
+    }
+  ],
+  "reference": "Generate independent named desktop PDF references and pin them before any Android execution. Original prototype inputs/references remain unchanged.",
+  "failurePolicy": "Do not tune inputs, expected classifications or thresholds after Android outputs. Keep failed admitted profiles visible; no source sanitization in product."
+}

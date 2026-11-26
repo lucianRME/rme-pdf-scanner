@@ -1,0 +1,15 @@
+{
+  "origin": "Independent literal-preservation controls added before reader probing; original frozen corpus/thresholds unchanged",
+  "expectedIdentical": [
+    "=SUM(1,2)",
+    "+12",
+    "-2+3",
+    "@SUM(A1:A2)",
+    " \t=HYPERLINK(\"https://example.invalid\",\"x\")",
+    "<f>SUM(A1)</f>",
+    "literal_x0041_",
+    "literal_x005F_",
+    "a\r\nb",
+    "0000123"
+  ]
+}

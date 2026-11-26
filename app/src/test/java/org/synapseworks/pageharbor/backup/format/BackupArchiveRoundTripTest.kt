@@ -10,6 +10,21 @@ import org.junit.Test
 
 class BackupArchiveRoundTripTest {
     @Test
+    fun documentCleanupFilterRoundTripsWithoutChangingSourceAssets() {
+        val fixture = BackupFormatTestFixture()
+        val pages = fixture.pages.map { it.copy(filterName = "DOCUMENT_CLEANUP") }
+        val records = SnapshotBackupRecordSource(fixture.folders, fixture.documents, pages, fixture.sourceAssets)
+        val output = ByteArrayOutputStream()
+        writeBackupArchiveForTest(output, fixture.manifest, records, fixture.assets)
+        val staging = MemoryStagingSink()
+        val verified = readAndVerify(output.toByteArray(), staging)
+        assertTrue(verified.pages.all { it.filterName == "DOCUMENT_CLEANUP" })
+        fixture.pageBytesByPath.forEach { (path, bytes) ->
+            assertArrayEquals(bytes, staging.assets.getValue(path).toByteArray())
+        }
+    }
+
+    @Test
     fun streamingInspectorRemeasuresJpegAndWebpDimensions() {
         val jpeg = byteArrayOf(
             0xff.toByte(), 0xd8.toByte(),

@@ -1,0 +1,330 @@
+{
+  "schema": 1,
+  "milestone": "M35",
+  "candidate": 15,
+  "date": "2026-11-11",
+  "checkpointScriptSha256": "923bb8be1710244f771839361b87ca908b7f9f306ceca2f7a7e16622ac0fdb1a",
+  "states": {
+    "feasibility": "QUALIFIED_SUPPORTED_PRODUCT_CORPUS",
+    "implementation": "NOT_IMPLEMENTED",
+    "validation": "PASS for named engine/corpus gates; product workflow NOT_RUN",
+    "integration": "NOT_INTEGRATED",
+    "closure": "PARTIAL",
+    "ownerAcceptance": "PENDING"
+  },
+  "priorCandidates": "Candidate14 OPEN/FAILED5of10 and candidate13 finite qualification retained; not relabeled",
+  "nativeSha256": "a71769c2bebbdfe4419e029d9c85238add95e2f35b96e86db1ae8d82de829762",
+  "actualLink": {
+    "path": "product-34126b7/native-link-10/manifest.json",
+    "bytes": 496856,
+    "sha256": "6c685594eada6db81c5fa3f242923ae5f29e2139dd98cb42124e16dffb78eaf1"
+  },
+  "matrix": {
+    "path": "product-34126b7/matrix-15/matrix.json",
+    "bytes": 69997,
+    "sha256": "1575bd6c79cd15d9eccd5364914ab396b22e9e59970e4574901ef62a826b6777"
+  },
+  "frozenProductPlan": {
+    "path": "product-34126b7/matrix-product-plan.json",
+    "bytes": 15073,
+    "sha256": "19f619b198e4f27ab62de7d45e2096f546ded44cb9601ee614a08cfa3976dc4d"
+  },
+  "profiles": [
+    {
+      "api": "api26",
+      "pageSize": 4096,
+      "variant": "ordinary",
+      "execution": {
+        "path": "product-34126b7/matrix-15/product15-api26-ordinary-product/results.json",
+        "bytes": 45690,
+        "sha256": "bba7d6d25e94c4c80ededfafc176daff5d46c1e877796b6f5ddb95301ad2e3c3"
+      },
+      "quality": {
+        "product-quality": {
+          "path": "product-34126b7/matrix-15/product15-api26-ordinary-product/product-quality.json",
+          "bytes": 13117,
+          "sha256": "dd57af59443c99c1f1d14acd386451e4e29ae58d5dea85928bbabf2beb074503"
+        },
+        "newline-quality": {
+          "path": "product-34126b7/matrix-15/product15-api26-ordinary-product/newline-quality.json",
+          "bytes": 4939,
+          "sha256": "c76d74dd8e4e0e652220676d3e2a89a5b2a338557e13ccd9191d6a4b37c92927"
+        },
+        "geometry-quality": {
+          "path": "product-34126b7/matrix-15/product15-api26-ordinary-product/geometry-quality.json",
+          "bytes": 8006,
+          "sha256": "7038d11ac341847f033c64b709574f79c34f0a0704ac8134c35dff28dd416f2a"
+        }
+      }
+    },
+    {
+      "api": "api35-16k",
+      "pageSize": 16384,
+      "variant": "ordinary",
+      "execution": {
+        "path": "product-34126b7/matrix-15/product15-api35-16k-ordinary-product/results.json",
+        "bytes": 45985,
+        "sha256": "e2f351005790cba3b3948ed18a3ff06ad7fb7eeed5c53162135dbc8765bf9aef"
+      },
+      "quality": {
+        "product-quality": {
+          "path": "product-34126b7/matrix-15/product15-api35-16k-ordinary-product/product-quality.json",
+          "bytes": 13117,
+          "sha256": "c05d7dcf95eb75e7078c205f63cfe5cc3f0091a3a2aa072ee2491b69c5ed6057"
+        },
+        "newline-quality": {
+          "path": "product-34126b7/matrix-15/product15-api35-16k-ordinary-product/newline-quality.json",
+          "bytes": 4939,
+          "sha256": "3ccd82cc8e97036b8544fe2a1ab2dd7f6c04b744640e56cb1dd8173802cac994"
+        },
+        "geometry-quality": {
+          "path": "product-34126b7/matrix-15/product15-api35-16k-ordinary-product/geometry-quality.json",
+          "bytes": 8006,
+          "sha256": "3f5fc365137e74c80fe0eb941a54bae94cb256d9d5e34bc7f8cefae92524ca6b"
+        }
+      }
+    },
+    {
+      "api": "api36",
+      "pageSize": 4096,
+      "variant": "ordinary",
+      "execution": {
+        "path": "product-34126b7/matrix-15/product15-api36-ordinary-product/results.json",
+        "bytes": 45736,
+        "sha256": "d14876af6ce41de333721af50ed3bcc0731d4bc6f5bacb2e2dbd7de12085d6cb"
+      },
+      "quality": {
+        "product-quality": {
+          "path": "product-34126b7/matrix-15/product15-api36-ordinary-product/product-quality.json",
+          "bytes": 13117,
+          "sha256": "5bffc682e38f328e6f00463c539052cb0673d15f4479774cd4761d619ad30839"
+        },
+        "newline-quality": {
+          "path": "product-34126b7/matrix-15/product15-api36-ordinary-product/newline-quality.json",
+          "bytes": 4939,
+          "sha256": "118afed2172f8cb8d2c7de7a1c5e2df3bd1b57e5a655965de2b8fe6af8d18005"
+        },
+        "geometry-quality": {
+          "path": "product-34126b7/matrix-15/product15-api36-ordinary-product/geometry-quality.json",
+          "bytes": 8006,
+          "sha256": "ed681d0e19abf67b72c4f364bc939704e7ee5d66d08110bb9af13f6f799f8ba0"
+        }
+      }
+    },
+    {
+      "api": "api26",
+      "pageSize": 4096,
+      "variant": "optimized",
+      "execution": {
+        "path": "product-34126b7/matrix-15/product15-api26-optimized-product/results.json",
+        "bytes": 45676,
+        "sha256": "181448855d397a1673c6c1ab9422ad40007f27ea1566e7cf5c12ad07fcc01a47"
+      },
+      "quality": {
+        "product-quality": {
+          "path": "product-34126b7/matrix-15/product15-api26-optimized-product/product-quality.json",
+          "bytes": 13117,
+          "sha256": "cf04fde9162f565b08004cc35f3b3327c172c4a16aeb79948db33b289c8cb4fb"
+        },
+        "newline-quality": {
+          "path": "product-34126b7/matrix-15/product15-api26-optimized-product/newline-quality.json",
+          "bytes": 4939,
+          "sha256": "ad8032d2548055427e242d883eee613c065ace9070978d7b38152c54af3fe4dc"
+        },
+        "geometry-quality": {
+          "path": "product-34126b7/matrix-15/product15-api26-optimized-product/geometry-quality.json",
+          "bytes": 8006,
+          "sha256": "302ff2155e85ddd54c4f22620cd36b484a793b8b6a3d4a989f2b1ae168360889"
+        }
+      }
+    },
+    {
+      "api": "api35-16k",
+      "pageSize": 16384,
+      "variant": "optimized",
+      "execution": {
+        "path": "product-34126b7/matrix-15/product15-api35-16k-optimized-product/results.json",
+        "bytes": 45893,
+        "sha256": "e27915720af539556754eb6dca0a404e41dfe85121b833db3da5b897c6b08b67"
+      },
+      "quality": {
+        "product-quality": {
+          "path": "product-34126b7/matrix-15/product15-api35-16k-optimized-product/product-quality.json",
+          "bytes": 13117,
+          "sha256": "d6d1d5b2e7fb341c48de7b558b7b792ddbab5932067a417761ca52339ab803e8"
+        },
+        "newline-quality": {
+          "path": "product-34126b7/matrix-15/product15-api35-16k-optimized-product/newline-quality.json",
+          "bytes": 4939,
+          "sha256": "e8c6f598fdf820395ddcddfffab0d5ffff02e9130cf7fa1b33401ef6c1e36bda"
+        },
+        "geometry-quality": {
+          "path": "product-34126b7/matrix-15/product15-api35-16k-optimized-product/geometry-quality.json",
+          "bytes": 8006,
+          "sha256": "1c165fe62f2c5217c2adc08ce52c4df15ae5a0b7cd7983b373fde716067183ac"
+        }
+      }
+    },
+    {
+      "api": "api36",
+      "pageSize": 4096,
+      "variant": "optimized",
+      "execution": {
+        "path": "product-34126b7/matrix-15/product15-api36-optimized-product/results.json",
+        "bytes": 45711,
+        "sha256": "e513340c88a6ebad18c4b94cb7333fc475de0ef78c83a3bc3b080a62a1327e12"
+      },
+      "quality": {
+        "product-quality": {
+          "path": "product-34126b7/matrix-15/product15-api36-optimized-product/product-quality.json",
+          "bytes": 13117,
+          "sha256": "afb6ad44a9c0c3e1f3c59fd60d5dbd69fbd0ba9d0f172ad2309bb36c535dce99"
+        },
+        "newline-quality": {
+          "path": "product-34126b7/matrix-15/product15-api36-optimized-product/newline-quality.json",
+          "bytes": 4939,
+          "sha256": "fef3676536e26163d3429f20eae1f80dd2732e4138a7a0f969eba9734c70a599"
+        },
+        "geometry-quality": {
+          "path": "product-34126b7/matrix-15/product15-api36-optimized-product/geometry-quality.json",
+          "bytes": 8006,
+          "sha256": "0232bcd2bdd7023dd88b3cd0477c2ddbf7107f1cc6ffaf835941444330a3fbfb"
+        }
+      }
+    }
+  ],
+  "packages": {
+    "ordinary": {
+      "worker": "3a7aa621d26e4292ddcd3efb8821dfb258b94bd62bb7e4c4c4dd1630016d27ea",
+      "caller": "1d467e1240f624256d3490fef534be0550148b25d7c5a65cfd58781fb5b166ee"
+    },
+    "optimized": {
+      "worker": "b63eb97b12d48bc62451e9bd25d248191f41f7653755f4041754b3ef59238ef2",
+      "caller": "8462e48396a36066d0c85f93b24f8b0c695776b3dedf63f5f6148fce62f2d3ef"
+    }
+  },
+  "physical": {
+    "path": "product-34126b7/physical-qualification-15/results.json",
+    "bytes": 439224,
+    "sha256": "f05ef98b69c1bae7b093ab7bd8fbda34d4e7687e7d76696c5f27ce3252bcf8a2"
+  },
+  "physicalAndBoundary": [
+    {
+      "variant": "ordinary",
+      "physicalExecution": {
+        "path": "product-34126b7/phone-corpus-15-ordinary/results.json",
+        "bytes": 45654,
+        "sha256": "f6385a2d4ec52f938adbf9d8a1342e94558a1ebe278e9da651c0198619cb1e13"
+      },
+      "boundaries": {
+        "path": "product-34126b7/boundaries-15-ordinary/results.json",
+        "bytes": 4926,
+        "sha256": "72c1fbe8b9abd59d345312536072f0c4bc58ee9997514bc28de9690cd8591f29"
+      },
+      "physicalThermal": {
+        "path": "product-34126b7/physical-qualification-15/ordinary-thermal/results.json",
+        "bytes": 10092,
+        "sha256": "1439ae58dc91db65ba2c68ea3002e786a6769ad9366045ea78bc2d2569f06711"
+      }
+    },
+    {
+      "variant": "optimized",
+      "physicalExecution": {
+        "path": "product-34126b7/phone-corpus-15-optimized/results.json",
+        "bytes": 45693,
+        "sha256": "fb634764aeba25bab4e0848a04bc7b9496a9ff1c27d16d1f3c5cd39abf71c880"
+      },
+      "boundaries": {
+        "path": "product-34126b7/boundaries-15-optimized/results.json",
+        "bytes": 4925,
+        "sha256": "959a5877661ecfabb2c35cdf2395cb95c3ad41058309649b568d816e79fdce0e"
+      },
+      "physicalThermal": {
+        "path": "product-34126b7/physical-qualification-15/optimized-thermal/results.json",
+        "bytes": 10112,
+        "sha256": "fbadac08dbf3c7636d89a8b580525e9827b8200e3e2e02ed7a07aa6738717c57"
+      }
+    }
+  ],
+  "distribution": {
+    "status": "VERIFIED_LOCAL_PREPARATION",
+    "files": 65696,
+    "deliveredRows": 2928,
+    "published": false,
+    "manifestSha256": "9a1ca54fbd03cf51be996008f6ccf32533ec50fa114270ac34655ac32a031712",
+    "limit": "Integrity and recorded review coverage; no independent engine rebuild, physical execution or recipient delivery is inferred"
+  },
+  "distributionManifest": {
+    "path": "product-34126b7/M35-PRODUCT15-MATERIALS/manifest.json",
+    "bytes": 39256483,
+    "sha256": "9a1ca54fbd03cf51be996008f6ccf32533ec50fa114270ac34655ac32a031712"
+  },
+  "actualEnospcReuse": [
+    {
+      "variant": "ordinary",
+      "priorActualExecution": {
+        "path": "isolation-3e38b81/enospc-runtime-12c-ordinary/results.json",
+        "bytes": 1173,
+        "sha256": "0aa2242df589f235324363d32b90fb7df159f0720bc8983133fd701c0e3795b2"
+      },
+      "unchangedGuardClasses": [
+        {
+          "name": "Coordinator.class",
+          "sha256": "a2b540cf6cb11441545243be716f2070bd134275e308cdca00a60d9c84a27024"
+        },
+        {
+          "name": "Coordinator$Job.class",
+          "sha256": "26380b4c686a37a3303346a94a13159cdb1360d46b4ae60c5150d1ac0951f5a0"
+        }
+      ],
+      "currentRealFill": "NOT_REPEATED: unchanged pre-copy guard proof; current injected low-space/lifecycle and four size boundaries executed",
+      "limit": "Previous whole-bundle recovery remains historical; current recovery is established by the new exact-candidate runtime/boundary checks"
+    },
+    {
+      "variant": "optimized",
+      "priorActualExecution": {
+        "path": "isolation-3e38b81/enospc-runtime-12c-optimized/results.json",
+        "bytes": 1172,
+        "sha256": "ecfc373363b596a67873d1f4d169ed3c3583d1802e6ba760e0cf6e4b5b8f13be"
+      },
+      "unchangedGuardClasses": [
+        {
+          "name": "Coordinator.class",
+          "sha256": "a2b540cf6cb11441545243be716f2070bd134275e308cdca00a60d9c84a27024"
+        },
+        {
+          "name": "Coordinator$Job.class",
+          "sha256": "26380b4c686a37a3303346a94a13159cdb1360d46b4ae60c5150d1ac0951f5a0"
+        }
+      ],
+      "currentRealFill": "NOT_REPEATED: unchanged pre-copy guard proof; current injected low-space/lifecycle and four size boundaries executed",
+      "limit": "Previous whole-bundle recovery remains historical; current recovery is established by the new exact-candidate runtime/boundary checks"
+    }
+  ],
+  "sampledMaxima": {
+    "initMs": 560,
+    "conversionMs": 260,
+    "javaPeak": 30795408,
+    "nativePeak": 41490656,
+    "pssPeak": 162658304,
+    "tempPeak": 255604959
+  },
+  "hostBounds": {
+    "maximumWorkspaceBytes": 85228433408,
+    "minimumFreeBytes": 106772496384,
+    "withinLimits": true
+  },
+  "next": "Existing authorization permits product import/review/preview/protected Save/Share; M30 only after independent product export validation",
+  "notRun": [
+    "Consumer UI/Save/Share/lifecycle/M30 and consumer builds/lint for new integration",
+    "Arbitrary Office/layout/script profiles; sustained physical workloads, wider OEM/C11"
+  ],
+  "compatibility": {
+    "room": 10,
+    "backup": 8,
+    "queue": 5,
+    "m12": "SEPARATE",
+    "sync": "SEPARATE"
+  },
+  "published": false
+}

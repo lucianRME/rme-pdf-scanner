@@ -1,6 +1,7 @@
 package org.synapseworks.pageharbor.document.session
 
 import java.io.File
+import org.synapseworks.pageharbor.image.ManualImageAdjustments
 import java.io.IOException
 import org.synapseworks.pageharbor.image.DocumentFilter
 
@@ -134,6 +135,9 @@ data class DocumentPage(
     val filter: DocumentFilter = DocumentFilter.ORIGINAL,
     /** Stable only for pages already stored in RME's persistent local library. */
     val persistentId: String? = null,
+    val adjustments: ManualImageAdjustments = ManualImageAdjustments(),
+    val annotations: org.synapseworks.pageharbor.document.annotation.AnnotationLayer = org.synapseworks.pageharbor.document.annotation.AnnotationLayer.EMPTY,
+    val paperSize: DocumentPaperSize? = null,
 )
 
 /** Persistent identity attached only while a saved library document is open for editing. */
@@ -171,12 +175,15 @@ data class DocumentSession(
         get() = directPdfSource != null &&
             pages.map(DocumentPage::id) == directPdfPageIds &&
             pages.all { page ->
-                page.filter == DocumentFilter.ORIGINAL &&
+                page.paperSize == null && page.annotations.isEmpty && page.adjustments.isNeutral && page.filter == DocumentFilter.ORIGINAL &&
                     page.rotation == DocumentPageRotation.DEGREES_0
             }
 
     fun setFilter(pageId: DocumentPageId, filter: DocumentFilter): DocumentSession? =
         updatePage(pageId) { page -> page.copy(filter = filter) }
+
+    fun setAdjustments(pageId: DocumentPageId, adjustments: ManualImageAdjustments): DocumentSession? =
+        updatePage(pageId) { it.copy(adjustments = adjustments) }
 
     fun rotateClockwise(pageId: DocumentPageId): DocumentSession? =
         updatePage(pageId) { page -> page.copy(rotation = page.rotation.clockwise()) }
@@ -208,6 +215,12 @@ data class DocumentSession(
             directPdfPageIds = emptyList(),
         )
     }
+
+    /** Metadata-only candidates; canonical checks/deduplication belong to the IO cleaner. */
+    internal fun temporaryResourceReferences():List<DocumentResource> =
+        (pages.map{it.source}+listOfNotNull(directPdfSource)+originalPdfSources)
+            .filter{it.ownership==DocumentResourceOwnership.RME_OWNED_TEMPORARY}
+            .distinctBy{it.ownedTemporaryFile?.path?:it.reference}
 
     internal fun ownedResources(): List<DocumentResource> = buildList {
         pages.mapTo(this, DocumentPage::source)

@@ -13,6 +13,8 @@ enum class CardCopySide { FRONT, BACK }
 
 enum class CardCopyAcquisition { SCAN, IMPORT }
 
+typealias CardCopyShutter = (File, (Boolean) -> Unit) -> Unit
+
 enum class CardCopyPageSize(
     val widthPoints: Float,
     val heightPoints: Float,
@@ -149,6 +151,7 @@ sealed interface CardCopyWorkflowState {
     data class AcquireSides(
         val front: CardCopySideState = CardCopySideState.Empty,
         val back: CardCopySideState = CardCopySideState.Empty,
+        val retaking: CardCopySide? = null,
     ) : CardCopyWorkflowState
 
     data class ReviewSides(

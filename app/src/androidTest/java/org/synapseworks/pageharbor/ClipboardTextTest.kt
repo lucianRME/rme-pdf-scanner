@@ -48,6 +48,9 @@ class ClipboardTextTest {
             assertNotNull(clip)
             assertNotNull(description)
             assertTrue(description!!.hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN))
+            if (Build.VERSION.SDK_INT >= 33) {
+                assertTrue(description!!.extras?.getBoolean(ClipDescription.EXTRA_IS_SENSITIVE) == true)
+            }
             assertEquals(expectedText, clip!!.getItemAt(0).coerceToText(activity).toString())
         } finally {
             instrumentation.runOnMainSync {

@@ -3,10 +3,18 @@ package org.synapseworks.pageharbor.ui.cardcopy
 import android.graphics.Bitmap
 import android.graphics.Color
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
@@ -102,15 +110,15 @@ class CardCopyScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("Front").assertIsDisplayed()
-        composeRule.onNodeWithText("Back").assertIsDisplayed()
-        composeRule.onNodeWithText("Add the back of the card to continue.").assertIsDisplayed()
-        composeRule.onNodeWithText("Continue").assertIsNotEnabled()
-        composeRule.onNodeWithText("Replace").performClick()
-        composeRule.onAllNodesWithText("Scan")[1].performClick()
-        composeRule.onNodeWithText("Import").performClick()
+        composeRule.onNodeWithText("2 of 2 · Back of ID").assertExists()
+        composeRule.onNodeWithTag("id-shutter").assertIsDisplayed().assertHasClickAction()
+        composeRule.onAllNodesWithTag("id-shutter").assertCountEquals(1)
+        composeRule.onNodeWithText("1 of 2 · Front of ID").assertDoesNotExist()
+        composeRule.onNodeWithText("Continue").assertDoesNotExist()
+        composeRule.onNodeWithTag("id-controls").performScrollToNode(hasTestTag("id-image"))
+        composeRule.onNodeWithTag("id-image").assertIsDisplayed().performClick()
         composeRule.runOnIdle {
-            assertEquals(CardCopySide.FRONT, scanned)
+            assertEquals(null, scanned)
             assertEquals(CardCopySide.BACK, imported)
         }
     }
@@ -256,9 +264,9 @@ class CardCopyScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("Save PDF").performClick()
-        composeRule.onNodeWithText("Share").performClick()
-        composeRule.onNodeWithText("Change layout").performClick()
+        composeRule.onNodeWithText("Save PDF").performScrollTo().assertIsDisplayed().performClick()
+        composeRule.onNodeWithText("Share").performScrollTo().assertIsDisplayed().performClick()
+        composeRule.onNodeWithText("Change layout").performScrollTo().assertIsDisplayed().performClick()
         composeRule.runOnIdle {
             assertEquals(1, saves)
             assertEquals(1, shares)
@@ -330,6 +338,76 @@ class CardCopyScreenTest {
             assertEquals(1, deletes)
             assertEquals(1, applies)
         }
+    }
+
+    @Test
+    fun replacementChooserSurvivesSavedStateRestoration() {
+        var scanned: CardCopySide? = null
+        val restoration = StateRestorationTester(composeRule)
+        restoration.setContent {
+            PageHarborTheme {
+                CardCopyScreen(
+                    state = CardCopyWorkflowState.ReviewSides(
+                        CardCopySideState.Ready(front), CardCopySideState.Ready(back),
+                    ),
+                    onBack = {}, onScan = { scanned = it }, onImport = {}, onContinueReview = {},
+                    onRotate = { _, _ -> }, onRemove = {}, onSwap = {}, onContinueLayout = {},
+                    onPageSize = {}, onLayout = {}, onSpacing = {}, onAlignment = {},
+                    onShowPreview = {}, onPrepare = {}, onSave = {}, onShare = {}, onRetry = {},
+                )
+            }
+        }
+        composeRule.onAllNodesWithText("Replace")[0].performScrollTo().performClick()
+        composeRule.onNodeWithText("Scan").assertIsDisplayed()
+        restoration.emulateSavedInstanceStateRestore()
+        composeRule.onNodeWithText("Scan").assertIsDisplayed().performClick()
+        composeRule.runOnIdle { assertEquals(CardCopySide.FRONT, scanned) }
+    }
+
+    @Test
+    fun replacementChooserActionsRemainReachableInShortWindowAtLargeFont() {
+        composeRule.setContent {
+            PageHarborTheme(darkTheme = true) {
+                val density = LocalDensity.current
+                CompositionLocalProvider(LocalDensity provides Density(density.density, 2f)) {
+                    CardCopyScreen(
+                        state = CardCopyWorkflowState.ReviewSides(
+                            CardCopySideState.Ready(front), CardCopySideState.Ready(back),
+                        ),
+                        onBack = {}, onScan = {}, onImport = {}, onContinueReview = {},
+                        onRotate = { _, _ -> }, onRemove = {}, onSwap = {}, onContinueLayout = {},
+                        onPageSize = {}, onLayout = {}, onSpacing = {}, onAlignment = {},
+                        onShowPreview = {}, onPrepare = {}, onSave = {}, onShare = {}, onRetry = {},
+                    )
+                }
+            }
+        }
+        composeRule.onAllNodesWithText("Replace")[0].performScrollTo().assertIsDisplayed().performClick()
+        composeRule.onNodeWithText("Cancel").performScrollTo().assertIsDisplayed().performClick()
+        composeRule.onNodeWithText("Scan").assertDoesNotExist()
+    }
+
+    @Test
+    fun unzoomedPagePreviewFitsItsLayoutViewport() {
+        composeRule.setContent {
+            PageHarborTheme {
+                CardCopyScreen(
+                    state = CardCopyWorkflowState.Layout(front, back, CardCopySettings()),
+                    onBack = {}, onScan = {}, onImport = {}, onContinueReview = {},
+                    onRotate = { _, _ -> }, onRemove = {}, onSwap = {}, onContinueLayout = {},
+                    onPageSize = {}, onLayout = {}, onSpacing = {}, onAlignment = {},
+                    onShowPreview = {}, onPrepare = {}, onSave = {}, onShare = {}, onRetry = {},
+                )
+            }
+        }
+        val preview = composeRule.onNodeWithContentDescription("Card copy page preview")
+        if (context.resources.configuration.screenWidthDp < 600) preview.performScrollTo()
+        preview.assertIsDisplayed()
+        val full = preview.getUnclippedBoundsInRoot()
+        val visible = preview.fetchSemanticsNode().boundsInRoot
+        val density = context.resources.displayMetrics.density
+        assertEquals("Preview width must fit without cropping", (full.right - full.left).value * density, visible.width, 2f)
+        assertEquals("Preview height must fit without cropping", (full.bottom - full.top).value * density, visible.height, 2f)
     }
 
     private fun source(side: CardCopySide, color: Int): CardCopySource {

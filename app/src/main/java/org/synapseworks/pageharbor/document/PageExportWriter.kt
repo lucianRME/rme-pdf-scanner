@@ -43,7 +43,8 @@ fun copyPageToDestination(
     return try {
         source.use { input ->
             destination.use { output ->
-                input.copyTo(output, bufferSize = PageCopyBufferSize)
+                val buffer=ByteArray(PageCopyBufferSize);var total=0L
+                while(true){val n=input.read(buffer);if(n<0)break;if(n==0)return PageExportResult.WriteFailed;total+=n;if(total>limits.maxSourceBytes)return PageExportResult.SourceTooLarge;output.write(buffer,0,n)}
                 output.flush()
             }
         }

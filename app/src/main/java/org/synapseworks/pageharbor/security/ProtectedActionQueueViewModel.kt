@@ -17,6 +17,8 @@ class ProtectedActionQueueViewModel : ViewModel() {
     private val inboundFingerprints = mutableSetOf<String>()
     private var launchedPortabilityPicker: PortabilityPickerRequest? = null
     private var launchedMigrationPicker: MigrationPickerRequest? = null
+    private var launchedPasswordPdfSaveRequest: String? = null
+    private var launchedLocalToolsSaveRequest: String? = null
 
     @Synchronized
     internal fun enqueue(action: PendingProtectedAction) {
@@ -52,6 +54,49 @@ class ProtectedActionQueueViewModel : ViewModel() {
     @Synchronized
     internal fun consumeMigrationPickerRequest(): MigrationPickerRequest? =
         launchedMigrationPicker.also { launchedMigrationPicker = null }
+
+    @Synchronized
+    internal fun markLocalToolsSavePickerLaunched(requestId: String): Boolean {
+        if (launchedLocalToolsSaveRequest != null) return false
+        launchedLocalToolsSaveRequest = requestId
+        return true
+    }
+
+    @Synchronized
+    internal fun consumeLocalToolsSavePickerRequest(): String? =
+        launchedLocalToolsSaveRequest.also { launchedLocalToolsSaveRequest = null }
+
+    @Synchronized
+    internal fun localToolsSavePickerRequestForRecreation(): String? = launchedLocalToolsSaveRequest
+
+    @Synchronized
+    internal fun restoreLocalToolsSavePickerRequest(requestId: String?) {
+        // Only this opaque correlation token is restored; no document, URI, password or handwriting.
+        if (launchedLocalToolsSaveRequest == null && requestId != null) {
+            launchedLocalToolsSaveRequest = requestId
+        }
+    }
+    @Synchronized
+    internal fun markPasswordPdfSavePickerLaunched(requestId: String): Boolean {
+        if (launchedPasswordPdfSaveRequest != null) return false
+        launchedPasswordPdfSaveRequest = requestId
+        return true
+    }
+
+    @Synchronized
+    internal fun consumePasswordPdfSavePickerRequest(): String? =
+        launchedPasswordPdfSaveRequest.also { launchedPasswordPdfSaveRequest = null }
+
+    @Synchronized
+    internal fun passwordPdfSavePickerRequestForRecreation(): String? = launchedPasswordPdfSaveRequest
+
+    @Synchronized
+    internal fun restorePasswordPdfSavePickerRequest(requestId: String?) {
+        // Opaque correlation only; no document, URI or password is restored.
+        if (launchedPasswordPdfSaveRequest == null && requestId != null) {
+            launchedPasswordPdfSaveRequest = requestId
+        }
+    }
 }
 
 internal sealed interface PendingProtectedAction {
@@ -85,6 +130,10 @@ internal sealed interface PendingProtectedAction {
     data class CardCopyPdfDestination(val uri: Uri?) : PendingProtectedAction
 
     data class ShareSafePdfDestination(val uri: Uri?) : PendingProtectedAction
+
+    data class PasswordPdfDestination(val uri: Uri?, val requestId: String) : PendingProtectedAction
+
+    data class LocalToolsPdfDestination(val uri: Uri?, val requestId: String) : PendingProtectedAction
 
     data class LaunchPortabilityPicker(
         val request: PortabilityPickerRequest,

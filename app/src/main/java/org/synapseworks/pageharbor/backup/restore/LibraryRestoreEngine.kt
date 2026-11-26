@@ -135,6 +135,9 @@ internal class LibraryRestoreEngine(
         } catch (cancelled: CancellationException) {
             staging.discardAfterPreparationFailure(cancelled)
             throw cancelled
+        } catch (failure: RestoreStoreException) {
+            staging.discardAfterPreparationFailure(failure)
+            return RestorePreparationResult.Failed(if(failure.failure==RestoreFailure.DELETED_DOCUMENT_CONFLICT)RestorePreparationFailure.DELETED_DOCUMENT_CONFLICT else RestorePreparationFailure.LIBRARY_UNAVAILABLE)
         } catch (failure: Exception) {
             staging.discardAfterPreparationFailure(failure)
             return RestorePreparationResult.Failed(RestorePreparationFailure.LIBRARY_UNAVAILABLE)
@@ -224,6 +227,7 @@ internal class LibraryRestoreEngine(
         source: RestoreIndexedDocument,
         records: BackupVerifiedRecordStore,
     ): org.synapseworks.pageharbor.library.duplicate.DuplicateMatch {
+        store.assertArchiveDocumentAllowed(source.document.documentId,source.incomingIdentity())
         val fingerprintMatch = store.classifyDuplicate(source.incomingIdentity())
         if (fingerprintMatch.kind != DuplicateKind.DIFFERENT) return fingerprintMatch
         var afterSourceId: String? = null
@@ -349,6 +353,8 @@ internal class LibraryRestoreEngine(
             return RestoreResult.Cancelled(prepared.stagingArea.discard())
         } catch (cancelled: CancellationException) {
             throw cancelled
+        } catch (failure:RestoreStoreException) {
+            return RestoreResult.Failed(failure.failure,prepared.stagingArea.discard())
         } catch (_: Exception) {
             prepared.stagingArea.discard()
             return RestoreResult.Failed(RestoreFailure.JOURNAL_UNAVAILABLE, cleanupSucceeded = true)
@@ -366,6 +372,8 @@ internal class LibraryRestoreEngine(
             return RestoreResult.Cancelled(prepared.stagingArea.discard())
         } catch (cancelled: CancellationException) {
             throw cancelled
+        } catch (failure:RestoreStoreException) {
+            return RestoreResult.Failed(failure.failure,prepared.stagingArea.discard())
         } catch (_: Exception) {
             prepared.stagingArea.discard()
             return RestoreResult.Failed(RestoreFailure.JOURNAL_UNAVAILABLE, cleanupSucceeded = true)
@@ -385,6 +393,8 @@ internal class LibraryRestoreEngine(
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
+        } catch (failure:RestoreStoreException) {
+            return RestoreResult.Failed(failure.failure,prepared.stagingArea.discard())
         } catch (_: Exception) {
             prepared.stagingArea.discard()
             return RestoreResult.Failed(RestoreFailure.JOURNAL_UNAVAILABLE, cleanupSucceeded = true)
@@ -441,6 +451,7 @@ internal class LibraryRestoreEngine(
                             folderCount = backup.manifest.summary.folderCount,
                             importedDocumentCount = importCount,
                             activatedAtEpochMillis = clock.nowEpochMillis(),
+                            tags = backup.manifest.tags,
                         ),
                     )
                 },
@@ -506,7 +517,7 @@ private suspend fun buildIndexedDocument(
     records: BackupVerifiedRecordStore,
     document: BackupDocumentRecord,
 ): RestoreIndexedDocument {
-    val fingerprintBuilder = DocumentFingerprintV1.Builder(document.pageCount)
+    val fingerprintBuilder = DocumentFingerprintV1.Builder(document.pageCount, manual = document.contentHashVersion in setOf(2,3,4), annotated = document.contentHashVersion in setOf(3,4), physical = document.contentHashVersion == 4)
     val documentState = records.ocrDocumentState(document.documentId)
     val digestBuilder = OcrStateDigestV1.Builder(documentState?.scriptPreference, document.pageCount)
     var pageByteLength = 0L
@@ -517,6 +528,8 @@ private suspend fun buildIndexedDocument(
         if (pages.isEmpty()) break
         pages.forEach { page ->
             currentCoroutineContext().ensureActive()
+            require(page.annotations.isEmpty() || document.contentHashVersion in setOf(3,4)) { "Annotation identity requires fingerprint version 3" }
+            require(page.paperSize.isEmpty() || document.contentHashVersion==4) { "Physical identity requires fingerprint version4" }
             fingerprintBuilder.addPage(
                 FingerprintPage(
                     assetSha256 = page.sha256,
@@ -524,6 +537,9 @@ private suspend fun buildIndexedDocument(
                     byteLength = page.byteLength,
                     rotationDegrees = page.rotationDegrees,
                     filterName = page.filterName,
+                    brightness = page.brightness, contrast = page.contrast,
+                    annotations = page.annotations,
+                    paperSize = page.paperSize,
                 ),
             )
             pageByteLength = Math.addExact(pageByteLength, page.byteLength)
@@ -578,7 +594,7 @@ private suspend fun buildIndexedDocument(
         if (pages.size < OCR_TEXT_PAGE_SIZE) break
     }
     val fingerprint = fingerprintBuilder.finish()
-    if (document.contentHashVersion == DocumentFingerprintV1.VERSION &&
+    if (document.contentHashVersion in setOf(DocumentFingerprintV1.VERSION, 2, 3, 4) &&
         document.contentSha256 != null && document.contentSha256 != fingerprint.sha256
     ) {
         throw IllegalArgumentException("The declared document fingerprint is inconsistent")

@@ -1,6 +1,7 @@
 package org.synapseworks.pageharbor.document.searchablepdf
 
 import android.net.Uri
+import org.synapseworks.pageharbor.image.ManualImageAdjustments
 import org.synapseworks.pageharbor.document.session.DocumentImageMetadata
 import org.synapseworks.pageharbor.document.session.DocumentPageRotation
 import org.synapseworks.pageharbor.image.DocumentFilter
@@ -13,6 +14,9 @@ data class SearchablePdfVisualPage(
     val rotation: DocumentPageRotation = DocumentPageRotation.DEGREES_0,
     val contentType: String = "image/jpeg",
     val imageMetadata: DocumentImageMetadata = DocumentImageMetadata(),
+    val adjustments: ManualImageAdjustments = ManualImageAdjustments(),
+    val annotations: org.synapseworks.pageharbor.document.annotation.AnnotationLayer = org.synapseworks.pageharbor.document.annotation.AnnotationLayer.EMPTY,
+    val paperSize: org.synapseworks.pageharbor.document.session.DocumentPaperSize? = null,
 )
 
 sealed interface SearchablePdfVisualPlan {
@@ -29,6 +33,8 @@ sealed interface SearchablePdfVisualPlan {
         override val pageId: Long,
         val filter: DocumentFilter,
         val rotation: DocumentPageRotation = DocumentPageRotation.DEGREES_0,
+        val adjustments: ManualImageAdjustments = ManualImageAdjustments(),
+    val annotations: org.synapseworks.pageharbor.document.annotation.AnnotationLayer = org.synapseworks.pageharbor.document.annotation.AnnotationLayer.EMPTY,
     ) : SearchablePdfVisualPlan {
         override val ocrSource = SearchablePdfOcrSource.ORIGINAL
     }
@@ -42,15 +48,17 @@ internal fun searchablePdfVisualPlan(
     filter: DocumentFilter,
     rotation: DocumentPageRotation = DocumentPageRotation.DEGREES_0,
     contentType: String = "image/jpeg",
+    adjustments: ManualImageAdjustments = ManualImageAdjustments(),
+    annotations: org.synapseworks.pageharbor.document.annotation.AnnotationLayer = org.synapseworks.pageharbor.document.annotation.AnnotationLayer.EMPTY,
 ): SearchablePdfVisualPlan = if (
-    filter == DocumentFilter.ORIGINAL &&
+    annotations.isEmpty && adjustments.isNeutral && filter == DocumentFilter.ORIGINAL &&
     rotation == DocumentPageRotation.DEGREES_0 &&
     contentType == "image/jpeg"
 ) {
     SearchablePdfVisualPlan.Original(pageId)
 } else {
-    SearchablePdfVisualPlan.Filtered(pageId, filter, rotation)
+    SearchablePdfVisualPlan.Filtered(pageId, filter, rotation, adjustments, annotations)
 }
 
 internal fun searchablePdfVisualPlan(page: SearchablePdfVisualPage): SearchablePdfVisualPlan =
-    searchablePdfVisualPlan(page.pageId, page.filter, page.rotation, page.contentType)
+    searchablePdfVisualPlan(page.pageId, page.filter, page.rotation, page.contentType, page.adjustments, page.annotations)

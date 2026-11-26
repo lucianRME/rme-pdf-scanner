@@ -169,6 +169,7 @@ class LibraryBackupEngine(
             ),
             integrity = BackupIntegrity("SHA-256", RME_BACKUP_CHECKSUMS_PATH),
             ocr = stats.ocrManifest,
+            tags = stats.tags,
         )
     }
 

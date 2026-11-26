@@ -60,6 +60,10 @@ internal class RoomRestoreLibraryStore(
      * POSSIBLE result without building an all-library candidate map. A truncated or missing OCR
      * comparison can only downgrade a match to POSSIBLE; it can never cause an unsafe skip.
      */
+    override suspend fun assertArchiveDocumentAllowed(sourceId:String,identity:IncomingDocumentIdentity) {
+        val f=identity.fingerprint
+        if(dao.isDeletedArchiveIdentity(sourceId)||(f!=null&&dao.hasTrashedContent(f.version,f.sha256)))throw RestoreStoreException(RestoreFailure.DELETED_DOCUMENT_CONFLICT)
+    }
     override suspend fun classifyDuplicate(identity: IncomingDocumentIdentity): DuplicateMatch {
         val fingerprint = identity.fingerprint
         if (fingerprint != null) {
@@ -207,6 +211,7 @@ internal class RoomRestoreLibraryStore(
             sourceModifiedAtProvenance = source.document.sourceModifiedAtProvenance,
             sourceProvenanceKind = source.document.sourceProvenanceKind,
             sourceProvenanceLabel = source.document.sourceProvenanceLabel,
+            isFavorite = source.document.favorite,
         )
 
         val revisionId = java.util.UUID.randomUUID().toString()
@@ -218,6 +223,8 @@ internal class RoomRestoreLibraryStore(
         }
         try {
             dao.beginStreamingPendingRestoreDocument(pending)
+            dao.rememberArchiveOrigin(org.synapseworks.pageharbor.library.recycle.DocumentArchiveOrigin(document.targetDocumentId,source.document.documentId))
+            dao.stageOrganizationAssignments(operationId, document.targetDocumentId, source.document.tagIds)
             var afterPosition = -1
             var pageCount = 0
             var pageWithAnyStateCount = 0
@@ -248,6 +255,8 @@ internal class RoomRestoreLibraryStore(
                             destination = File(stagingDirectory, RESTORE_THUMBNAIL_FILE_NAME),
                             rotationDegrees = backupPage.rotationDegrees,
                             filterName = backupPage.filterName,
+                            brightness = backupPage.brightness, contrast = backupPage.contrast,
+                            annotations = org.synapseworks.pageharbor.document.annotation.AnnotationLayer.decode(backupPage.annotations),
                         )
                     }
                     val targetRelativePath = relativeLibraryPath(File(completedDirectory, fileName))
@@ -265,6 +274,9 @@ internal class RoomRestoreLibraryStore(
                             sourceByteCount = backupPage.byteLength,
                             rotationDegrees = backupPage.rotationDegrees,
                             filterName = backupPage.filterName,
+                            brightness = backupPage.brightness, contrast = backupPage.contrast,
+                            annotations = backupPage.annotations,
+                            paperSize = backupPage.paperSize,
                             ocrText = backupPage.ocrText,
                             ocrError = backupPage.ocrError,
                             contentSha256 = backupPage.sha256,
@@ -442,6 +454,10 @@ internal class RoomRestoreLibraryStore(
                 expectedFolderCount = plan.folderCount,
                 completedOperation = completed,
                 modifiedAt = plan.activatedAtEpochMillis,
+                tags = plan.tags.map { tag ->
+                    val name = requireNotNull(org.synapseworks.pageharbor.library.organization.LibraryTagRules.name(tag.name))
+                    org.synapseworks.pageharbor.library.organization.LibraryTagEntity(tag.tagId, name.display, name.key)
+                },
             )
         } catch (cancelled: CancellationException) {
             throw cancelled

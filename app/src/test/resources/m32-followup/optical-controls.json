@@ -1,0 +1,38 @@
+[
+  {
+    "text": "Weekly Summary",
+    "size": 18,
+    "kind": "HEADING",
+    "y": 36
+  },
+  {
+    "text": "Short body fragment",
+    "size": 12,
+    "kind": "BODY",
+    "y": 90
+  },
+  {
+    "text": "STATUS LINE",
+    "size": 12,
+    "kind": "BODY",
+    "y": 136
+  },
+  {
+    "text": "This remains an ordinary sentence.",
+    "size": 14,
+    "kind": "BODY",
+    "y": 182
+  },
+  {
+    "text": "A continuing paragraph uses ordinary type.",
+    "size": 12,
+    "kind": "BODY",
+    "y": 236
+  },
+  {
+    "text": "Its next line stays in the same paragraph.",
+    "size": 12,
+    "kind": "BODY",
+    "y": 250
+  }
+]

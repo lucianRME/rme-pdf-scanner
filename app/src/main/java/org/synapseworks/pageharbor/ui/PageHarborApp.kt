@@ -1,6 +1,8 @@
 package org.synapseworks.pageharbor.ui
 
 import androidx.activity.compose.BackHandler
+import org.synapseworks.pageharbor.image.ManualImageAdjustments
+import org.synapseworks.pageharbor.document.batch.SelectedPageBatchEditor
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
@@ -120,6 +122,21 @@ fun PageHarborApp(
     libraryUiState: LibraryUiState = LibraryUiState(),
     libraryHasDocuments: Boolean = true,
     libraryThumbnailUri: (String?) -> Uri? = { null },
+    onOpenQrScanner: () -> Unit = {},
+    onOpenBusinessCard: () -> Unit = {},
+    onOpenReceipt: () -> Unit = {},
+    onOpenTable: () -> Unit = {},
+    onOpenForms: () -> Unit = {},
+    onOpenText: () -> Unit = {},
+    onOpenPptx: () -> Unit = {},
+    onOpenIntegrity: () -> Unit = {},
+    onOpenPhoto: (Int) -> Unit = {},
+    onOpenAssistance: () -> Unit = {},
+    onOpenTranslation: () -> Unit = {},
+    onOpenDocx: () -> Unit = {},
+    onOpenWorkflows: () -> Unit = {},
+    onOpenRecycleBin: () -> Unit = {},
+    onOpenLibraryOrganization: () -> Unit = {},
     onLibraryQueryChange: (String) -> Unit = {},
     onLibraryFolderSelected: (String?) -> Unit = {},
     onLibrarySortOrderChange: (LibrarySortOrder) -> Unit = {},
@@ -142,6 +159,27 @@ fun PageHarborApp(
     onDeleteLibraryFolder: (String) -> Unit = {},
     onConsumeLibraryAction: () -> Unit = {},
     onPageFilterChange: (Long, DocumentFilter) -> Unit = { _, _ -> },
+    onPageAdjustmentsChange: (DocumentPage, ManualImageAdjustments) -> Unit = { _, _ -> },
+    batchEditor: SelectedPageBatchEditor? = null,
+    documentRevision: Long = 0,
+    documentOwnerToken: String = "",
+    onReviewedShadowGlare: (DocumentPage, DocumentFilter, Long) -> Boolean = { _, _, _ -> false },
+    onReviewedWhitening: (DocumentPage, DocumentFilter, Long) -> Boolean = { _, _, _ -> false },
+    onReviewedBleedThrough: (DocumentPage, DocumentFilter, Long, String) -> Boolean = { _, _, _, _ -> false },
+    onReviewedCreaseStain: (DocumentPage, DocumentFilter, Long, String) -> Boolean = { _, _, _, _ -> false },
+    onReviewedMoire: (DocumentPage, DocumentFilter, Long, String) -> Boolean = { _, _, _, _ -> false },
+    onBookSplit: (Int) -> Unit = {},
+    onCurvature: (Int) -> Unit = {},
+    onImportCrop: (Int) -> Unit = {},
+    onObjectRemoval: (Int) -> Unit = {},
+    onFingerRemoval: (Int) -> Unit = {},
+    onCollage: () -> Unit = {},
+    annotationEditor: org.synapseworks.pageharbor.document.annotation.AnnotationEditorViewModel? = null,
+    onOpenAnnotations: (DocumentPage)->Unit = {},
+    onAnnotationsApply: (DocumentPage,Long,String,org.synapseworks.pageharbor.document.annotation.AnnotationLayer)->Boolean = {_,_,_,_->false},
+    historyState: org.synapseworks.pageharbor.document.history.HistoryUiState = org.synapseworks.pageharbor.document.history.HistoryUiState(),
+    onDocumentUndo: () -> Unit = {},
+    onDocumentRedo: () -> Unit = {},
     onPageRotate: (Long) -> Unit = {},
     onPageMove: (Long, Int) -> Unit = { _, _ -> },
     onPageRemove: (Long) -> Unit = {},
@@ -150,12 +188,15 @@ fun PageHarborApp(
     onOcrSelectedPageChange: (Int) -> Unit = {},
     searchablePdfSaveState: SearchablePdfSaveState = SearchablePdfSaveState.Idle,
     onScanDocument: () -> Unit = {},
+    onManualScan: () -> Unit = {},
     onImportFiles: () -> Unit = {},
     onCancelImport: () -> Unit = {},
     onSavePdf: () -> Unit = {},
     onSaveSearchablePdf: () -> Unit = {},
     onSaveSearchablePdfWithLanguage: ((OcrOperationSelection, Boolean) -> Unit)? = null,
     onSharePdf: () -> Unit = {},
+    onPasswordPdfExport: () -> Unit = {},
+    onLocalPdfTools: () -> Unit = {},
     targetSizeWorkflowState: TargetSizeWorkflowState = TargetSizeWorkflowState.Hidden,
     onOpenFitUploadLimit: () -> Unit = {},
     onFitLimitPresetSelected: (TargetSizePreset) -> Unit = {},
@@ -173,6 +214,8 @@ fun PageHarborApp(
     cardCopyWorkflowState: CardCopyWorkflowState = CardCopyWorkflowState.Hidden,
     onOpenCardCopy: () -> Unit = {},
     onCardCopyScan: (CardCopySide) -> Unit = {},
+    onCardCopyCapture: (CardCopySide, org.synapseworks.pageharbor.document.cardcopy.CardCopyShutter) -> Unit = { _, _ -> },
+    onCancelCardCamera: () -> Unit = {},
     onCardCopyImport: (CardCopySide) -> Unit = {},
     onCardCopyContinueReview: () -> Unit = {},
     onCardCopyRotate: (CardCopySide, Boolean) -> Unit = { _, _ -> },
@@ -330,6 +373,8 @@ fun PageHarborApp(
         val importLimitMessage = stringResource(R.string.import_error_page_limit)
         val importTooLargeMessage = stringResource(R.string.import_error_too_large)
         val importTemporaryFileMessage = stringResource(R.string.import_error_temporary_file)
+    val importStorageMessage = stringResource(R.string.import_error_storage)
+    val importMemoryMessage = stringResource(R.string.import_error_memory)
         val importBusyMessage = stringResource(R.string.import_error_busy)
         val importInterruptedMessage = stringResource(R.string.import_error_interrupted)
         val toolDocumentOpenFailedMessage = stringResource(R.string.tool_document_open_failed)
@@ -676,6 +721,8 @@ fun PageHarborApp(
             state = cardCopyWorkflowState,
             onBack = onCardCopyBack,
             onScan = onCardCopyScan,
+            onCameraCapture = onCardCopyCapture,
+            onCancelCamera = onCancelCardCamera,
             onImport = onCardCopyImport,
             onContinueReview = onCardCopyContinueReview,
             onRotate = onCardCopyRotate,
@@ -706,21 +753,33 @@ fun PageHarborApp(
                 result = ocrUiState.result,
                 pageUris = scannedPageUris,
                 pageMetadata = documentPages.map(DocumentPage::imageMetadata),
+                pageRotations = documentPages.map(DocumentPage::rotation),
                 selectedPageIndex = ocrSelectedPageIndex,
                 onSelectedPageChange = onOcrSelectedPageChange,
                 snackbarHostState = snackbarHostState,
                 onBack = { navigateTo(PageHarborScreen.ScanResult) },
                 onRecognizeAgain = {
-                    navigateTo(PageHarborScreen.ScanResult)
                     if (onRecognizeTextWithLanguage != null) {
                         ocrOperationPrompt = OcrOperationPrompt.RECOGNIZE_TEXT
                     } else {
+                        navigateTo(PageHarborScreen.ScanResult)
                         onRecognizeText()
                     }
                 },
+                onChangeScript = if (onRecognizeTextWithLanguage != null) {
+                    { ocrOperationPrompt = OcrOperationPrompt.RECOGNIZE_TEXT }
+                } else null,
                 onClearRecognizedText = {
                     navigateTo(PageHarborScreen.ScanResult)
                     onClearRecognizedText()
+                },
+                onSaveSearchablePdf = {
+                    navigateTo(PageHarborScreen.ScanResult)
+                    if (onSaveSearchablePdfWithLanguage != null) {
+                        ocrOperationPrompt = OcrOperationPrompt.SEARCHABLE_PDF
+                    } else {
+                        onSaveSearchablePdf()
+                    }
                 },
                 onCopyText = { text ->
                     val copied = if (onCopyRecognizedText != null) {
@@ -758,6 +817,27 @@ fun PageHarborApp(
             smartNameState = libraryDocument?.documentId?.let(libraryUiState.smartNameStates::get),
             importUiState = importUiState,
             onPageFilterChange = onPageFilterChange,
+            onPageAdjustmentsChange = onPageAdjustmentsChange,
+            batchEditor = batchEditor,
+            documentRevision = documentRevision,
+            documentOwnerToken = documentOwnerToken,
+            onReviewedShadowGlare = onReviewedShadowGlare,
+            onReviewedWhitening = onReviewedWhitening,
+            onReviewedBleedThrough = onReviewedBleedThrough,
+            onReviewedCreaseStain = onReviewedCreaseStain,
+            onReviewedMoire = onReviewedMoire,
+            onBookSplit = onBookSplit,
+            onCurvature = onCurvature,
+            onImportCrop = onImportCrop,
+            onObjectRemoval = onObjectRemoval,
+            onFingerRemoval = onFingerRemoval,
+            onCollage = onCollage,
+            annotationEditor = annotationEditor,
+            onOpenAnnotations = onOpenAnnotations,
+            onAnnotationsApply = onAnnotationsApply,
+            historyState = historyState,
+            onDocumentUndo = onDocumentUndo,
+            onDocumentRedo = onDocumentRedo,
             onPageRotate = onPageRotate,
             onPageMove = onPageMove,
             onPageRemove = onPageRemove,
@@ -769,6 +849,13 @@ fun PageHarborApp(
             onDeleteLibraryDocument = onDeleteLibraryDocument,
             onConsumeLibraryAction = onConsumeLibraryAction,
             onBack = { navigateTo(PageHarborScreen.Home) },
+            onOpenPptx = onOpenPptx,
+            onOpenIntegrity = onOpenIntegrity,
+            onOpenPhoto = onOpenPhoto,
+            onOpenAssistance = onOpenAssistance,
+            onOpenTranslation = onOpenTranslation,
+            onOpenDocx = onOpenDocx,
+            onOpenWorkflows = onOpenWorkflows,
             onSavePdf = onSavePdf,
             onSaveSearchablePdf = {
                 if (onSaveSearchablePdfWithLanguage != null) {
@@ -778,6 +865,8 @@ fun PageHarborApp(
                 }
             },
             onSharePdf = onSharePdf,
+            onPasswordPdfExport = onPasswordPdfExport,
+            onLocalPdfTools = onLocalPdfTools,
             onFitUploadLimit = onOpenFitUploadLimit,
             onShareSafeCopy = onOpenShareSafeCopy,
             onExportPages = onExportPages,
@@ -792,7 +881,7 @@ fun PageHarborApp(
                 if (libraryDocument != null) onOpenOcrReview()
                 else navigateTo(PageHarborScreen.OcrResult)
             },
-            onScanAgain = onScanDocument,
+            onManualScan = onManualScan,
             onImportFiles = onImportFiles,
             onCancelImport = onCancelImport,
             onDiscard = { navigateTo(PageHarborScreen.Home); onClearScanResult() },
@@ -812,6 +901,15 @@ fun PageHarborApp(
             showPrivacyInfo = showPrivacyInfo,
             showAbout = showAbout,
             thumbnailUri = libraryThumbnailUri,
+            onOpenQrScanner = onOpenQrScanner,
+            onOpenBusinessCard = onOpenBusinessCard,
+            onOpenReceipt = onOpenReceipt,
+            onOpenTable = onOpenTable,
+            onOpenForms = onOpenForms,
+            onOpenText = onOpenText,
+            onOpenWorkflows = onOpenWorkflows,
+            onOpenRecycleBin = onOpenRecycleBin,
+            onOpenOrganization = onOpenLibraryOrganization,
             onQueryChange = onLibraryQueryChange,
             onFolderSelected = onLibraryFolderSelected,
             onSortOrderChange = onLibrarySortOrderChange,
@@ -827,9 +925,8 @@ fun PageHarborApp(
             onRenameFolder = onRenameLibraryFolder,
             onDeleteFolder = onDeleteLibraryFolder,
             onConsumeLibraryAction = onConsumeLibraryAction,
-            onScanDocument = {
-                onScanDocument()
-            },
+            onManualScan = onManualScan,
+            onScanDocument = onScanDocument,
             onImportFiles = onImportFiles,
             onCancelImport = onCancelImport,
             onViewScanResult = { navigateTo(PageHarborScreen.ScanResult) },
@@ -883,8 +980,10 @@ fun PageHarborApp(
                 onConfirm = { selection, useAsDefault ->
                     ocrOperationPrompt = null
                     when (prompt) {
-                        OcrOperationPrompt.RECOGNIZE_TEXT ->
+                        OcrOperationPrompt.RECOGNIZE_TEXT -> {
+                            if (currentScreen == PageHarborScreen.OcrResult) navigateTo(PageHarborScreen.ScanResult)
                             onRecognizeTextWithLanguage?.invoke(selection, useAsDefault)
+                        }
                         OcrOperationPrompt.SEARCHABLE_PDF ->
                             onSaveSearchablePdfWithLanguage?.invoke(selection, useAsDefault)
                         OcrOperationPrompt.RERUN_PAGE ->
@@ -978,6 +1077,8 @@ fun PageHarborApp(
                         DocumentImportError.PAGE_LIMIT_EXCEEDED -> importLimitMessage
                         DocumentImportError.SOURCE_TOO_LARGE -> importTooLargeMessage
                         DocumentImportError.TEMPORARY_FILE_FAILED -> importTemporaryFileMessage
+                        DocumentImportError.INSUFFICIENT_STORAGE -> importStorageMessage
+                        DocumentImportError.INSUFFICIENT_MEMORY -> importMemoryMessage
                         DocumentImportError.INTERRUPTED -> importInterruptedMessage
                     }
                 }

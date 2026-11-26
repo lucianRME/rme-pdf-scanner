@@ -102,6 +102,21 @@ class InboundShareIntentTest {
     }
 
     @Test
+    fun acceptsOnlyExternalContentReferencesAtThePublicShareBoundary() {
+        val appAuthority = "test.app.fileprovider"
+        fun admit(uri: Uri): InboundShareInput {
+            val intent = Intent(Intent.ACTION_SEND).setType("image/jpeg").putExtra(Intent.EXTRA_STREAM, uri)
+            return extractInboundShareInput(intent, setOf(appAuthority))
+        }
+        assertEquals(ready(first, "image/jpeg"), admit(first))
+        val refused = InboundShareInput.Failure(DocumentImportError.UNREADABLE_SOURCE)
+        assertEquals(refused, admit(Uri.parse("file:///example.jpg")))
+        assertEquals(refused, admit(Uri.parse("content://$appAuthority/review")))
+        assertEquals(refused, admit(Uri.parse("content://0@$appAuthority/review")))
+        assertEquals(refused, admit(Uri.parse("https://example.invalid/image.jpg")))
+    }
+
+    @Test
     fun unrelatedIntentIsIgnored() {
         assertTrue(extractInboundShareInput(Intent(Intent.ACTION_VIEW)) is InboundShareInput.NotShareIntent)
     }

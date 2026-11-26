@@ -50,6 +50,7 @@ data class RestorePreview(
 )
 
 enum class RestorePreparationFailure {
+    DELETED_DOCUMENT_CONFLICT,
     INSUFFICIENT_STORAGE,
     INVALID_OR_CORRUPT_BACKUP,
     STAGING_UNAVAILABLE,
@@ -66,6 +67,7 @@ sealed interface RestorePreparationResult {
 }
 
 enum class RestoreFailure {
+    DELETED_DOCUMENT_CONFLICT,
     ALREADY_CONSUMED,
     INSUFFICIENT_STORAGE,
     SOURCE_MISSING,
@@ -184,6 +186,7 @@ internal data class RestoreActivationPlan(
     val folderCount: Int,
     val importedDocumentCount: Int,
     val activatedAtEpochMillis: Long,
+    val tags: List<org.synapseworks.pageharbor.backup.format.BackupTagRecord> = emptyList(),
 )
 
 internal data class RestoreFolderPlanRow(
@@ -200,6 +203,7 @@ internal data class RestoreRecoveryOperation(
 )
 
 internal interface RestoreLibraryStore {
+    suspend fun assertArchiveDocumentAllowed(sourceId:String,identity:org.synapseworks.pageharbor.library.duplicate.IncomingDocumentIdentity) {}
     suspend fun classifyDuplicate(identity: IncomingDocumentIdentity): DuplicateMatch
 
     suspend fun possibleSourceDuplicate(sourceSha256: Collection<String>): String?

@@ -1,0 +1,50 @@
+[
+  {
+    "name": "isolated-small-title",
+    "title": "Weekly Summary",
+    "height": 25.5,
+    "gap": 42,
+    "width": 210,
+    "kind": "HEADING"
+  },
+  {
+    "name": "ordinary-title-case",
+    "title": "Short body fragment",
+    "height": 20,
+    "gap": 44,
+    "width": 240,
+    "kind": "BODY"
+  },
+  {
+    "name": "larger-sentence",
+    "title": "This remains an ordinary sentence.",
+    "height": 27,
+    "gap": 42,
+    "width": 470,
+    "kind": "BODY"
+  },
+  {
+    "name": "tight-label",
+    "title": "STATUS LINE",
+    "height": 27,
+    "gap": 5,
+    "width": 210,
+    "kind": "BODY"
+  },
+  {
+    "name": "wide-body",
+    "title": "A long unpunctuated body line continuing across almost the full page width",
+    "height": 26,
+    "gap": 38,
+    "width": 550,
+    "kind": "BODY"
+  },
+  {
+    "name": "separated-heading",
+    "title": "Operations Review",
+    "height": 31,
+    "gap": 34,
+    "width": 240,
+    "kind": "HEADING"
+  }
+]

@@ -6,6 +6,10 @@ import java.io.OutputStream
 import java.nio.charset.StandardCharsets
 
 object BackupJsonCodec {
+    private fun invalidOrganizationJson(): Nothing = throw backupFailure(
+        BackupFormatFailure.INVALID_JSON, "The tag or favorite metadata is invalid.",
+    )
+
     fun writeManifest(
         manifest: BackupManifest,
         destination: OutputStream,
@@ -63,6 +67,15 @@ object BackupJsonCodec {
                 output.append('}')
             }
             output.append("]}")
+        }
+        if (manifest.formatVersion >= RME_BACKUP_FORMAT_VERSION_V8) {
+            output.append(",\"tags\":[")
+            manifest.tags.forEachIndexed { index, tag ->
+                if (index > 0) output.append(',')
+                output.append("{\"tagId\":").append(jsonString(tag.tagId))
+                output.append(",\"name\":").append(jsonString(tag.name)).append('}')
+            }
+            output.append(']')
         }
         output.append(",\"integrity\":{")
         output.append("\"algorithm\":").append(jsonString(manifest.integrity.algorithm))
@@ -123,6 +136,14 @@ object BackupJsonCodec {
                 checksumsEntry = integrity.requiredString("checksumsEntry"),
             ),
             ocr = ocr,
+            tags = if (root.requiredInt("formatVersion") >= RME_BACKUP_FORMAT_VERSION_V8 || "tags" in root.fields) {
+                val values = root.requiredArray("tags").values
+                if (values.size > 256) invalidOrganizationJson()
+                values.map { value ->
+                    val tag = value as? JsonObject ?: invalidOrganizationJson()
+                    BackupTagRecord(tag.requiredString("tagId"), tag.requiredString("name"))
+                }
+            } else emptyList(),
         )
     }
 
@@ -270,6 +291,13 @@ object BackupJsonCodec {
         append(",\"importedAtEpochMillis\":").append(record.importedAtEpochMillis ?: "null")
         append(",\"sourceProvenanceKind\":").append(nullableJsonString(record.sourceProvenanceKind))
         append(",\"sourceProvenanceLabel\":").append(nullableJsonString(record.sourceProvenanceLabel))
+        append(",\"favorite\":").append(record.favorite)
+        append(",\"tagIds\":[")
+        record.tagIds.forEachIndexed { index, id ->
+            if (index > 0) append(',')
+            append(jsonString(id))
+        }
+        append(']')
         append('}')
     }
 
@@ -295,6 +323,14 @@ object BackupJsonCodec {
             importedAtEpochMillis = root.optionalNullableLong("importedAtEpochMillis"),
             sourceProvenanceKind = root.optionalNullableString("sourceProvenanceKind"),
             sourceProvenanceLabel = root.optionalNullableString("sourceProvenanceLabel"),
+            favorite = if ("favorite" in root.fields) root.requiredBoolean("favorite") else false,
+            tagIds = if ("tagIds" in root.fields) {
+                val values = root.requiredArray("tagIds").values
+                if (values.size > 32) invalidOrganizationJson()
+                values.map { (it as? JsonString)?.value ?: invalidOrganizationJson() }
+            } else emptyList(),
+            organizationMetadataPresent = "favorite" in root.fields && "tagIds" in root.fields,
+
         )
     }
 
@@ -313,6 +349,10 @@ object BackupJsonCodec {
         append(",\"filterName\":").append(jsonString(record.filterName))
         append(",\"ocrText\":").append(nullableJsonString(record.ocrText))
         append(",\"ocrError\":").append(nullableJsonString(record.ocrError))
+        append(",\"brightness\":").append(record.brightness)
+        append(",\"contrast\":").append(record.contrast)
+        append(",\"annotations\":").append(jsonString(record.annotations))
+        append(",\"paperSize\":").append(jsonString(record.paperSize))
         append(",\"sourcePageIndex\":").append(record.sourcePageIndex ?: "null")
         append('}')
     }
@@ -334,6 +374,10 @@ object BackupJsonCodec {
             ocrText = root.requiredNullableString("ocrText"),
             ocrError = root.requiredNullableString("ocrError"),
             sourcePageIndex = root.optionalNullableInt("sourcePageIndex"),
+            brightness = root.optionalNullableInt("brightness") ?: 0,
+            contrast = root.optionalNullableInt("contrast") ?: 0,
+            annotations = if("annotations" in root.fields)root.requiredString("annotations")else "",
+            paperSize = if("paperSize" in root.fields)root.requiredString("paperSize")else "",
         )
     }
 

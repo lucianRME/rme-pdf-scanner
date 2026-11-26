@@ -2,6 +2,9 @@ package org.synapseworks.pageharbor
 
 import android.net.Uri
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ViewModelProvider
+import kotlinx.coroutines.flow.first
+import org.synapseworks.pageharbor.library.recycle.RecycleResult
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
@@ -691,6 +694,7 @@ class ActiveOperationInterruptionTest {
                 gate.awaitExited()
                 assertTrue("OCR lease was not released", leaseReleased.await(10, TimeUnit.SECONDS))
                 assertEquals(1, releaseCount.get())
+                awaitOwnedFileCleanup(scenario)
                 assertFalse("Owned OCR source was not deleted after lease release", source.exists())
             }
         } finally {
@@ -744,6 +748,7 @@ class ActiveOperationInterruptionTest {
                 gate.awaitExited()
                 assertTrue("Searchable-PDF lease was not released", leaseReleased.await(10, TimeUnit.SECONDS))
                 assertEquals(1, releaseCount.get())
+                awaitOwnedFileCleanup(scenario)
                 assertFalse("Owned searchable-PDF source was not deleted after lease release", source.exists())
             }
         } finally {
@@ -799,7 +804,10 @@ class ActiveOperationInterruptionTest {
                 withTimeout(10_000) {
                     while (repository.openDocument(saved.id) !is LibraryResult.Failure) delay(25)
                 }
-                assertFalse(documentDirectory.exists())
+                val trashed = repository.observeRecyclePage(0).first().items.single { it.documentId == saved.id }
+                assertTrue("Recycle bin must preserve the saved document", documentDirectory.isDirectory)
+                assertTrue(repository.permanentlyDelete(saved.id, trashed.trashRevision) is RecycleResult.Done)
+                assertFalse("Permanent deletion must remove the owned directory", documentDirectory.exists())
             }
         } finally {
             allowExportToExit.countDown()
@@ -838,6 +846,7 @@ class ActiveOperationInterruptionTest {
                 InstrumentationRegistry.getInstrumentation().waitForIdleSync()
                 scenario.onActivity { it.discardForTest() }
                 InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                awaitOwnedFileCleanup(scenario)
                 assertFalse("OCR exception stranded the source lease", source.exists())
             }
         } finally {
@@ -890,6 +899,7 @@ class ActiveOperationInterruptionTest {
                     activity.discardForTest()
                 }
                 InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                awaitOwnedFileCleanup(scenario)
                 assertFalse("Searchable-PDF exception stranded the source lease", source.exists())
             }
         } finally {
@@ -1001,6 +1011,12 @@ class ActiveOperationInterruptionTest {
 
     private fun testDestinationUri(path: String): Uri =
         Uri.parse("content://org.synapseworks.pageharbor.test/destination/$path")
+
+    private fun awaitOwnedFileCleanup(scenario: ActivityScenario<MainActivity>) {
+        lateinit var model: PageHarborSessionViewModel
+        scenario.onActivity { model = ViewModelProvider(it)[PageHarborSessionViewModel::class.java] }
+        runBlocking { model.awaitHistoryIdle() }
+    }
 
     private fun ownedSession(file: File): DocumentSession = DocumentSession(
         pages = listOf(

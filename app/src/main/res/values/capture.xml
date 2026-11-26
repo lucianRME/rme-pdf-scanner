@@ -1,0 +1,17 @@
+<resources>
+    <string name="manual_camera_title">Manual document scan</string>
+    <string name="manual_camera_description">Capture one page, then review the corners</string>
+    <string name="manual_camera_crop">Review corners</string>
+    <string name="manual_camera_page">Single page</string>
+    <string name="camera_mode_document">Document</string>
+    <string name="camera_mode_batch">Batch</string>
+    <string name="camera_mode_book">Book</string>
+    <string name="camera_book_frame">Frame both pages</string>
+    <string name="camera_book_review">Review spread</string>
+    <string name="camera_review_split">Review book split</string>
+    <string name="camera_book_suggested">Check the suggested gutter</string>
+    <string name="camera_book_left_page">Left · page %1$d</string>
+    <string name="camera_book_right_page">Right · page %1$d</string>
+    <string name="camera_book_use">Use both pages</string>
+    <string name="camera_book_keep">Keep spread</string>
+</resources>

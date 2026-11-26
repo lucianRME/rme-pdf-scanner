@@ -1,11 +1,12 @@
 package org.synapseworks.pageharbor.ui.portability
 
+import org.synapseworks.pageharbor.ui.theme.RmeTextField
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -153,7 +154,7 @@ fun RestorePasswordScreen(
             supportingText = "RME needs the password used on the old phone to authenticate and " +
                 "decrypt this backup. The password is not stored.",
         )
-        OutlinedTextField(
+        RmeTextField(
             modifier = Modifier.fillMaxWidth(),
             value = password,
             enabled = actionsEnabled,

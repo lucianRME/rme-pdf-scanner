@@ -1,0 +1,132 @@
+{
+  "generator": "independent PDF bytes plus OpenSSL CMS; all public synthetic; no RME implementation imported",
+  "openssl": "OpenSSL 4.1.0 23 Oct 2026 (Library: OpenSSL 4.1.0 23 Oct 2026)",
+  "fixtures": [
+    {
+      "name": "baseline.pdf",
+      "bytes": 706,
+      "sha256": "4d21f1560e1d42edf32e45a00b4c10daf8e985ae0083537f0c74a4de75c62665"
+    },
+    {
+      "name": "identical.pdf",
+      "bytes": 706,
+      "sha256": "4d21f1560e1d42edf32e45a00b4c10daf8e985ae0083537f0c74a4de75c62665"
+    },
+    {
+      "name": "equivalent.pdf",
+      "bytes": 719,
+      "sha256": "bc3b4c3e71b36aa47394b5a2bf8280df1eaa02dbee8e3629d955cc1c082adf05"
+    },
+    {
+      "name": "text-change.pdf",
+      "bytes": 705,
+      "sha256": "7af474caf95aca7b7abac1217e242957e2f39986d3c630ecf2e331fd3ac4cec5"
+    },
+    {
+      "name": "added.pdf",
+      "bytes": 858,
+      "sha256": "44b5cf9883531e1159f9dbb3d4f252967799db06c0ace716aaca5c4b8d3d7d68"
+    },
+    {
+      "name": "scan.pdf",
+      "bytes": 921,
+      "sha256": "79763779ea925f5ca362b265d70e2c427763ccbd537d545efda29376fb101110"
+    },
+    {
+      "name": "valid-signed.pdf",
+      "bytes": 17310,
+      "sha256": "386d85214880a7f77609dfbfd222ef63a9234dc9735493f8e6f55455c70cbf39"
+    },
+    {
+      "name": "unsupported.pdf",
+      "bytes": 17310,
+      "sha256": "97cda9809a395dfbac1ba4e65df58702941fee3ae5816f4543d51d53655d0382"
+    },
+    {
+      "name": "malformed-range.pdf",
+      "bytes": 17310,
+      "sha256": "311dc949345ceb9371f3c25897a6255a056da9823b940fb94b044433cbad1019"
+    },
+    {
+      "name": "image-change.pdf",
+      "bytes": 922,
+      "sha256": "3cd826702e3149dbc1481962e0dd655e7b037de1b0c0c390c64eefd906c166ee"
+    },
+    {
+      "name": "tampered.pdf",
+      "bytes": 17310,
+      "sha256": "979cf61cbeb56a5b97ff5d95e4b15b6122be6fd774ef2dfcb6bbc027322082fd"
+    },
+    {
+      "name": "appended.pdf",
+      "bytes": 17480,
+      "sha256": "a029e55ed6a8166dfd16dad2a0bf501a18a51d05472ee71048d42add0f67ec22"
+    }
+  ],
+  "signatureExpectations": {
+    "valid-signed.pdf": {
+      "crypto": "VALID",
+      "coverage": "CURRENT_FILE",
+      "trust": "NOT_ASSESSED"
+    },
+    "tampered.pdf": {
+      "crypto": "INVALID",
+      "coverage": "CURRENT_FILE",
+      "trust": "NOT_ASSESSED"
+    },
+    "appended.pdf": {
+      "crypto": "VALID",
+      "coverage": "EARLIER_BYTES_ONLY",
+      "trust": "NOT_ASSESSED"
+    },
+    "malformed-range.pdf": {
+      "crypto": "NOT_CHECKED",
+      "range": "MALFORMED"
+    },
+    "unsupported.pdf": {
+      "crypto": "UNSUPPORTED"
+    },
+    "baseline.pdf": {
+      "presence": "NONE"
+    }
+  },
+  "comparisons": [
+    {
+      "a": "baseline.pdf",
+      "b": "identical.pdf",
+      "bytes": "EQUAL",
+      "text": "EQUAL",
+      "pixels": "EQUAL"
+    },
+    {
+      "a": "baseline.pdf",
+      "b": "equivalent.pdf",
+      "bytes": "DIFFERENT",
+      "text": "EQUAL",
+      "pixels": "EQUAL"
+    },
+    {
+      "a": "baseline.pdf",
+      "b": "text-change.pdf",
+      "bytes": "DIFFERENT",
+      "text": "DIFFERENT",
+      "pixels": "DIFFERENT"
+    },
+    {
+      "a": "baseline.pdf",
+      "b": "added.pdf",
+      "addedPages": 1
+    },
+    {
+      "a": "added.pdf",
+      "b": "baseline.pdf",
+      "missingPages": 1
+    },
+    {
+      "a": "scan.pdf",
+      "b": "image-change.pdf",
+      "text": "NO_NATIVE_TEXT",
+      "pixels": "DIFFERENT"
+    }
+  ]
+}

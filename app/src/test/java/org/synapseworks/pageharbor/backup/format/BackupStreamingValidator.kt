@@ -22,7 +22,7 @@ internal object BackupStreamingValidator {
             }
 
             RME_BACKUP_FORMAT_VERSION_V2,
-            RME_BACKUP_FORMAT_VERSION_V3,
+            RME_BACKUP_FORMAT_VERSION_V3, RME_BACKUP_FORMAT_VERSION_V4, RME_BACKUP_FORMAT_VERSION_V5, RME_BACKUP_FORMAT_VERSION_V7, RME_BACKUP_FORMAT_VERSION_V8, RME_BACKUP_FORMAT_VERSION_V6,
             -> manifest.copy(
                 ocr = BackupOcrFormatValidator.analyze(records, index, limits),
             )
@@ -73,6 +73,7 @@ internal object BackupStreamingValidator {
             requireBoundedText(document.title, 120, "A document title is invalid.")
             requireTimestamps(document.createdAtEpochMillis, document.modifiedAtEpochMillis)
             BackupFormatValidator.validateDocumentProvenance(document)
+            BackupFormatValidator.validateDocumentOrganization(document, manifest.formatVersion, manifest.tags.map{it.tagId}.toSet())
             if (document.contentHashVersion <= 0) invalidMetadata("A content hash version is invalid.")
             document.contentSha256?.let(::requireSha256)
             if (document.pageCount < 0 || document.sourceAssetCount < 0) {
@@ -259,6 +260,8 @@ internal object BackupStreamingValidator {
         "GRAYSCALE",
         "BLACK_AND_WHITE",
         "HIGH_CONTRAST",
+        "DOCUMENT_CLEANUP",
+        "SHADOW_GLARE_LOW_V1", "SHADOW_GLARE_BALANCED_V1", "SHADOW_GLARE_STRONG_V1",
     )
 }
 

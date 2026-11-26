@@ -1,0 +1,77 @@
+{
+  "status": "FROZEN before aggregate guard implementation",
+  "originalSha256": "a998eddac7ced1b3519661356d5006dcafbf8873947b72a517d930f77cab3a4e",
+  "originalCounts": {
+    "nodes": 198,
+    "attributes": 2541,
+    "references": 14
+  },
+  "limits": {
+    "aggregateNodes": 200000,
+    "aggregateAttributeCharacters": 4194304,
+    "aggregateReferences": 10000,
+    "preflightDeadlineMs": 12000
+  },
+  "cases": [
+    {
+      "id": "nodes-edge",
+      "kind": "docx",
+      "sha256": "42b9e77b113e766f812696a3d6fd81fd688c67e5fe5b98682deb3d589cec5ecb",
+      "expected": "ADMITTED",
+      "boundary": "nodes",
+      "target": 200000,
+      "originalPartsByteExact": true,
+      "expectedAppearance": "Unchanged original independent DOCX page"
+    },
+    {
+      "id": "nodes-over",
+      "kind": "docx",
+      "sha256": "a7f8c0276394a09a6db634e5200236dae763df29d30d3ac3a8c0c8cdd1240834",
+      "expected": "XML_LIMIT",
+      "boundary": "nodes",
+      "target": 200001,
+      "originalPartsByteExact": true,
+      "expectedAppearance": "Unchanged original independent DOCX page"
+    },
+    {
+      "id": "attributes-edge",
+      "kind": "docx",
+      "sha256": "879f0fcec218d52b4a14c129696ca1ccaeb061a439493c90a0154b18cad58fb9",
+      "expected": "ADMITTED",
+      "boundary": "attrs",
+      "target": 4194304,
+      "originalPartsByteExact": true,
+      "expectedAppearance": "Unchanged original independent DOCX page"
+    },
+    {
+      "id": "attributes-over",
+      "kind": "docx",
+      "sha256": "7b0176728ddb424567165ca32398ca28afb29a9d90de24037f911826f07ed359",
+      "expected": "XML_LIMIT",
+      "boundary": "attrs",
+      "target": 4194305,
+      "originalPartsByteExact": true,
+      "expectedAppearance": "Unchanged original independent DOCX page"
+    },
+    {
+      "id": "references-edge",
+      "kind": "docx",
+      "sha256": "cfccf451e489e3ac600e1e72c8e2a30f55bb1309f805017903546d7209ffdabe",
+      "expected": "ADMITTED",
+      "boundary": "refs",
+      "target": 10000,
+      "originalPartsByteExact": true,
+      "expectedAppearance": "Unchanged original independent DOCX page"
+    },
+    {
+      "id": "references-over",
+      "kind": "docx",
+      "sha256": "a86c904ed5a76c0f732a714972e79f98405348c9995fb238dfdba94049ea0f80",
+      "expected": "PACKAGE_LIMIT",
+      "boundary": "refs",
+      "target": 10001,
+      "originalPartsByteExact": true,
+      "expectedAppearance": "Unchanged original independent DOCX page"
+    }
+  ]
+}

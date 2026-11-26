@@ -28,14 +28,14 @@ class LibrarySchemaTest {
     }
 
     @Test
-    fun versionFourCreatesPageAwareFtsOcrJournalAndProvenanceSchema() {
+    fun versionFiveCreatesPageAwareFtsOcrJournalAndProvenanceSchema() {
         val database = Room.inMemoryDatabaseBuilder(context, LibraryDatabase::class.java)
             .allowMainThreadQueries()
             .build()
         try {
             database.openHelper.readableDatabase.query("PRAGMA user_version").use { cursor ->
                 cursor.moveToFirst()
-                assertEquals(4, cursor.getInt(0))
+                assertEquals(10, cursor.getInt(0))
             }
             database.openHelper.readableDatabase.query(
                 "SELECT count(*) FROM library_document_search_v3",
@@ -191,7 +191,7 @@ class LibrarySchemaTest {
         }
 
         val room = Room.databaseBuilder(context, LibraryDatabase::class.java, MIGRATION_DATABASE_NAME)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, org.synapseworks.pageharbor.library.organization.MIGRATION_8_9, org.synapseworks.pageharbor.library.recycle.MIGRATION_9_10)
             .allowMainThreadQueries()
             .build()
         try {
@@ -332,13 +332,13 @@ class LibrarySchemaTest {
             context,
             LibraryDatabase::class.java,
             MIGRATION_DATABASE_NAME,
-        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, org.synapseworks.pageharbor.library.organization.MIGRATION_8_9, org.synapseworks.pageharbor.library.recycle.MIGRATION_9_10)
             .allowMainThreadQueries()
             .build()
         try {
             reopened.openHelper.readableDatabase.query("PRAGMA user_version").use { cursor ->
                 assertTrue(cursor.moveToFirst())
-                assertEquals(4, cursor.getInt(0))
+                assertEquals(10, cursor.getInt(0))
             }
             reopened.openHelper.readableDatabase.query(
                 "SELECT COUNT(*) FROM library_documents WHERE document_id='document-1'",
@@ -385,7 +385,7 @@ class LibrarySchemaTest {
         }
 
         fun openV4() = Room.databaseBuilder(context, LibraryDatabase::class.java, name)
-            .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+            .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, org.synapseworks.pageharbor.library.organization.MIGRATION_8_9, org.synapseworks.pageharbor.library.recycle.MIGRATION_9_10)
             .allowMainThreadQueries()
             .build()
 
@@ -558,7 +558,7 @@ class LibrarySchemaTest {
             val room = reopened
             room.openHelper.readableDatabase.query("PRAGMA user_version").use { cursor ->
                 assertTrue(cursor.moveToFirst())
-                assertEquals(4, cursor.getInt(0))
+                assertEquals(10, cursor.getInt(0))
             }
             room.openHelper.readableDatabase.query(
                 "SELECT COUNT(*) FROM library_documents",
@@ -652,7 +652,7 @@ class LibrarySchemaTest {
         }
 
         val migrated = Room.databaseBuilder(context, LibraryDatabase::class.java, name)
-            .addMigrations(MIGRATION_3_4)
+            .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, org.synapseworks.pageharbor.library.organization.MIGRATION_8_9, org.synapseworks.pageharbor.library.recycle.MIGRATION_9_10)
             .allowMainThreadQueries()
             .build()
         try {

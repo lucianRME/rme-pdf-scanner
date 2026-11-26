@@ -52,7 +52,7 @@ class RmeGraphiteTealThemeTest {
     fun extendedColorsCoverApprovedSemanticAndComponentStates() {
         assertEquals(0xFF31BBAA.toInt(), DarkRmeExtendedColors.primaryPressed.toArgb())
         assertEquals(0xFF1B2224.toInt(), DarkRmeExtendedColors.disabledBackground.toArgb())
-        assertEquals(0xFF687472.toInt(), DarkRmeExtendedColors.textDisabled.toArgb())
+        assertEquals(0xFF92A09D.toInt(), DarkRmeExtendedColors.textDisabled.toArgb())
         assertEquals(0xFF5FD39A.toInt(), DarkRmeExtendedColors.success.toArgb())
         assertEquals(0xFFF2C66D.toInt(), DarkRmeExtendedColors.warning.toArgb())
         assertEquals(0xFF050607.toInt(), DarkRmeExtendedColors.previewBackground.toArgb())
@@ -60,11 +60,19 @@ class RmeGraphiteTealThemeTest {
 
         assertEquals(0xFF00584F.toInt(), LightRmeExtendedColors.primaryPressed.toArgb())
         assertEquals(0xFFE7ECEA.toInt(), LightRmeExtendedColors.disabledBackground.toArgb())
-        assertEquals(0xFF89928F.toInt(), LightRmeExtendedColors.textDisabled.toArgb())
+        assertEquals(0xFF586461.toInt(), LightRmeExtendedColors.textDisabled.toArgb())
         assertEquals(0xFF1D7A4D.toInt(), LightRmeExtendedColors.success.toArgb())
         assertEquals(0xFF8A5A00.toInt(), LightRmeExtendedColors.warning.toArgb())
         assertEquals(0xFFE5E9E7.toInt(), LightRmeExtendedColors.previewBackground.toArgb())
         assertEquals(LightColorScheme.primary.toArgb(), LightRmeExtendedColors.fabBackground.toArgb())
+    }
+
+    @Test
+    fun disabledControlLabelsAndRestingFieldBordersStayLegible() {
+        for ((scheme, colors) in listOf(LightColorScheme to LightRmeExtendedColors, DarkColorScheme to DarkRmeExtendedColors)) {
+            assertTrue(contrastRatio(colors.textDisabled, colors.disabledBackground) >= 4.5)
+            assertTrue(contrastRatio(scheme.outline, colors.surfaceLow) >= 3.0)
+        }
     }
 
     @Test

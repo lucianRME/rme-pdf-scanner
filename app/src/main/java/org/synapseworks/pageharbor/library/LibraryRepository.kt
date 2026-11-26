@@ -1,6 +1,7 @@
 package org.synapseworks.pageharbor.library
 
 import android.content.Context
+import org.synapseworks.pageharbor.image.ManualImageAdjustments
 import android.net.Uri
 import androidx.core.content.FileProvider
 import java.io.File
@@ -10,10 +11,12 @@ import java.util.UUID
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.combine
+import org.synapseworks.pageharbor.library.recycle.*
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.isActive
@@ -32,6 +35,10 @@ import org.synapseworks.pageharbor.library.smartnaming.SmartNameSuggestion
 import org.synapseworks.pageharbor.library.smartnaming.SmartNamingInput
 import org.synapseworks.pageharbor.library.duplicate.DocumentFingerprintV1
 import org.synapseworks.pageharbor.library.duplicate.FingerprintPage
+import org.synapseworks.pageharbor.ocr.persistence.toEffectiveOcrRequestOrNull
+import org.synapseworks.pageharbor.ocr.persistence.LibraryEffectiveOcrPageProvider
+import org.synapseworks.pageharbor.document.searchablepdf.EffectiveOcrPageProvision
+import org.synapseworks.pageharbor.ocr.OcrPageLayout
 import org.synapseworks.pageharbor.ocr.OcrResult
 import org.synapseworks.pageharbor.ocr.OcrScript
 import org.synapseworks.pageharbor.ocr.persistence.BundledLatinOcrMappingResult
@@ -41,6 +48,13 @@ data class SavedLibraryDocument(
     val id: String,
     val title: String,
     val folderId: String?,
+)
+
+data class LibraryReviewScan(
+    val uri: Uri,
+    val metadata: DocumentImageMetadata,
+    val rotation: DocumentPageRotation,
+    val layout: OcrPageLayout?,
 )
 
 data class OpenedLibraryDocument(
@@ -110,18 +124,21 @@ class LibraryRepository internal constructor(
 
     fun observeSearch(query: String): Flow<List<LibraryDocumentSummary>>? {
         val raw = query.trim()
-        val fts = raw.toFtsPrefixQuery() ?: return null
+        if (raw.isEmpty()) return null
+        val fts = raw.toFtsPrefixQuery()
         return combine(
-            dao.observeDocumentSearch(fts, raw, OBSERVED_SEARCH_LIMIT),
-            dao.observePageSearch(fts, OBSERVED_SEARCH_LIMIT),
-        ) { documentRows, pageRows ->
-            (documentRows + pageRows)
+            if (fts == null) kotlinx.coroutines.flow.flowOf(emptyList()) else dao.observeDocumentSearch(fts, raw, OBSERVED_SEARCH_LIMIT),
+            if (fts == null) kotlinx.coroutines.flow.flowOf(emptyList()) else dao.observePageSearch(fts, OBSERVED_SEARCH_LIMIT),
+            dao.observeTagSearch(org.synapseworks.pageharbor.library.organization.LibraryTagRules.like(raw),OBSERVED_SEARCH_LIMIT),
+        ) { documentRows, pageRows, tagRows ->
+            (documentRows + tagRows + pageRows)
                 .sortedWith(
                     compareBy<LibrarySearchRow> { row ->
                         when (row.resolvedSearchMatch(raw)) {
+                            LibrarySearchMatch.TAG -> 1
                             LibrarySearchMatch.TITLE -> 0
-                            LibrarySearchMatch.FOLDER -> 1
-                            LibrarySearchMatch.OCR -> 2
+                            LibrarySearchMatch.FOLDER -> 2
+                            LibrarySearchMatch.OCR -> 3
                         }
                     }
                         .thenByDescending { it.modifiedAtMillis }
@@ -142,22 +159,23 @@ class LibraryRepository internal constructor(
         limit: Int = DEFAULT_SEARCH_PAGE_SIZE,
     ): List<LibrarySearchHit> {
         val raw = query.trim()
-        val fts = raw.toFtsPrefixQuery() ?: return emptyList()
+        if (raw.isEmpty()) return emptyList()
+        val fts = raw.toFtsPrefixQuery()
         val boundedLimit = limit.coerceIn(1, MAX_SEARCH_PAGE_SIZE)
-        val documentRows = dao.documentSearchPage(
+        val documentRows = if (fts == null) emptyList() else dao.documentSearchPage(
             fts,
             raw,
             beforeModifiedAt,
             afterDocumentId,
             boundedLimit,
         )
-        val pageRows = dao.pageSearchPage(
+        val pageRows = if (fts == null) emptyList() else dao.pageSearchPage(
             fts,
             beforeModifiedAt,
             afterPageId,
             boundedLimit,
         )
-        return rankedSearchHits(raw, documentRows, pageRows, boundedLimit)
+        return rankedSearchHits(raw, documentRows, pageRows, boundedLimit,dao.tagSearchPage(org.synapseworks.pageharbor.library.organization.LibraryTagRules.like(raw),beforeModifiedAt,afterDocumentId,boundedLimit))
     }
 
     fun observeSearchHits(
@@ -165,13 +183,15 @@ class LibraryRepository internal constructor(
         limit: Int = DEFAULT_SEARCH_PAGE_SIZE,
     ): Flow<List<LibrarySearchHit>>? {
         val raw = query.trim()
-        val fts = raw.toFtsPrefixQuery() ?: return null
+        if (raw.isEmpty()) return null
+        val fts = raw.toFtsPrefixQuery()
         val boundedLimit = limit.coerceIn(1, MAX_SEARCH_PAGE_SIZE)
         return combine(
-            dao.observeDocumentSearch(fts, raw, boundedLimit),
-            dao.observePageSearch(fts, boundedLimit),
-        ) { documentRows, pageRows ->
-            rankedSearchHits(raw, documentRows, pageRows, boundedLimit)
+            if (fts == null) kotlinx.coroutines.flow.flowOf(emptyList()) else dao.observeDocumentSearch(fts, raw, boundedLimit),
+            if (fts == null) kotlinx.coroutines.flow.flowOf(emptyList()) else dao.observePageSearch(fts, boundedLimit),
+            dao.observeTagSearch(org.synapseworks.pageharbor.library.organization.LibraryTagRules.like(raw),boundedLimit),
+        ) { documentRows, pageRows, tagRows ->
+            rankedSearchHits(raw, documentRows, pageRows, boundedLimit,tagRows)
         }
     }
 
@@ -180,13 +200,15 @@ class LibraryRepository internal constructor(
         documentRows: List<LibrarySearchRow>,
         pageRows: List<LibrarySearchRow>,
         boundedLimit: Int,
-    ): List<LibrarySearchHit> = (documentRows + pageRows)
+        tagRows: List<LibrarySearchRow> = emptyList(),
+    ): List<LibrarySearchHit> = (documentRows + tagRows + pageRows)
         .sortedWith(
             compareBy<LibrarySearchRow> { row ->
                 when (row.resolvedSearchMatch(rawQuery)) {
-                    LibrarySearchMatch.TITLE -> 0
-                    LibrarySearchMatch.FOLDER -> 1
-                    LibrarySearchMatch.OCR -> 2
+                    LibrarySearchMatch.TAG -> 1
+                            LibrarySearchMatch.TITLE -> 0
+                    LibrarySearchMatch.FOLDER -> 2
+                    LibrarySearchMatch.OCR -> 3
                 }
             }
                 .thenByDescending { it.modifiedAtMillis }
@@ -194,7 +216,7 @@ class LibraryRepository internal constructor(
                 .thenBy(LibrarySearchRow::documentId)
                 .thenBy { it.pagePosition ?: -1 },
         )
-        .distinctBy { row -> Triple(row.documentId, row.pageId, row.matchType) }
+        .distinctBy { row -> Pair(row.documentId, row.pageId) }
         .take(boundedLimit)
         .map { row ->
             LibrarySearchHit(
@@ -225,6 +247,7 @@ class LibraryRepository internal constructor(
         ocrScript: OcrScript?,
     ): LibraryResult<SavedLibraryDocument> {
         if (session.pages.isEmpty()) return LibraryResult.Failure(LibraryError.EMPTY_DOCUMENT)
+        if(!LibrarySourceReaders.canCapture(session))return LibraryResult.Failure(LibraryError.DOCUMENT_NOT_FOUND)
         val normalizedTitle = normalizeLibraryTitle(title)
         if (normalizedTitle.isBlank()) return LibraryResult.Failure(LibraryError.TITLE_REQUIRED)
         if (folderId != null && runDatabase { dao.folder(folderId) } == null) {
@@ -245,6 +268,9 @@ class LibraryRepository internal constructor(
                 imageMetadata = page.imageMetadata,
                 rotation = page.rotation,
                 filter = page.filter,
+                adjustments = page.adjustments,
+                annotations = page.annotations,
+                paperSize = page.paperSize,
                 ocrText = if (ocrResult == null) stored?.ocrText else recognized?.text.orEmpty(),
                 ocrError = if (ocrResult == null) stored?.ocrError else recognized?.error?.name,
                 openStream = {
@@ -305,7 +331,8 @@ class LibraryRepository internal constructor(
         }
     }
 
-    suspend fun openDocument(documentId: String): LibraryResult<OpenedLibraryDocument> {
+    suspend fun openDocument(documentId:String):LibraryResult<OpenedLibraryDocument> = operationGate.withStableSnapshot { openDocumentUnlocked(documentId) }
+    private suspend fun openDocumentUnlocked(documentId: String): LibraryResult<OpenedLibraryDocument> {
         val entity = runDatabase { dao.document(documentId) }
             ?: return LibraryResult.Failure(LibraryError.DOCUMENT_NOT_FOUND)
         val pageEntities = runDatabase { dao.pages(documentId) }
@@ -336,6 +363,9 @@ class LibraryRepository internal constructor(
             val rotation = DocumentPageRotation.entries.firstOrNull {
                 it.degrees == page.rotationDegrees
             } ?: return LibraryResult.Failure(LibraryError.CORRUPTED_RECORD)
+            val physical = withContext(kotlinx.coroutines.Dispatchers.Default) { runCatching { org.synapseworks.pageharbor.document.session.DocumentPaperSize.decode(page.paperSize) } }
+            if(physical.isFailure||physical.getOrNull()?.matchesPixels(page.width,page.height)==false)return LibraryResult.Failure(LibraryError.CORRUPTED_RECORD)
+            if (page.brightness !in -100..100 || page.contrast !in -100..100) return LibraryResult.Failure(LibraryError.CORRUPTED_RECORD)
             val filter = runCatching { DocumentFilter.valueOf(page.filterName) }.getOrNull()
                 ?: return LibraryResult.Failure(LibraryError.CORRUPTED_RECORD)
             pages += DocumentPage(
@@ -350,6 +380,9 @@ class LibraryRepository internal constructor(
                 ),
                 rotation = rotation,
                 filter = filter,
+                adjustments = ManualImageAdjustments(page.brightness, page.contrast),
+                paperSize = physical.getOrNull(),
+                annotations = withContext(kotlinx.coroutines.Dispatchers.Default) { runCatching { org.synapseworks.pageharbor.document.annotation.AnnotationLayer.decode(page.annotations) }.getOrNull() } ?: return LibraryResult.Failure(LibraryError.CORRUPTED_RECORD),
                 persistentId = page.pageId,
             )
         }
@@ -567,6 +600,21 @@ class LibraryRepository internal constructor(
     ): LibraryOcrReviewPage? = operationGate.withStableSnapshot {
         dao.ocrReviewPage(documentId, pageId)
     }
+
+    internal suspend fun ocrReviewScan(snapshot: LibraryOcrPageSnapshot): LibraryReviewScan? =
+        operationGate.withStableSnapshot {
+            if (dao.ocrPageSnapshot(snapshot.documentId, snapshot.pageId) != snapshot) return@withStableSnapshot null
+            val page = dao.pageAnyState(snapshot.pageId) ?: return@withStableSnapshot null
+            val file = fileStore.resolve(page.relativePath)?.takeIf(File::isFile) ?: return@withStableSnapshot null
+            val uri = FileProvider.getUriForFile(applicationContext, "${applicationContext.packageName}.fileprovider", file)
+            val rotation = DocumentPageRotation.entries.firstOrNull { it.degrees == snapshot.rotationDegrees }
+                ?: return@withStableSnapshot null
+            val stored = dao.effectiveOcrPage(snapshot.documentId, snapshot.pageId)
+            val layout = stored?.toEffectiveOcrRequestOrNull()?.let { request ->
+                (LibraryEffectiveOcrPageProvider(this).resolve(request, stored) as? EffectiveOcrPageProvision.Available)?.page?.layout
+            }
+            LibraryReviewScan(uri, DocumentImageMetadata(page.sourceByteCount, page.width, page.height), rotation, layout)
+        }
 
     suspend fun ocrBackupPage(
         documentId: String,
@@ -876,7 +924,66 @@ class LibraryRepository internal constructor(
     }
 
     suspend fun deleteDocument(documentId: String): LibraryResult<Unit> = operationGate.withMutation {
-        deleteDocumentUnlocked(documentId)
+        currentCoroutineContext().ensureActive()
+        withContext(NonCancellable){
+            val directory=File(fileStore.root,documentId).absolutePath
+            LibrarySourceReaders.block(documentId,directory)
+            try {
+                if(dao.trashSavedDocument(documentId,nowMillis())==null){
+                    LibrarySourceReaders.unblock(documentId)
+                    LibraryResult.Failure(LibraryError.DOCUMENT_NOT_FOUND)
+                }else LibraryResult.Success(Unit)
+            }catch(_:Exception){
+                if(runCatching{dao.document(documentId)!=null}.getOrDefault(false))LibrarySourceReaders.unblock(documentId)
+                LibraryResult.Failure(LibraryError.DATABASE_UNAVAILABLE)
+            }
+        }
+    }
+    internal fun observeRecyclePage(offset:Int):Flow<RecyclePage> {
+        require(offset>=0&&offset<=Int.MAX_VALUE-30)
+        return combine(dao.observeRecycleRows(offset),dao.observeRecycleCount()){rows,count->RecyclePage(rows,count,offset)}
+    }
+    internal suspend fun recyclePreview():RecyclePreview=operationGate.withStableSnapshot{dao.recyclePreview()}
+    internal suspend fun restoreFromRecycle(id:String,revision:Long):RecycleResult=operationGate.withMutation {
+        currentCoroutineContext().ensureActive()
+        withContext(NonCancellable){try {
+            val row=dao.recycleDocument(id)
+            if(row==null||row.libraryState !in setOf("ACTIVE","TRASHED")||(row.libraryState=="TRASHED"&&row.trashRevision!=revision))return@withContext RecycleResult.Failed(RecycleFailure.CHANGED)
+            // A failed/interrupted purge may still own the bytes in quarantine. Put them back
+            // before making the document active; an uncertain scan must not claim restoration.
+            when(val scan=fileStore.pendingDocumentDeletions()){
+                DocumentDirectoryScan.Unavailable->return@withContext RecycleResult.Failed(RecycleFailure.STATE_UNCERTAIN)
+                is DocumentDirectoryScan.Available->for(pending in scan.entries.filter{it.documentId==id}){
+                    if(!fileStore.restoreQuarantinedDocument(pending))return@withContext RecycleResult.Failed(RecycleFailure.STATE_UNCERTAIN)
+                }
+            }
+            if(dao.restoreTrashedDocument(id,revision,nowMillis())==null)RecycleResult.Failed(RecycleFailure.CHANGED)
+            else {LibrarySourceReaders.unblock(id);RecycleResult.Done()}
+        }catch(_:Exception){RecycleResult.Failed(RecycleFailure.UNAVAILABLE)}}
+    }
+    internal suspend fun permanentlyDelete(id:String,revision:Long):RecycleResult=operationGate.withMutation {
+        currentCoroutineContext().ensureActive()
+        val row=try{dao.documentAnyState(id)}catch(_:Exception){return@withMutation RecycleResult.Failed(RecycleFailure.UNAVAILABLE)}
+        if(row==null||row.libraryState!="TRASHED"||row.trashRevision!=revision)return@withMutation RecycleResult.Failed(RecycleFailure.CHANGED)
+        LibrarySourceReaders.block(id,File(fileStore.root,id).absolutePath)
+        if(LibrarySourceReaders.inUse(id,File(fileStore.root,id).absolutePath))return@withMutation RecycleResult.Failed(RecycleFailure.IN_USE)
+        when(val result=deleteDocumentUnlocked(id,revision)){
+            is LibraryResult.Success->RecycleResult.Done(result.warning==LibraryWarning.DELETION_CLEANUP_PENDING)
+            is LibraryResult.Failure->RecycleResult.Failed(when(result.reason){LibraryError.STORAGE_UNAVAILABLE->RecycleFailure.STORAGE;LibraryError.DELETION_STATE_UNCERTAIN,LibraryError.DELETION_RECOVERY_PENDING->RecycleFailure.STATE_UNCERTAIN;else->RecycleFailure.UNAVAILABLE})
+        }
+    }
+    internal suspend fun emptyRecycleBin(watermark:Long):EmptyBinResult {
+        var after="";var deleted=0;var failed=0;var pending=0
+        while(true){
+            currentCoroutineContext().ensureActive()
+            val rows=operationGate.withStableSnapshot{dao.recyclePurgePage(watermark,after)}
+            if(rows.isEmpty())break
+            for(row in rows){when(val result=permanentlyDelete(row.documentId,row.trashRevision)){
+                is RecycleResult.Done->{deleted++;if(result.cleanupPending)pending++}
+                is RecycleResult.Failed->failed++
+            };after=row.documentId}
+        }
+        return EmptyBinResult(deleted,failed,pending)
     }
 
     /**
@@ -934,7 +1041,10 @@ class LibraryRepository internal constructor(
                 DeletionRecordState.PRESENT -> {
                     if (fileStore.restoreQuarantinedDocument(deletion)) restored++ else stillPending++
                 }
-                DeletionRecordState.ABSENT -> cleanup += deletion
+                DeletionRecordState.ABSENT -> {
+                    LibrarySourceReaders.block(deletion.documentId,File(fileStore.root,deletion.documentId).absolutePath)
+                    if(LibrarySourceReaders.inUse(deletion.documentId,File(fileStore.root,deletion.documentId).absolutePath))stillPending++ else cleanup+=deletion
+                }
                 DeletionRecordState.UNKNOWN -> {
                     stillPending++
                     databaseUnavailable = true
@@ -994,9 +1104,9 @@ class LibraryRepository internal constructor(
         )
     }
 
-    private suspend fun deleteDocumentUnlocked(documentId: String): LibraryResult<Unit> {
+    private suspend fun deleteDocumentUnlocked(documentId: String,revision:Long): LibraryResult<Unit> {
         val exists = try {
-            dao.document(documentId) != null
+            dao.documentAnyState(documentId)?.let{it.libraryState=="TRASHED"&&it.trashRevision==revision}==true
         } catch (error: CancellationException) {
             throw error
         } catch (_: Exception) {
@@ -1016,7 +1126,7 @@ class LibraryRepository internal constructor(
         }
 
         try {
-            if (dao.deleteDocument(documentId) == null) {
+            if (dao.purgeTrashedDocument(documentId,revision,nowMillis()) == null) {
                 return resolveFailedDeletion(documentId, pending)
             }
         } catch (error: CancellationException) {
@@ -1090,7 +1200,7 @@ class LibraryRepository internal constructor(
         protectedDocumentIds: Set<String>?,
     ): LegacyDirectoryOwnership = when {
         protectedDocumentIds == null -> LegacyDirectoryOwnership.UNKNOWN
-        documentId in protectedDocumentIds -> LegacyDirectoryOwnership.OWNED
+        documentId in protectedDocumentIds || LibrarySourceReaders.inUse(documentId,File(fileStore.root,documentId).absolutePath) -> LegacyDirectoryOwnership.OWNED
         else -> LegacyDirectoryOwnership.ABANDONED
     }
 
@@ -1117,7 +1227,7 @@ class LibraryRepository internal constructor(
             if (pages.size != document.pageCount) {
                 return LibraryResult.Failure(LibraryError.CORRUPTED_RECORD)
             }
-            sources += pages.map { it.toSource() }
+            sources += pageSources(pages) ?: return LibraryResult.Failure(LibraryError.CORRUPTED_RECORD)
         }
         return saveSources(null, normalizeLibraryTitle(title), null, sources)
     }
@@ -1151,11 +1261,14 @@ class LibraryRepository internal constructor(
         if (removeFromOriginal && remaining.isEmpty()) {
             return LibraryResult.Failure(LibraryError.EMPTY_DOCUMENT)
         }
+        val selectedSources=pageSources(selected) ?: return LibraryResult.Failure(LibraryError.CORRUPTED_RECORD)
+        val remainingSources=if(removeFromOriginal)pageSources(remaining,preservePersistentId=true)
+            ?: return LibraryResult.Failure(LibraryError.CORRUPTED_RECORD) else emptyList()
         val extracted = saveSources(
             existingDocumentId = null,
             title = normalizeLibraryTitle(title),
             folderId = document.folderId,
-            sources = selected.map { it.toSource() },
+            sources = selectedSources,
         )
         if (extracted !is LibraryResult.Success || !removeFromOriginal) return extracted
 
@@ -1163,11 +1276,15 @@ class LibraryRepository internal constructor(
             existingDocumentId = document.documentId,
             title = document.title,
             folderId = document.folderId,
-            sources = remaining.map { it.toSource(preservePersistentId = true) },
+            sources = remainingSources,
             createdAtOverride = document.createdAtMillis,
         )
         if (originalUpdate is LibraryResult.Failure) {
-            deleteDocument(extracted.value.id)
+            // Roll back this operation's newly created copy, rather than leave a failed split
+            // visible as a user-deleted document. If cleanup fails, retain it in the bin for recovery.
+            if(deleteDocument(extracted.value.id) is LibraryResult.Success){
+                dao.recycleDocument(extracted.value.id)?.let{permanentlyDelete(it.documentId,it.trashRevision)}
+            }
             return originalUpdate
         }
         return extracted
@@ -1203,6 +1320,7 @@ class LibraryRepository internal constructor(
         if (existingDocumentId != null && existing == null) {
             return LibraryResult.Failure(LibraryError.DOCUMENT_NOT_FOUND)
         }
+        if(dao.isDeletedLocalIdentity(documentId))return LibraryResult.Failure(LibraryError.DOCUMENT_NOT_FOUND)
         val retainedSourceAssets = if (sourceAssets.isNotEmpty() || existing == null) {
             sourceAssets
         } else {
@@ -1242,6 +1360,9 @@ class LibraryRepository internal constructor(
                 sourceByteCount = page.imageMetadata.sourceByteCount,
                 rotationDegrees = page.rotation.degrees,
                 filterName = page.filter.name,
+                brightness = page.adjustments.brightness, contrast = page.adjustments.contrast,
+                annotations = page.annotations.encode(),
+                paperSize = page.paperSize?.encode().orEmpty(),
                 ocrText = page.ocrText,
                 ocrError = page.ocrError,
                 contentSha256 = page.contentSha256,
@@ -1273,7 +1394,7 @@ class LibraryRepository internal constructor(
             thumbnailRelativePath = prepared.value.thumbnailRelativePath,
             ocrStatus = ocrStatusFor(pages.map { it.ocrText to it.ocrError }).name,
             libraryState = LibraryDocumentState.ACTIVE.name,
-            contentHashVersion = DocumentFingerprintV1.VERSION,
+            contentHashVersion = if(pages.any { it.paperSize.isNotEmpty() }) 4 else if(pages.any { it.annotations.isNotEmpty() }) 3 else if (pages.any { it.brightness != 0 || it.contrast != 0 }) 2 else DocumentFingerprintV1.VERSION,
             contentSha256 = logicalDocumentSha256(pages),
             contentByteCount = contentByteCount,
             sourceModifiedAtMillis = sourceAssetEntities.firstOrNull()?.sourceModifiedAtMillis,
@@ -1324,9 +1445,16 @@ class LibraryRepository internal constructor(
         fileStore.cleanupOtherRevisions(documentId, keepDirectory)
     }
 
+    private suspend fun pageSources(pages:List<LibraryPageEntity>,preservePersistentId:Boolean=false):List<LibraryPageSource>? =
+        withContext(kotlinx.coroutines.Dispatchers.IO) {
+            pages.map { it.toSource(preservePersistentId) ?: return@withContext null }
+        }
+
     private fun LibraryPageEntity.toSource(
         preservePersistentId: Boolean = false,
-    ): LibraryPageSource {
+    ): LibraryPageSource? {
+        val physical=runCatching { org.synapseworks.pageharbor.document.session.DocumentPaperSize.decode(paperSize) };if(physical.isFailure||physical.getOrNull()?.matchesPixels(width,height)==false)return null
+        val layer=runCatching { org.synapseworks.pageharbor.document.annotation.AnnotationLayer.decode(annotations) }.getOrNull() ?: return null
         val file = fileStore.resolve(relativePath)
         return LibraryPageSource(
             persistentId = pageId.takeIf { preservePersistentId },
@@ -1337,6 +1465,9 @@ class LibraryRepository internal constructor(
             rotation = DocumentPageRotation.entries.firstOrNull { it.degrees == rotationDegrees }
                 ?: DocumentPageRotation.DEGREES_0,
             filter = runCatching { DocumentFilter.valueOf(filterName) }.getOrDefault(DocumentFilter.ORIGINAL),
+            adjustments = ManualImageAdjustments(brightness, contrast),
+            annotations = layer,
+            paperSize = physical.getOrNull(),
             ocrText = ocrText,
             ocrError = ocrError,
             openStream = { FileInputStream(file ?: throw FileNotFoundException()) },
@@ -1391,6 +1522,7 @@ private fun LibraryDocumentListingRow.toSummary(): LibraryDocumentSummary = Libr
     folderId = folderId,
     folderName = folderName,
     thumbnailRelativePath = thumbnailRelativePath,
+    isFavorite = isFavorite,
     ocrStatus = runCatching { LibraryOcrStatus.valueOf(ocrStatus) }
         .getOrDefault(LibraryOcrStatus.NOT_INDEXED),
 )
@@ -1409,6 +1541,7 @@ private fun LibrarySearchRow.toSummary(query: String): LibraryDocumentSummary = 
     folderId = folderId,
     folderName = folderName,
     thumbnailRelativePath = thumbnailRelativePath,
+    isFavorite = isFavorite,
     ocrStatus = runCatching { LibraryOcrStatus.valueOf(ocrStatus) }
         .getOrDefault(LibraryOcrStatus.NOT_INDEXED),
     searchMatch = resolvedSearchMatch(query),
@@ -1420,7 +1553,7 @@ private fun LibrarySearchRow.toSummary(query: String): LibraryDocumentSummary = 
 private fun LibrarySearchRow.resolvedSearchMatch(query: String): LibrarySearchMatch {
     val stored = runCatching { LibrarySearchMatch.valueOf(matchType) }
         .getOrDefault(LibrarySearchMatch.OCR)
-    if (stored == LibrarySearchMatch.OCR) return stored
+    if (stored == LibrarySearchMatch.OCR || stored == LibrarySearchMatch.TAG) return stored
     return if (matchesLibrarySearchText(title, query)) {
         LibrarySearchMatch.TITLE
     } else {
@@ -1443,7 +1576,8 @@ private fun LibraryDocumentEntity.toSummary(folderName: String?): LibraryDocumen
         folderId = folderId,
         folderName = folderName,
         thumbnailRelativePath = thumbnailRelativePath,
-        ocrStatus = runCatching { LibraryOcrStatus.valueOf(ocrStatus) }
+        isFavorite = isFavorite,
+    ocrStatus = runCatching { LibraryOcrStatus.valueOf(ocrStatus) }
             .getOrDefault(LibraryOcrStatus.NOT_INDEXED),
     )
 
@@ -1465,6 +1599,9 @@ private fun logicalDocumentSha256(pages: List<LibraryPageEntity>): String {
                 byteLength = requireNotNull(page.sourceByteCount),
                 rotationDegrees = page.rotationDegrees,
                 filterName = page.filterName,
+                brightness = page.brightness, contrast = page.contrast,
+                annotations = page.annotations,
+                paperSize = page.paperSize,
             )
         },
     ).sha256

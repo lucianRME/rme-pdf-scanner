@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="recycle_title">Recycle bin</string>
+    <string name="recycle_move_title">Move %1$s to recycle bin?</string>
+    <string name="recycle_move_message">The document and its private source files will be kept until you explicitly purge them. It leaves active search, favorites, OCR, exports and new backups. You can restore it from Recycle bin.</string>
+    <string name="recycle_move_action">Move to bin</string>
+    <string name="recycle_moved">Document moved to recycle bin.</string>
+</resources>

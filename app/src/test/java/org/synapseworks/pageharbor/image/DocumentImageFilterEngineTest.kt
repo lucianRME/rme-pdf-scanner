@@ -99,7 +99,9 @@ class DocumentImageFilterEngineTest {
             ),
         )
 
-        DocumentFilter.entries.filterNot { it == DocumentFilter.ORIGINAL }.forEach { filter ->
+        DocumentFilter.entries.filterNot {
+            it == DocumentFilter.ORIGINAL || DocumentImageFilterEngine.requiresSpatialContext(it)
+        }.forEach { filter ->
             val histogram = if (DocumentImageFilterEngine.requiresHistogram(filter)) {
                 IntArray(256).also { counts ->
                     source.pixels.asList().chunked(source.width).forEach { values ->

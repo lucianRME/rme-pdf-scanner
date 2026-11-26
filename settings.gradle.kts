@@ -16,3 +16,6 @@ dependencyResolutionManagement {
 
 rootProject.name = "RME PDF Scanner"
 include(":app")
+if (providers.gradleProperty("rmeTranslationPlayDelivery").orNull == "true") {
+    include(":translation_ro", ":translation_multi", ":translation_ga")
+}

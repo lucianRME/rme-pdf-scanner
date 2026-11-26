@@ -39,6 +39,7 @@ interface SearchablePdfGenerator {
 data class SearchablePdfPage(
     val openJpegStream: () -> InputStream,
     val ocrResult: OcrPageResult? = null,
+    val paperSize: PdfPageSize? = null,
 )
 
 /** A caller-provided, private temporary destination and its ordered local page sources. */
@@ -47,6 +48,8 @@ data class SearchablePdfRequest(
     val outputFile: File,
     /** Optional private directory for PdfBox scratch data; defaults to the app cache. */
     val scratchDirectory: File? = null,
+    /** Use standard invisible glyphs for readers that skip the default blank Type 3 text layer. */
+    val standardInvisibleGlyphs: Boolean = false,
 )
 
 sealed interface SearchablePdfGenerationResult {
@@ -107,26 +110,39 @@ class PdfBoxSearchablePdfGenerator(context: Context) : SearchablePdfGenerator {
                 PDDocument(memoryUsage).use { document ->
                     val fontSet = InvisibleUnicodePdfFontSet(
                         document = document,
+                        standardInvisibleGlyphs = request.standardInvisibleGlyphs,
                         texts = request.pages.asSequence().flatMap { page ->
                             page.ocrResult?.layout?.lines.orEmpty().asSequence().map { it.text }
                         },
                     )
+                    val readingTags = if (request.pages.any { it.ocrResult?.layout?.lines?.isNotEmpty() == true }) {
+                        SearchablePdfReadingTags()
+                    } else null
                     request.pages.forEach { page ->
                         try {
                             coroutineContext.ensureActive()
                             val image = page.openJpegStream().use { input ->
                                 JPEGFactory.createFromStream(document, input)
                             }
-                            val pageSize = PdfPageSize(
+                            val pageSize = page.paperSize ?: PdfPageSize(
                                 widthPoints = image.width.toFloat(),
                                 heightPoints = image.height.toFloat(),
                             )
                             val pdfPage = PDPage(PDRectangle(pageSize.widthPoints, pageSize.heightPoints))
                             document.addPage(pdfPage)
                             PDPageContentStream(document, pdfPage).use { content ->
+                                if (readingTags != null) {
+                                    // Keep the scan and its text in one logical page region. A scanned
+                                    // diagram or photograph can carry meaning beyond recognized words.
+                                    content.appendRawCommands("/Div << /MCID 0 >> BDC\n")
+                                }
                                 content.drawImage(image, 0f, 0f, pageSize.widthPoints, pageSize.heightPoints)
                                 if (writeTextLayer(content, fontSet, page.ocrResult, pageSize)) {
                                     textLayerPageCount++
+                                }
+                                if (readingTags != null) {
+                                    content.endMarkedContent()
+                                    readingTags.addPage(pdfPage)
                                 }
                             }
                         } catch (error: CancellationException) {
@@ -145,6 +161,7 @@ class PdfBoxSearchablePdfGenerator(context: Context) : SearchablePdfGenerator {
                         }
                     }
                     coroutineContext.ensureActive()
+                    if (textLayerPageCount > 0) readingTags?.attach(document)
                     request.outputFile.outputStream().use(document::save)
                     // PdfBox owns the save stream lifecycle. Reopen only to fsync the completed
                     // file after every PDF object and stream has been closed.

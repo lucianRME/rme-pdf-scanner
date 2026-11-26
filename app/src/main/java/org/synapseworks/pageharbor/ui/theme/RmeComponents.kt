@@ -1,6 +1,14 @@
 package org.synapseworks.pageharbor.ui.theme
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.FlowRowScope
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ColumnScope
@@ -20,11 +28,15 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -36,36 +48,46 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
-private val RmeButtonShape = RoundedCornerShape(12.dp)
+private val ActionPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+
+/** Wrap sibling actions when translated labels or larger text need more room. */
+@Composable
+fun RmeActionRow(content: @Composable FlowRowScope.() -> Unit) {
+    val density = LocalDensity.current
+    val windowWidth = LocalWindowInfo.current.containerSize.width
+    val stack = density.fontScale >= 1.5f && windowWidth < with(density) { 480.dp.roundToPx() }
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small),
+        verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.extraSmall),
+        maxItemsInEachRow = if (stack) 1 else Int.MAX_VALUE,
+        content = content,
+    )
+}
 
 @Composable
 fun RmePrimaryButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    content: @Composable () -> Unit,
+    destructive: Boolean = false,
+    contentPadding: PaddingValues = ActionPadding,
+    content: @Composable RowScope.() -> Unit,
 ) {
-    val rmeColors = MaterialTheme.rmeColors
+    val scheme = MaterialTheme.colorScheme
+    val colors = MaterialTheme.rmeColors
     Button(
         onClick = onClick,
         modifier = modifier.defaultMinSize(minHeight = PageHarborLayout.primaryActionHeight),
         enabled = enabled,
-        shape = RmeButtonShape,
+        shape = MaterialTheme.shapes.medium,
         colors = ButtonDefaults.buttonColors(
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-            disabledContainerColor = rmeColors.disabledBackground,
-            disabledContentColor = rmeColors.textDisabled,
+            containerColor = if (destructive) scheme.error else scheme.primary,
+            contentColor = if (destructive) scheme.onError else scheme.onPrimary,
+            disabledContainerColor = colors.disabledBackground,
+            disabledContentColor = colors.textDisabled,
         ),
-        elevation = ButtonDefaults.buttonElevation(
-            defaultElevation = 0.dp,
-            pressedElevation = 0.dp,
-            focusedElevation = 0.dp,
-            hoveredElevation = 0.dp,
-            disabledElevation = 0.dp,
-        ),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
-        content = { content() },
+        contentPadding = contentPadding,
+        content = content,
     )
 }
 
@@ -75,29 +97,86 @@ fun RmeSecondaryButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     contentColor: Color = MaterialTheme.colorScheme.onSurface,
-    content: @Composable () -> Unit,
+    contentPadding: PaddingValues = ActionPadding,
+    content: @Composable RowScope.() -> Unit,
 ) {
-    val rmeColors = MaterialTheme.rmeColors
-    Button(
+    val colors = MaterialTheme.rmeColors
+    FilledTonalButton(
         onClick = onClick,
         modifier = modifier.defaultMinSize(minHeight = PageHarborLayout.primaryActionHeight),
         enabled = enabled,
-        shape = RmeButtonShape,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = rmeColors.surfaceHigh,
+        shape = MaterialTheme.shapes.medium,
+        colors = ButtonDefaults.filledTonalButtonColors(
+            containerColor = colors.surfaceHigh,
             contentColor = contentColor,
-            disabledContainerColor = rmeColors.disabledBackground,
-            disabledContentColor = rmeColors.textDisabled,
+            disabledContainerColor = colors.disabledBackground,
+            disabledContentColor = colors.textDisabled,
         ),
-        elevation = ButtonDefaults.buttonElevation(
-            defaultElevation = 0.dp,
-            pressedElevation = 0.dp,
-            focusedElevation = 0.dp,
-            hoveredElevation = 0.dp,
-            disabledElevation = 0.dp,
+        contentPadding = contentPadding,
+        content = content,
+    )
+}
+
+@Composable
+fun RmeTextButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    contentColor: Color = MaterialTheme.colorScheme.primary,
+    content: @Composable RowScope.() -> Unit,
+) {
+    TextButton(
+        onClick = onClick,
+        modifier = modifier.defaultMinSize(minHeight = PageHarborLayout.minimumTouchTarget),
+        enabled = enabled,
+        shape = MaterialTheme.shapes.medium,
+        colors = ButtonDefaults.textButtonColors(
+            contentColor = contentColor,
+            disabledContentColor = MaterialTheme.rmeColors.textDisabled,
         ),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
-        content = { content() },
+        content = content,
+    )
+}
+
+@Composable
+fun RmeIconButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    content: @Composable () -> Unit,
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = modifier.sizeIn(
+            minWidth = PageHarborLayout.minimumTouchTarget,
+            minHeight = PageHarborLayout.minimumTouchTarget,
+        ),
+        enabled = enabled,
+        colors = IconButtonDefaults.iconButtonColors(
+            disabledContentColor = MaterialTheme.rmeColors.textDisabled,
+        ),
+        content = content,
+    )
+}
+
+@Composable
+fun RmeFilterChip(
+    selected: Boolean,
+    onClick: () -> Unit,
+    label: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = label,
+        modifier = modifier,
+        enabled = enabled,
+        shape = MaterialTheme.shapes.medium,
+        leadingIcon = if (selected) {
+            { Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(18.dp)) }
+        } else null,
     )
 }
 
@@ -155,7 +234,7 @@ fun RmeTonalChoice(
 }
 
 @Composable
-fun RmeFilledTextField(
+fun RmeTextField(
     value: String,
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -168,12 +247,14 @@ fun RmeFilledTextField(
     supportingText: @Composable (() -> Unit)? = null,
     isError: Boolean = false,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardActions: KeyboardActions = KeyboardActions.Default,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
     singleLine: Boolean = false,
     minLines: Int = 1,
     maxLines: Int = if (singleLine) 1 else Int.MAX_VALUE,
 ) {
     val rmeColors = MaterialTheme.rmeColors
-    TextField(
+    OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         modifier = modifier.defaultMinSize(minHeight = PageHarborLayout.minimumTouchTarget),
@@ -186,22 +267,24 @@ fun RmeFilledTextField(
         supportingText = supportingText,
         isError = isError,
         keyboardOptions = keyboardOptions,
+        keyboardActions = keyboardActions,
+        visualTransformation = visualTransformation,
         singleLine = singleLine,
         minLines = minLines,
         maxLines = maxLines,
-        shape = RoundedCornerShape(12.dp),
-        colors = TextFieldDefaults.colors(
-            focusedContainerColor = rmeColors.surfaceMedium,
-            unfocusedContainerColor = rmeColors.surfaceMedium,
+        shape = MaterialTheme.shapes.medium,
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedContainerColor = rmeColors.surfaceLow,
+            unfocusedContainerColor = rmeColors.surfaceLow,
             disabledContainerColor = rmeColors.disabledBackground,
-            errorContainerColor = rmeColors.surfaceMedium,
-            focusedIndicatorColor = MaterialTheme.colorScheme.primary,
-            unfocusedIndicatorColor = Color.Transparent,
-            disabledIndicatorColor = Color.Transparent,
-            cursorColor = MaterialTheme.colorScheme.primary,
-            focusedLeadingIconColor = MaterialTheme.colorScheme.primary,
+            errorContainerColor = rmeColors.surfaceLow,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+            focusedBorderColor = MaterialTheme.colorScheme.primary,
+            errorBorderColor = MaterialTheme.colorScheme.error,
+            disabledBorderColor = rmeColors.divider,
+            disabledTextColor = rmeColors.textDisabled,
+            disabledLabelColor = rmeColors.textDisabled,
             unfocusedLeadingIconColor = rmeColors.iconSecondary,
-            focusedTrailingIconColor = rmeColors.iconSecondary,
             unfocusedTrailingIconColor = rmeColors.iconSecondary,
         ),
     )
@@ -215,7 +298,7 @@ fun RmeSearchField(
     clearContentDescription: String,
     modifier: Modifier = Modifier,
 ) {
-    RmeFilledTextField(
+    RmeTextField(
         value = value,
         onValueChange = onValueChange,
         modifier = modifier,
@@ -230,7 +313,7 @@ fun RmeSearchField(
         },
         trailingIcon = if (value.isNotEmpty()) {
             {
-                IconButton(onClick = { onValueChange("") }) {
+                RmeIconButton(onClick = { onValueChange("") }) {
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = clearContentDescription,

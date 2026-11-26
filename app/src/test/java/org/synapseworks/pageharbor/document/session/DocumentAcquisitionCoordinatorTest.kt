@@ -50,6 +50,27 @@ class DocumentAcquisitionCoordinatorTest {
     }
 
     @Test
+    fun appendAllocatesPastAnIdentityPublishedByAPageEditor() {
+        val coordinator = DocumentAcquisitionCoordinator()
+        val imported = coordinator.acquire(
+            DocumentAcquisitionMode.REPLACE,
+            DocumentSession(),
+            input(page("original", DocumentSourceCategory.SELECTED_IMAGE)),
+        ).successSession()
+        val corrected = imported.copy(
+            pages = listOf(imported.pages.single().copy(id = DocumentPageId(1))),
+        )
+
+        val appended = coordinator.acquire(
+            DocumentAcquisitionMode.APPEND,
+            corrected,
+            input(page("incoming", DocumentSourceCategory.INBOUND_SHARE)),
+        ).successSession()
+        assertEquals(corrected.pages.single(), appended.pages.first())
+        assertEquals(listOf(DocumentPageId(1), DocumentPageId(2)), appended.pages.map(DocumentPage::id))
+    }
+
+    @Test
     fun appendingImportedPdfsRetainsEveryOriginalWhileInvalidatingDirectExport() {
         val cleaner = RecordingCleaner()
         val coordinator = DocumentAcquisitionCoordinator(resourceCleaner = cleaner)

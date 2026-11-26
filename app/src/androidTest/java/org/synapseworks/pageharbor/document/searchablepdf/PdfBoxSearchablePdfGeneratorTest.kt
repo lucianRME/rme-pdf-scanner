@@ -13,7 +13,6 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.cos.COSName
 import com.tom_roush.pdfbox.pdmodel.PDDocument
-import com.tom_roush.pdfbox.pdmodel.font.PDType3Font
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -95,6 +94,7 @@ class PdfBoxSearchablePdfGeneratorTest {
             )
             PDDocument.load(output).use { document ->
                 assertEquals(4, document.numberOfPages)
+                assertEquals(4, document.documentCatalog.structureTreeRoot.parentTreeNextKey)
                 assertTrue(document.getPage(0).resources.xObjectNames.iterator().hasNext())
                 assertTrue(document.getPage(1).resources.xObjectNames.iterator().hasNext())
                 assertTrue(document.getPage(2).resources.xObjectNames.iterator().hasNext())
@@ -110,7 +110,50 @@ class PdfBoxSearchablePdfGeneratorTest {
     }
 
     @Test
-    fun reopensAndExtractsEverySupportedScriptWithoutMojibakeOrMissingGlyphs() = runBlocking {
+    fun taggedTextPagesRetainTheirParentTreeEntriesAndBackgrounds() = runBlocking {
+        val photo = jpegFixture(width = 320, height = 480, color = Color.LTGRAY)
+        val pages = listOf("First page", "Second page").mapIndexed { i, text ->
+            SearchablePdfPage({ ByteArrayInputStream(photo) }, pageResult(i, 320, 480, text))
+        }
+        val output = outputFile()
+        try {
+            assertEquals(SearchablePdfGenerationResult.Success(2, 2),
+                generator.generate(SearchablePdfRequest(pages, output, standardInvisibleGlyphs = true)))
+            PDDocument.load(output).use { doc ->
+                val root = requireNotNull(doc.documentCatalog.structureTreeRoot)
+                assertTrue(doc.documentCatalog.markInfo.isMarked)
+                assertEquals(2, root.parentTreeNextKey)
+                val document = root.kids.single() as com.tom_roush.pdfbox.pdmodel.documentinterchange.logicalstructure.PDStructureElement
+                assertEquals("Document", document.structureType)
+                val regions = document.kids
+                assertEquals(2, regions.size)
+                for ((i, page) in doc.pages.withIndex()) {
+                    val region = regions[i] as com.tom_roush.pdfbox.pdmodel.documentinterchange.logicalstructure.PDStructureElement
+                    assertEquals("Div", region.structureType)
+                    assertEquals(page.cosObject, region.page.cosObject)
+                    assertEquals(0, region.cosObject.getInt(COSName.K))
+                    assertEquals(i, page.structParents)
+                    val reverse = root.parentTree.getValue(i) as com.tom_roush.pdfbox.pdmodel.documentinterchange.logicalstructure.PDParentTreeValue
+                    val references = reverse.cosObject as com.tom_roush.pdfbox.cos.COSArray
+                    assertEquals(region.cosObject, references.getObject(0))
+                    val content = page.contents.use { it.readBytes().toString(Charsets.US_ASCII) }
+                    assertTrue(content.indexOf("BDC") in 0 until content.indexOf(" Do"))
+                    assertTrue(content.contains("/Div"))
+                    assertTrue(content.contains("/MCID 0"))
+                }
+            }
+        } finally { output.delete() }
+    }
+
+    @Test
+    fun reopensAndExtractsEverySupportedScriptWithoutMojibakeOrMissingGlyphs() =
+        verifySupportedScripts(standardInvisibleGlyphs = false)
+
+    @Test
+    fun compatibleTextLayerPreservesEverySupportedScript() =
+        verifySupportedScripts(standardInvisibleGlyphs = true)
+
+    private fun verifySupportedScripts(standardInvisibleGlyphs: Boolean) = runBlocking {
         val texts = listOf(
             "English searchable invoice",
             "Română factură ș ț ă â î",
@@ -137,6 +180,7 @@ class PdfBoxSearchablePdfGeneratorTest {
                         )
                     },
                     outputFile = output,
+                    standardInvisibleGlyphs = standardInvisibleGlyphs,
                 ),
             )
 
@@ -146,11 +190,12 @@ class PdfBoxSearchablePdfGeneratorTest {
                 val extracted = PDFTextStripper().getText(document)
                 texts.forEach { text -> assertTrue("Missing extracted text: $text", extracted.contains(text)) }
                 assertFalse(extracted.contains('\uFFFD'))
+                val expectedFontType = if (standardInvisibleGlyphs) COSName.TYPE1 else COSName.TYPE3
                 document.pages.forEach { page ->
                     val fonts = page.resources.fontNames.map(page.resources::getFont)
                     assertTrue(fonts.isNotEmpty())
                     fonts.forEach { font ->
-                        assertTrue(font is PDType3Font)
+                        assertEquals(expectedFontType, font.cosObject.getCOSName(COSName.SUBTYPE))
                         assertTrue(font.cosObject.containsKey(COSName.TO_UNICODE))
                     }
                 }

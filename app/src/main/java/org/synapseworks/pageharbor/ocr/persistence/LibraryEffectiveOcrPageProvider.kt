@@ -13,6 +13,9 @@ import org.synapseworks.pageharbor.library.LibraryOcrArtifactVerification
 import org.synapseworks.pageharbor.library.LibraryOcrCorrectionAlignment
 import org.synapseworks.pageharbor.library.LibraryTextSourceKind
 import org.synapseworks.pageharbor.library.LibraryRepository
+import org.synapseworks.pageharbor.ocr.OcrPageAddress
+import org.synapseworks.pageharbor.ocr.OcrRecognitionCurrentness
+import org.synapseworks.pageharbor.ocr.OcrDurablePageCurrentness
 import org.synapseworks.pageharbor.ocr.OcrPageLayout
 import org.synapseworks.pageharbor.ocr.OcrScript
 import org.synapseworks.pageharbor.ocr.OcrTextBounds
@@ -36,7 +39,7 @@ class LibraryEffectiveOcrPageProvider internal constructor(
             unavailable(EffectiveOcrPageUnavailableReason.PROVIDER_FAILURE)
         }
 
-    private fun resolve(
+    internal fun resolve(
         request: EffectiveOcrPageRequest,
         stored: LibraryEffectiveOcrPage?,
     ): EffectiveOcrPageProvision {
@@ -272,4 +275,22 @@ class LibraryEffectiveOcrPageProvider internal constructor(
         const val SupportedTransformVersion = 1
         const val FREEFORM_PAGE_INSET_FRACTION = 0.05f
     }
+}
+
+internal fun LibraryEffectiveOcrPage.toEffectiveOcrRequestOrNull(): EffectiveOcrPageRequest? {
+    val fingerprintVersion = inputFingerprintVersion?.takeIf { it > 0 } ?: return null
+    val fingerprint = inputFingerprint?.takeIf(String::isNotBlank) ?: return null
+    return EffectiveOcrPageRequest(
+        address = OcrPageAddress(documentId, pageId),
+        expectedCurrentness = OcrRecognitionCurrentness(
+            inputFingerprintVersion = fingerprintVersion,
+            inputFingerprint = fingerprint,
+            durable = OcrDurablePageCurrentness(
+                documentContentRevision = documentContentRevision,
+                pageVisualRevision = pageVisualRevision,
+                ocrStateRevision = ocrStateRevision,
+                activeArtifactRevision = activeArtifactRevision,
+            ),
+        ),
+    )
 }

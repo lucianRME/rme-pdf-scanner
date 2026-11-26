@@ -41,6 +41,7 @@ sealed interface RestoreSourceInspection {
 }
 
 enum class RestoreCoordinatorFailure {
+    DELETED_DOCUMENT_CONFLICT,
     SOURCE_UNAVAILABLE,
     UNSUPPORTED_INPUT,
     WRONG_PASSWORD_OR_DAMAGED_ENCRYPTED_BACKUP,
@@ -475,6 +476,7 @@ private fun RestorePreparationResult.toCoordinatorResult(): RestoreCoordinatorPr
                 RestoreCoordinatorFailure.INVALID_OR_CORRUPT_BACKUP
             RestorePreparationFailure.STAGING_UNAVAILABLE ->
                 RestoreCoordinatorFailure.TEMPORARY_STORAGE_UNAVAILABLE
+            RestorePreparationFailure.DELETED_DOCUMENT_CONFLICT -> RestoreCoordinatorFailure.DELETED_DOCUMENT_CONFLICT
             RestorePreparationFailure.LIBRARY_UNAVAILABLE ->
                 RestoreCoordinatorFailure.LIBRARY_UNAVAILABLE
         },

@@ -1,0 +1,272 @@
+{
+  "format": "ARGB32 big-endian, separate immutable clean/input/mask files",
+  "provenance": "analytic synthetic photo-like color fields, edges and text-like strokes; no personal photographs",
+  "fixtures": [
+    {
+      "name": "neutral",
+      "width": 128,
+      "height": 96,
+      "kind": "neutral",
+      "heldOut": false,
+      "settings": {
+        "noise": 0,
+        "contrast": 0,
+        "red": 0,
+        "green": 0,
+        "blue": 0
+      },
+      "scratchOrientation": "VERTICAL",
+      "expected": "READY",
+      "referenceSha256": "0501f7158c2a8ce13dc17a0bdd652e46f663575d8adbe08e2b7eac3c421f7608",
+      "sourceSha256": "0501f7158c2a8ce13dc17a0bdd652e46f663575d8adbe08e2b7eac3c421f7608",
+      "maskSha256": "f3cc103136423a57975750907ebc1d367e2985ac6338976d4d5a439f50323f4a"
+    },
+    {
+      "name": "clean-noise",
+      "width": 128,
+      "height": 96,
+      "kind": "clean-noise",
+      "heldOut": false,
+      "settings": {
+        "noise": 1,
+        "contrast": 0,
+        "red": 0,
+        "green": 0,
+        "blue": 0
+      },
+      "scratchOrientation": "VERTICAL",
+      "expected": "READY",
+      "referenceSha256": "0501f7158c2a8ce13dc17a0bdd652e46f663575d8adbe08e2b7eac3c421f7608",
+      "sourceSha256": "0501f7158c2a8ce13dc17a0bdd652e46f663575d8adbe08e2b7eac3c421f7608",
+      "maskSha256": "f3cc103136423a57975750907ebc1d367e2985ac6338976d4d5a439f50323f4a"
+    },
+    {
+      "name": "noise",
+      "width": 128,
+      "height": 96,
+      "kind": "noise",
+      "heldOut": false,
+      "settings": {
+        "noise": 1,
+        "contrast": 0,
+        "red": 0,
+        "green": 0,
+        "blue": 0
+      },
+      "scratchOrientation": "VERTICAL",
+      "expected": "READY",
+      "referenceSha256": "0501f7158c2a8ce13dc17a0bdd652e46f663575d8adbe08e2b7eac3c421f7608",
+      "sourceSha256": "256f2c7a7ef87dcbf891ec2e09508e22d4a7639a3a18f32d17c7a4a0e128ce9d",
+      "maskSha256": "f3cc103136423a57975750907ebc1d367e2985ac6338976d4d5a439f50323f4a"
+    },
+    {
+      "name": "fade",
+      "width": 128,
+      "height": 96,
+      "kind": "fade",
+      "heldOut": false,
+      "settings": {
+        "noise": 0,
+        "contrast": 25,
+        "red": 0,
+        "green": 0,
+        "blue": 0
+      },
+      "scratchOrientation": "VERTICAL",
+      "expected": "READY",
+      "referenceSha256": "0501f7158c2a8ce13dc17a0bdd652e46f663575d8adbe08e2b7eac3c421f7608",
+      "sourceSha256": "9604bfbbf6b353c292e1b7053eb062c0baebe1fdd846a0edaa7f049cd2e935aa",
+      "maskSha256": "f3cc103136423a57975750907ebc1d367e2985ac6338976d4d5a439f50323f4a"
+    },
+    {
+      "name": "cast",
+      "width": 128,
+      "height": 96,
+      "kind": "cast",
+      "heldOut": false,
+      "settings": {
+        "noise": 0,
+        "contrast": 0,
+        "red": -12,
+        "green": 6,
+        "blue": -10
+      },
+      "scratchOrientation": "VERTICAL",
+      "expected": "READY",
+      "referenceSha256": "0501f7158c2a8ce13dc17a0bdd652e46f663575d8adbe08e2b7eac3c421f7608",
+      "sourceSha256": "36adce3b66f7e3b21486910b625c52827d3faed3c4c1c5a031d1b1681bdd4c33",
+      "maskSha256": "f3cc103136423a57975750907ebc1d367e2985ac6338976d4d5a439f50323f4a"
+    },
+    {
+      "name": "combo",
+      "width": 128,
+      "height": 96,
+      "kind": "combo",
+      "heldOut": false,
+      "settings": {
+        "noise": 1,
+        "contrast": 25,
+        "red": -12,
+        "green": 6,
+        "blue": -10
+      },
+      "scratchOrientation": "VERTICAL",
+      "expected": "READY",
+      "referenceSha256": "0501f7158c2a8ce13dc17a0bdd652e46f663575d8adbe08e2b7eac3c421f7608",
+      "sourceSha256": "ec96592f4038117f79bdcde51e9af70702261b397a8b26ee593ad2e2019fb0ba",
+      "maskSha256": "f3cc103136423a57975750907ebc1d367e2985ac6338976d4d5a439f50323f4a"
+    },
+    {
+      "name": "scratch",
+      "width": 128,
+      "height": 96,
+      "kind": "scratch",
+      "heldOut": false,
+      "settings": {
+        "noise": 0,
+        "contrast": 0,
+        "red": 0,
+        "green": 0,
+        "blue": 0
+      },
+      "scratchOrientation": "VERTICAL",
+      "expected": "READY",
+      "referenceSha256": "d68287a4212b6ff160dffb388d3fc88ab26d48ae37843513cfa2eadc194c0c3e",
+      "sourceSha256": "dbe86c6da02729212e0848691614711cbac411086f05ffad9a6f53607c9435ac",
+      "maskSha256": "9a98a15621978f77d51356a9f270f7583f33d4952f20b8dfb5c77b6e3b4a69d0"
+    },
+    {
+      "name": "scratch-horizontal",
+      "width": 128,
+      "height": 96,
+      "kind": "scratch-horizontal",
+      "heldOut": false,
+      "settings": {
+        "noise": 0,
+        "contrast": 0,
+        "red": 0,
+        "green": 0,
+        "blue": 0
+      },
+      "scratchOrientation": "HORIZONTAL",
+      "expected": "READY",
+      "referenceSha256": "d68287a4212b6ff160dffb388d3fc88ab26d48ae37843513cfa2eadc194c0c3e",
+      "sourceSha256": "fe9f03d45b56aec2319f78b7416c5684298f231faf30aeed20aa0c3947e6d6c8",
+      "maskSha256": "fa0e75dee04dc4b7ae97ead53db3b47dad50f302e19546bb3b004e86fc151bf6"
+    },
+    {
+      "name": "scratch-edge",
+      "width": 128,
+      "height": 96,
+      "kind": "scratch-edge",
+      "heldOut": false,
+      "settings": {
+        "noise": 0,
+        "contrast": 0,
+        "red": 0,
+        "green": 0,
+        "blue": 0
+      },
+      "scratchOrientation": "VERTICAL",
+      "expected": "REFUSED",
+      "referenceSha256": "d68287a4212b6ff160dffb388d3fc88ab26d48ae37843513cfa2eadc194c0c3e",
+      "sourceSha256": "59086e4754d9c50c78d4e73324570e78b669fba519ba522445daa09ac45a1706",
+      "maskSha256": "e2a902a4261a2c386268ab44ea1afc24312fd72bb2a7ecb18e3bf77ae78fb7bd"
+    },
+    {
+      "name": "scratch-wide",
+      "width": 128,
+      "height": 96,
+      "kind": "scratch-wide",
+      "heldOut": false,
+      "settings": {
+        "noise": 0,
+        "contrast": 0,
+        "red": 0,
+        "green": 0,
+        "blue": 0
+      },
+      "scratchOrientation": "VERTICAL",
+      "expected": "REFUSED",
+      "referenceSha256": "d68287a4212b6ff160dffb388d3fc88ab26d48ae37843513cfa2eadc194c0c3e",
+      "sourceSha256": "aaed74a8768e6c28d76851c2ae7c6d311b4ec99ffb14c51b01e95a614c21e787",
+      "maskSha256": "90e54eb3267f031810382df184d436f610aa60ce1337c81ac626da5a1d697ed4"
+    },
+    {
+      "name": "scratch-ambiguous",
+      "width": 128,
+      "height": 96,
+      "kind": "scratch-ambiguous",
+      "heldOut": false,
+      "settings": {
+        "noise": 0,
+        "contrast": 0,
+        "red": 0,
+        "green": 0,
+        "blue": 0
+      },
+      "scratchOrientation": "VERTICAL",
+      "expected": "REFUSED",
+      "referenceSha256": "4eec095347a2554888b3d0bf48132dd694eb59873ba05fe1cb64e5b8331785c1",
+      "sourceSha256": "9c24b8843d2287d293940412740597e5cc6d1401217f0957a2fb802b7e7a356b",
+      "maskSha256": "da8068c8d79715df94c621ce5184bc460d0cc54fb32db353cd74dddc163b0c3b"
+    },
+    {
+      "name": "held-noise",
+      "width": 173,
+      "height": 117,
+      "kind": "noise",
+      "heldOut": true,
+      "settings": {
+        "noise": 1,
+        "contrast": 0,
+        "red": 0,
+        "green": 0,
+        "blue": 0
+      },
+      "scratchOrientation": "VERTICAL",
+      "expected": "READY",
+      "referenceSha256": "6a9bf956f589d16bb113d74800365c8e4ee2d8071d4aaec919f4eda0920b6288",
+      "sourceSha256": "0f0f960b6cdfa3a067ac9d43a6f2c80cdfa8e27028c1d02c94b37d0294c1f013",
+      "maskSha256": "80e84bb8ca94bf37205dadd7645d6649b3636619d30f3ca52b5132db5a2d3e4e"
+    },
+    {
+      "name": "held-combo",
+      "width": 173,
+      "height": 117,
+      "kind": "combo",
+      "heldOut": true,
+      "settings": {
+        "noise": 1,
+        "contrast": 25,
+        "red": -12,
+        "green": 6,
+        "blue": -10
+      },
+      "scratchOrientation": "VERTICAL",
+      "expected": "READY",
+      "referenceSha256": "6a9bf956f589d16bb113d74800365c8e4ee2d8071d4aaec919f4eda0920b6288",
+      "sourceSha256": "5e31e968ff6f6354eccab391dc23bd7fa40ed2db66e0649c04c4819d38f216a2",
+      "maskSha256": "80e84bb8ca94bf37205dadd7645d6649b3636619d30f3ca52b5132db5a2d3e4e"
+    },
+    {
+      "name": "held-scratch",
+      "width": 173,
+      "height": 117,
+      "kind": "scratch",
+      "heldOut": true,
+      "settings": {
+        "noise": 0,
+        "contrast": 0,
+        "red": 0,
+        "green": 0,
+        "blue": 0
+      },
+      "scratchOrientation": "VERTICAL",
+      "expected": "READY",
+      "referenceSha256": "2d1480e5542d1f05c882930b9ccfe5c031f65fde333cb6305d93aba07cb2e2b3",
+      "sourceSha256": "49baa11f4e734ff066a2b36e74deb444c81ded496cfdeae3f1b120dace56b437",
+      "maskSha256": "a7955763e061f2c8cc69ff97074b4c8b82cc7c6d273e216e9c2801c98b6b7568"
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 package org.synapseworks.pageharbor.document
 
 import org.synapseworks.pageharbor.document.session.DocumentPageRotation
+import org.synapseworks.pageharbor.image.ManualImageAdjustments
 import org.synapseworks.pageharbor.document.session.DocumentImageMetadata
 import org.synapseworks.pageharbor.document.session.DocumentResource
 import org.synapseworks.pageharbor.document.session.DocumentSession
@@ -14,6 +15,9 @@ data class NormalPdfPage(
     val rotation: DocumentPageRotation = DocumentPageRotation.DEGREES_0,
     val contentType: String = "image/jpeg",
     val imageMetadata: DocumentImageMetadata = DocumentImageMetadata(),
+    val adjustments: ManualImageAdjustments = ManualImageAdjustments(),
+    val annotations: org.synapseworks.pageharbor.document.annotation.AnnotationLayer = org.synapseworks.pageharbor.document.annotation.AnnotationLayer.EMPTY,
+    val paperSize: org.synapseworks.pageharbor.document.session.DocumentPaperSize? = null,
 )
 
 /** The single source decision shared by normal PDF save and share. */
@@ -37,6 +41,9 @@ fun normalPdfExportPlan(session: DocumentSession): NormalPdfExportPlan = if (ses
                 pageId = page.id.value,
                 source = page.source,
                 filter = page.filter,
+                adjustments = page.adjustments,
+                annotations = page.annotations,
+                paperSize = page.paperSize,
                 rotation = page.rotation,
                 contentType = page.contentType,
                 imageMetadata = page.imageMetadata,

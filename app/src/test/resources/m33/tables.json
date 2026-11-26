@@ -1,0 +1,73 @@
+[
+  {
+    "name": "Table 1",
+    "source": 1,
+    "rows": [
+      [
+        "Reviewed table",
+        "",
+        "",
+        ""
+      ],
+      [
+        "ID",
+        "Amount",
+        "Date",
+        "Notes"
+      ],
+      [
+        "00123",
+        "12.50",
+        "2026-05-04",
+        "First line\nSecond line"
+      ],
+      [
+        "=1+1",
+        "-2.50",
+        "",
+        "@data"
+      ]
+    ],
+    "types": {
+      "2,1": "MONEY",
+      "2,2": "DATE",
+      "3,1": "MONEY"
+    },
+    "currency": "EUR",
+    "merges": [
+      [
+        0,
+        0,
+        0,
+        3
+      ]
+    ],
+    "expectedMerge": "A4:D4",
+    "sourceReference": {
+      "output": "Table 1!A6",
+      "source": "S1 P1 R3 C1"
+    }
+  },
+  {
+    "name": "Second table",
+    "source": 2,
+    "rows": [
+      [
+        "Code",
+        "Value"
+      ],
+      [
+        "00007",
+        "0.000001"
+      ],
+      [
+        "μ µ",
+        "+SUM(A1:A2)"
+      ]
+    ],
+    "types": {
+      "1,1": "NUMBER"
+    },
+    "merges": []
+  }
+]

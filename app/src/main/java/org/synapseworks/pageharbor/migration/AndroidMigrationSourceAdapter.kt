@@ -11,7 +11,6 @@ import androidx.core.net.toUri
 import java.io.FileNotFoundException
 import java.io.IOException
 import java.io.InputStream
-import org.synapseworks.pageharbor.document.session.DEFAULT_MAX_IMPORTED_DOCUMENT_PAGES
 import org.synapseworks.pageharbor.document.importing.InboundShareResource
 
 /**
@@ -111,7 +110,7 @@ class AndroidMigrationSourceAdapter(context: Context) : MigrationSourceAccess, M
                 PdfRenderer(fileDescriptor).use { renderer ->
                     when {
                         renderer.pageCount <= 0 -> MigrationPdfInspection.Malformed
-                        renderer.pageCount > DEFAULT_MAX_IMPORTED_DOCUMENT_PAGES ->
+                        renderer.pageCount > MAX_MIGRATION_PLANNED_PDF_PAGES ->
                             MigrationPdfInspection.PageLimitExceeded
                         else -> MigrationPdfInspection.Readable(renderer.pageCount)
                     }

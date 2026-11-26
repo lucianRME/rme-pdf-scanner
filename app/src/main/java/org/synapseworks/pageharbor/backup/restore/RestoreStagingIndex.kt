@@ -37,6 +37,11 @@ import org.synapseworks.pageharbor.backup.format.RME_BACKUP_DOCUMENTS_PATH
 import org.synapseworks.pageharbor.backup.format.RME_BACKUP_FOLDERS_PATH
 import org.synapseworks.pageharbor.backup.format.RME_BACKUP_FORMAT_VERSION_V1
 import org.synapseworks.pageharbor.backup.format.RME_BACKUP_FORMAT_VERSION_V2
+import org.synapseworks.pageharbor.backup.format.RME_BACKUP_FORMAT_VERSION_V5
+import org.synapseworks.pageharbor.backup.format.RME_BACKUP_FORMAT_VERSION_V6
+import org.synapseworks.pageharbor.backup.format.RME_BACKUP_FORMAT_VERSION_V8
+import org.synapseworks.pageharbor.backup.format.RME_BACKUP_FORMAT_VERSION_V7
+import org.synapseworks.pageharbor.backup.format.RME_BACKUP_FORMAT_VERSION_V4
 import org.synapseworks.pageharbor.backup.format.RME_BACKUP_FORMAT_VERSION_V3
 import org.synapseworks.pageharbor.backup.format.RME_BACKUP_MANIFEST_PATH
 import org.synapseworks.pageharbor.backup.format.RME_BACKUP_OCR_ARTIFACTS_PATH
@@ -659,7 +664,7 @@ internal class RestoreStagingIndex(
         val required = when (manifest.formatVersion) {
             RME_BACKUP_FORMAT_VERSION_V1 -> BASE_REQUIRED_ENTRIES
             RME_BACKUP_FORMAT_VERSION_V2,
-            RME_BACKUP_FORMAT_VERSION_V3,
+            RME_BACKUP_FORMAT_VERSION_V3, RME_BACKUP_FORMAT_VERSION_V4, RME_BACKUP_FORMAT_VERSION_V5, RME_BACKUP_FORMAT_VERSION_V6, RME_BACKUP_FORMAT_VERSION_V7, RME_BACKUP_FORMAT_VERSION_V8,
             -> BASE_REQUIRED_ENTRIES + setOf(
                 RME_BACKUP_OCR_DOCUMENT_STATES_PATH,
                 RME_BACKUP_OCR_PAGE_STATES_PATH,
@@ -715,6 +720,7 @@ internal class RestoreStagingIndex(
     }
 
     private fun verifyBaseMetadata(manifest: BackupManifest, limits: BackupFormatLimits) {
+        val knownTags = manifest.tags.map { it.tagId }.toSet()
         scanJson(TABLE_FOLDERS, BackupJsonCodec::decodeFolder) { record: BackupFolderRecord ->
             stableId(record.folderId, "folderId")
             record.parentFolderId?.let { stableId(it, "parentFolderId") }
@@ -729,6 +735,7 @@ internal class RestoreStagingIndex(
             if (record.contentHashVersion <= 0 || record.pageCount < 0 || record.sourceAssetCount < 0) invalidMetadata()
             record.contentSha256?.let(::sha256)
             BackupFormatValidator.validateDocumentProvenance(record)
+            BackupFormatValidator.validateDocumentOrganization(record, manifest.formatVersion, knownTags)
         }
         scanJson(TABLE_PAGES, BackupJsonCodec::decodePage) { record: BackupPageRecord ->
             stableId(record.pageId, "pageId")
@@ -737,6 +744,9 @@ internal class RestoreStagingIndex(
                 record.rotationDegrees !in VALID_ROTATIONS || record.filterName !in SUPPORTED_FILTERS ||
                 record.byteLength !in 1..limits.maximumSingleAssetBytes || record.sourcePageIndex?.let { it < 0 } == true
             ) invalidMetadata()
+            if (record.brightness !in -100..100 || record.contrast !in -100..100 ||
+                (manifest.formatVersion < RME_BACKUP_FORMAT_VERSION_V4 && (record.brightness != 0 || record.contrast != 0))) invalidMetadata()
+            BackupFormatValidator.validateAnnotations(record,manifest.formatVersion,limits)
             if (record.mimeType !in PAGE_MIME_TYPES) invalidMetadata()
             sha256(record.sha256)
             BackupPathValidator.requirePageAssetPath(record)
@@ -1338,7 +1348,7 @@ internal class RestoreStagingIndex(
         const val TABLE_OCR_CHUNKS = "backup_ocr_chunks"
         val SHA256 = Regex("[0-9a-f]{64}")
         val VALID_ROTATIONS = setOf(0, 90, 180, 270)
-        val SUPPORTED_FILTERS = setOf("ORIGINAL", "AUTO_ENHANCE", "GRAYSCALE", "BLACK_AND_WHITE", "HIGH_CONTRAST")
+        val SUPPORTED_FILTERS = setOf("ORIGINAL", "AUTO_ENHANCE", "GRAYSCALE", "BLACK_AND_WHITE", "HIGH_CONTRAST", "DOCUMENT_CLEANUP", "SHADOW_GLARE_LOW_V1", "SHADOW_GLARE_BALANCED_V1", "SHADOW_GLARE_STRONG_V1", "PAPER_WHITE_NEUTRAL_LOW_V1", "PAPER_WHITE_NEUTRAL_BALANCED_V1", "PAPER_WHITE_NEUTRAL_STRONG_V1", "PAPER_WHITE_COLOUR_LOW_V1", "PAPER_WHITE_COLOUR_BALANCED_V1", "PAPER_WHITE_COLOUR_STRONG_V1", "BLEED_THROUGH_LOW_V1", "BLEED_THROUGH_BALANCED_V1", "BLEED_THROUGH_STRONG_V1", "CREASE_STAIN_LOW_V1", "CREASE_STAIN_BALANCED_V1", "CREASE_STAIN_STRONG_V1", "MOIRE_LOW_V1", "MOIRE_BALANCED_V1", "MOIRE_STRONG_V1")
         val PAGE_MIME_TYPES = setOf("image/jpeg", "image/png", "image/webp")
         val ACTUAL_SCRIPTS = setOf("LATIN", "CHINESE", "JAPANESE", "KOREAN", "DEVANAGARI")
         val SCRIPT_PREFERENCES = ACTUAL_SCRIPTS + "AUTOMATIC"

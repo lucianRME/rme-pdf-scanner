@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <provider android:name="org.synapseworks.pageharbor.workflow.WorkflowFaultProvider" android:authorities="${applicationId}.m30fault" android:exported="false" />
+        <provider android:name="org.synapseworks.pageharbor.table.M22DocumentsProvider"
+            android:authorities="${applicationId}.m22documents" android:exported="true"
+            android:grantUriPermissions="true" android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter><action android:name="android.content.action.DOCUMENTS_PROVIDER" /></intent-filter>
+        </provider>
+
         <activity
             android:name="androidx.activity.ComponentActivity"
             android:showWhenLocked="true"
@@ -9,5 +16,23 @@
             android:name="org.synapseworks.pageharbor.migration.RevocableMigrationTestProvider"
             android:authorities="${applicationId}.migrationtestprovider"
             android:exported="false" />
+        <provider
+            android:name="org.synapseworks.pageharbor.protectedpdf.M05DocumentsProvider"
+            android:authorities="${applicationId}.m05documents"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter><action android:name="android.content.action.DOCUMENTS_PROVIDER" /></intent-filter>
+        </provider>
+        <activity
+            android:name="org.synapseworks.pageharbor.protectedpdf.M05ShareTargetActivity"
+            android:label="RME test receiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
+        </activity>
     </application>
 </manifest>

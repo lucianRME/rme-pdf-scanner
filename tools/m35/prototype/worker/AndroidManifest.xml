@@ -1,0 +1,10 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.synapseworks.m35.workerprobe" android:versionCode="1" android:versionName="1-probe">
+ <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36"/>
+ <permission android:name="org.synapseworks.m35.workerprobe.BIND_PROBE" android:protectionLevel="signature"/>
+ <queries><package android:name="org.synapseworks.m35.callerprobe"/></queries>
+ <application android:label="M35 disposable engine probe" android:allowBackup="false" android:fullBackupContent="false" android:usesCleartextTraffic="false" android:extractNativeLibs="false">
+  <service android:name=".Coordinator" android:exported="true" android:permission="org.synapseworks.m35.workerprobe.BIND_PROBE"/>
+  <service android:name=".NativeService" android:exported="false" android:isolatedProcess="true" android:process=":nativeprobe" android:stopWithTask="true"/>
+  <service android:name=".IsolationService" android:exported="false" android:isolatedProcess="true" android:process=":isolationprobe" android:stopWithTask="true"/>
+ </application>
+</manifest>

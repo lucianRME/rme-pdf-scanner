@@ -1,0 +1,40 @@
+{
+  "scope": "Independent prospective references, not bilingual approval",
+  "humanReview": "NOT_RUN",
+  "qualityGates": {
+    "frozenM36Exact": 2,
+    "negationRequired": "nu",
+    "numbersPreserved": true,
+    "humanEquivalence": "NOT_RUN"
+  },
+  "cases": [
+    {
+      "source": "Hello world.",
+      "reference": "Bună, lume."
+    },
+    {
+      "source": "The document is on the table.",
+      "reference": "Documentul este pe masă."
+    },
+    {
+      "source": "Do not sign this document.",
+      "reference": "Nu semnați acest document."
+    },
+    {
+      "source": "Ana has 12 books.",
+      "reference": "Ana are 12 cărți."
+    },
+    {
+      "source": "The date is 2026-11-13.",
+      "reference": "Data este 2026-11-13."
+    },
+    {
+      "source": "Romania and Bucharest.",
+      "reference": "România și București."
+    },
+    {
+      "source": "First paragraph.\n\nSecond paragraph.",
+      "reference": "Primul paragraf.\n\nAl doilea paragraf."
+    }
+  ]
+}

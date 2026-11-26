@@ -63,6 +63,8 @@ internal fun libraryFolderParentScope(parentFolderId: String?): String = parentF
         Index(value = ["modified_at"]),
         Index(value = ["pending_operation_id"]),
         Index(value = ["library_state", "modified_at"]),
+        Index(value = ["library_state", "is_favorite", "modified_at", "document_id"]),
+        Index(value = ["library_state", "trash_revision", "document_id"]),
         Index(value = ["library_state", "row_id"]),
         Index(value = ["library_state", "folder_id", "modified_at"]),
         Index(value = ["library_state", "content_hash_version", "content_sha256"]),
@@ -123,6 +125,9 @@ data class LibraryDocumentEntity(
     val sourceProvenanceKind: String? = null,
     @ColumnInfo(name = "source_provenance_label")
     val sourceProvenanceLabel: String? = null,
+    @ColumnInfo(name = "is_favorite", defaultValue = "0") val isFavorite: Boolean = false,
+    @ColumnInfo(name="trashed_at") val trashedAtMillis:Long?=null,
+    @ColumnInfo(name="trash_revision",defaultValue="0") val trashRevision:Long=0,
 ) {
     init {
         require(ocrScriptPreference == null || ocrScriptPreference.isSupportedOcrSelectionId())
@@ -182,6 +187,14 @@ data class LibraryPageEntity(
     val rotationDegrees: Int,
     @ColumnInfo(name = "filter_name")
     val filterName: String,
+    @ColumnInfo(name = "brightness", defaultValue = "0")
+    val brightness: Int = 0,
+    @ColumnInfo(name = "contrast", defaultValue = "0")
+    val contrast: Int = 0,
+    @ColumnInfo(name = "annotations", defaultValue = "''")
+    val annotations: String = "",
+    @ColumnInfo(name = "paper_size", defaultValue = "''")
+    val paperSize: String = "",
     @ColumnInfo(name = "ocr_text")
     val ocrText: String?,
     @ColumnInfo(name = "ocr_error")
@@ -810,6 +823,7 @@ data class LibraryDocumentListingRow(
     @ColumnInfo(name = "folder_name") val folderName: String?,
     @ColumnInfo(name = "thumbnail_path") val thumbnailRelativePath: String?,
     @ColumnInfo(name = "ocr_status") val ocrStatus: String,
+    @ColumnInfo(name = "is_favorite") val isFavorite: Boolean = false,
 )
 
 data class LibrarySearchRow(
@@ -829,6 +843,7 @@ data class LibrarySearchRow(
     @ColumnInfo(name = "page_position") val pagePosition: Int?,
     @ColumnInfo(name = "match_type") val matchType: String,
     @ColumnInfo(name = "match_snippet") val matchSnippet: String?,
+    @ColumnInfo(name = "is_favorite") val isFavorite: Boolean = false,
 )
 
 data class LibraryEffectiveOcrPageRow(

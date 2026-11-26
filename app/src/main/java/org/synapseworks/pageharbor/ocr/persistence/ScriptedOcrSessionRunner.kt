@@ -152,6 +152,7 @@ class ScriptedOcrSessionRunner(private val engine: OcrPageRecognitionEngine) {
             pageIndex = index,
             text = rawText,
             layout = layout,
+            actualScript = provenance.actualScript,
         )
         is OcrPageRecognitionOutcome.Failure -> OcrPageResult(
             pageIndex = index,

@@ -1,0 +1,32 @@
+{
+  "region": [
+    0.05,
+    0.35,
+    0.95,
+    0.55
+  ],
+  "page": 1,
+  "replacement": "Zoë 0020",
+  "sourceCoveredText": "COVERED 0012",
+  "neighborNative": "KEEP NATIVE",
+  "supported": [
+    "image.pdf",
+    "courier.pdf",
+    "image-90.pdf",
+    "image-270.pdf",
+    "courier-180.pdf"
+  ],
+  "declined": [
+    "active.pdf",
+    "signed.pdf",
+    "encrypted.pdf"
+  ],
+  "backgroundDecline": "colored.pdf",
+  "invalidText": [
+    "漢字",
+    "😀",
+    "a­b",
+    "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW"
+  ],
+  "extraction": "Covered source native text remains extractable; new text is added. Image source has no source text layer."
+}

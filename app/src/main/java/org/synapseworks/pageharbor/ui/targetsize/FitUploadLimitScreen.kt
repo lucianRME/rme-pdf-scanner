@@ -1,7 +1,12 @@
 package org.synapseworks.pageharbor.ui.targetsize
 
+import org.synapseworks.pageharbor.ui.theme.RmeIconButton
+import org.synapseworks.pageharbor.ui.theme.RmeTextButton
+import org.synapseworks.pageharbor.ui.theme.RmeTextField
+
 import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
+import org.synapseworks.pageharbor.image.renderDisplayBitmap
 import android.os.ParcelFileDescriptor
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
@@ -17,6 +22,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -31,12 +38,10 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -86,7 +91,6 @@ import org.synapseworks.pageharbor.ui.theme.PageHarborLayout
 import org.synapseworks.pageharbor.ui.theme.PageHarborSpacing
 import org.synapseworks.pageharbor.ui.theme.RmePrimaryButton
 import org.synapseworks.pageharbor.ui.theme.RmeSecondaryButton
-import org.synapseworks.pageharbor.ui.theme.RmeFilledTextField
 import org.synapseworks.pageharbor.ui.theme.RmeTonalChoice
 import org.synapseworks.pageharbor.ui.theme.rmeColors
 
@@ -118,7 +122,7 @@ fun FitUploadLimitScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    RmeIconButton(onClick = onBack) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = stringResource(R.string.fit_limit_close),
@@ -131,7 +135,7 @@ fun FitUploadLimitScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
+                .padding(padding).consumeWindowInsets(padding).imePadding(),
             contentAlignment = Alignment.TopCenter,
         ) {
             when (state) {
@@ -268,7 +272,7 @@ private fun CustomLimitInput(
 ) {
     val error = (selection.validation as? TargetSizeCustomValidation.Invalid)?.reason
     Column(verticalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
-        RmeFilledTextField(
+        RmeTextField(
             modifier = Modifier.fillMaxWidth(),
             value = selection.text,
             onValueChange = onTextChanged,
@@ -349,7 +353,7 @@ private fun PreparingContent(state: TargetSizeWorkflowState.Preparing, onCancel:
         )
         Text(stringResource(progressText(state.progress)))
         Text(formatTargetSize(state.targetBytes), style = MaterialTheme.typography.titleMedium)
-        TextButton(
+        RmeTextButton(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 48.dp),
@@ -505,7 +509,7 @@ private fun PreparedDetails(
                 Text(stringResource(R.string.fit_limit_share))
             }
         }
-        TextButton(
+        RmeTextButton(
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
             enabled = !saving,
             onClick = onChangeLimit,
@@ -628,7 +632,7 @@ private fun FailedContent(
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                 onClick = onRetry,
             ) { Text(stringResource(R.string.fit_limit_retry)) }
-            TextButton(
+            RmeTextButton(
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                 onClick = onChangeLimit,
             ) { Text(stringResource(R.string.fit_limit_choose_another)) }
@@ -682,7 +686,7 @@ private fun PreparedPdfPreview(prepared: TargetSizePreparedPdf, modifier: Modifi
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(
+            RmeIconButton(
                 modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
                 enabled = pageIndex > 0,
                 onClick = { pageIndex-- },
@@ -693,7 +697,7 @@ private fun PreparedPdfPreview(prepared: TargetSizePreparedPdf, modifier: Modifi
                 )
             }
             Text(stringResource(R.string.fit_limit_page_indicator, pageIndex + 1, prepared.pageCount))
-            IconButton(
+            RmeIconButton(
                 modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
                 enabled = pageIndex < prepared.pageCount - 1,
                 onClick = { pageIndex++ },
@@ -718,7 +722,7 @@ private fun renderPreparedPage(file: File, pageIndex: Int): android.graphics.Bit
                 )
                 val width = (page.width * scale).roundToInt().coerceAtLeast(1)
                 val height = (page.height * scale).roundToInt().coerceAtLeast(1)
-                createBitmap(width, height).also { bitmap ->
+                renderDisplayBitmap(width, height) { bitmap ->
                     bitmap.eraseColor(Color.WHITE)
                     page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                 }

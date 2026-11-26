@@ -1,5 +1,10 @@
 package org.synapseworks.pageharbor.ui.security
 
+import org.synapseworks.pageharbor.ui.theme.RmeIconButton
+import org.synapseworks.pageharbor.ui.theme.RmePrimaryButton
+import org.synapseworks.pageharbor.ui.theme.RmeSecondaryButton
+import org.synapseworks.pageharbor.ui.theme.RmeTextButton
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -15,17 +21,13 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -63,7 +65,7 @@ fun AppLockScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(padding)
+                    .padding(padding).consumeWindowInsets(padding)
                     .padding(horizontal = 32.dp)
                     .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -92,11 +94,11 @@ fun AppLockScreen(
                         color = MaterialTheme.colorScheme.error,
                     )
                     Spacer(Modifier.height(12.dp))
-                    OutlinedButton(onClick = onOpenDeviceSecuritySettings) {
+                    RmeSecondaryButton(onClick = onOpenDeviceSecuritySettings) {
                         Text(stringResource(R.string.app_lock_open_device_security_settings))
                     }
                 } else {
-                    Button(
+                    RmePrimaryButton(
                         modifier = Modifier.fillMaxWidth(),
                         enabled = authenticationAvailability ==
                             AppLockAuthenticationAvailability.AVAILABLE,
@@ -121,7 +123,7 @@ fun AppLockScreen(
                     )
                 }
                 Spacer(Modifier.height(20.dp))
-                TextButton(onClick = onExit) {
+                RmeTextButton(onClick = onExit) {
                     Text(stringResource(R.string.app_lock_exit_action))
                 }
             }
@@ -149,7 +151,7 @@ fun AppLockSettingsScreen(
             TopAppBar(
                 title = { Text(stringResource(R.string.app_lock_settings_title)) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    RmeIconButton(onClick = onBack) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = stringResource(R.string.library_cancel),
@@ -162,7 +164,7 @@ fun AppLockSettingsScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(padding).consumeWindowInsets(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -212,14 +214,14 @@ fun AppLockSettingsScreen(
                         text = stringResource(R.string.app_lock_no_device_lock_message),
                         color = MaterialTheme.colorScheme.error,
                     )
-                    OutlinedButton(
+                    RmeSecondaryButton(
                         modifier = Modifier.fillMaxWidth(),
                         onClick = onOpenDeviceSecuritySettings,
                     ) {
                         Text(stringResource(R.string.app_lock_open_device_security_settings))
                     }
                 }
-                Button(
+                RmePrimaryButton(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = authenticationAvailability ==
                         AppLockAuthenticationAvailability.AVAILABLE,
@@ -259,10 +261,10 @@ fun AppLockSettingsScreen(
                     }
                 }
                 Text(stringResource(R.string.app_lock_device_auth_description))
-                Button(modifier = Modifier.fillMaxWidth(), onClick = onLockNow) {
+                RmePrimaryButton(modifier = Modifier.fillMaxWidth(), onClick = onLockNow) {
                     Text(stringResource(R.string.app_lock_lock_now_action))
                 }
-                TextButton(
+                RmeTextButton(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = { confirmDisable = true },
                 ) {
@@ -278,7 +280,7 @@ fun AppLockSettingsScreen(
             title = { Text(stringResource(R.string.app_lock_disable_confirm_title)) },
             text = { Text(stringResource(R.string.app_lock_disable_confirm_message)) },
             confirmButton = {
-                TextButton(onClick = {
+                RmeTextButton(onClick = {
                     message = if (onDisable() == AppLockAuthenticatedChangeResult.APPLIED) {
                         R.string.app_lock_updated
                     } else {
@@ -288,7 +290,7 @@ fun AppLockSettingsScreen(
                 }) { Text(stringResource(R.string.app_lock_disable_action)) }
             },
             dismissButton = {
-                TextButton(onClick = { confirmDisable = false }) {
+                RmeTextButton(onClick = { confirmDisable = false }) {
                     Text(stringResource(R.string.library_cancel))
                 }
             },

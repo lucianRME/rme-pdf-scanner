@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-11-26
+
+- Added batch camera capture, guided ID capture, book splitting, perspective correction and reviewed cleanup tools.
+- Improved OCR reading order, linked passage review and offline spelling suggestions. Fixed high-resolution camera photo import.
+- Added editable Office-format exports, tables and receipt extraction, PDF forms, annotations, reusable signatures, password-protected exports and image-only PDF/A archival copies.
+- Added tags, favorites, a recycle bin, export presets and optional offline translation on supported devices.
+
+See [release notes, download details and verification](docs/releases/v1.8.0.md).
+
 ## [1.7.2] - 2026-10-28
 
 ### Changed

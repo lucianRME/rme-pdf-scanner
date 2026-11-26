@@ -1,5 +1,9 @@
 package org.synapseworks.pageharbor.ui.home
 
+import org.synapseworks.pageharbor.ui.theme.RmePrimaryButton
+import org.synapseworks.pageharbor.ui.theme.RmeSecondaryButton
+import org.synapseworks.pageharbor.ui.theme.RmeTextButton
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -8,22 +12,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
@@ -83,7 +85,7 @@ fun HomeScreen(
         Surface(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding).consumeWindowInsets(innerPadding),
             color = MaterialTheme.colorScheme.background,
         ) {
             BoxWithConstraints(
@@ -131,7 +133,7 @@ fun HomeScreen(
                         color = MaterialTheme.colorScheme.onBackground,
                         textAlign = TextAlign.Center,
                     )
-                    Button(
+                    RmePrimaryButton(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = PageHarborSpacing.extraLarge),
@@ -140,7 +142,7 @@ fun HomeScreen(
                     ) {
                         Text(text = stringResource(R.string.home_scan_document))
                     }
-                    OutlinedButton(
+                    RmeSecondaryButton(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = PageHarborSpacing.small),
@@ -163,13 +165,13 @@ fun HomeScreen(
                         onViewScanResult = onViewScanResult,
                         onCancelImport = onCancelImport,
                     )
-                    TextButton(
+                    RmeTextButton(
                         modifier = Modifier.padding(top = PageHarborSpacing.small),
                         onClick = onPrivacyInfo,
                     ) {
                         Text(text = stringResource(R.string.home_privacy_action))
                     }
-                    TextButton(
+                    RmeTextButton(
                         onClick = onAbout,
                     ) {
                         Text(text = stringResource(R.string.home_about_action))
@@ -259,7 +261,7 @@ private fun HomeScanStatus(
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
-            TextButton(onClick = onCancelImport) {
+            RmeTextButton(onClick = onCancelImport) {
                 Text(stringResource(R.string.import_cancel_action))
             }
         }
@@ -272,7 +274,7 @@ private fun HomeScanStatus(
         }
 
         hasActiveSession -> {
-            TextButton(
+            RmeTextButton(
                 modifier = Modifier.padding(top = PageHarborSpacing.small),
                 onClick = onViewScanResult,
             ) {
@@ -354,7 +356,7 @@ private fun ScanResultSummary(
             textAlign = TextAlign.Center,
         )
         if (resultSummary.hasPdf) {
-            Button(
+            RmePrimaryButton(
                 modifier = Modifier.padding(top = PageHarborSpacing.small),
                 enabled = !saveInProgress,
                 onClick = onSavePdf,
@@ -365,7 +367,7 @@ private fun ScanResultSummary(
         if (resultSummary.hasPdf || resultSummary.jpegPageCount > 0) {
             Row(horizontalArrangement = Arrangement.spacedBy(PageHarborSpacing.small)) {
                 if (resultSummary.hasPdf) {
-                    OutlinedButton(
+                    RmeSecondaryButton(
                         enabled = !shareInProgress,
                         onClick = onSharePdf,
                     ) {
@@ -373,7 +375,7 @@ private fun ScanResultSummary(
                     }
                 }
                 if (resultSummary.jpegPageCount > 0) {
-                    OutlinedButton(
+                    RmeSecondaryButton(
                         enabled = pageExportProgress == null,
                         onClick = onExportPages,
                     ) {
@@ -469,7 +471,7 @@ private fun ScanResultSummary(
             )
         }
         if (resultSummary.jpegPageCount > 0) {
-            OutlinedButton(
+            RmeSecondaryButton(
                 enabled = canStartOcr(ocrUiState),
                 onClick = onRecognizeText,
             ) {
@@ -489,7 +491,7 @@ private fun ScanResultSummary(
             onViewRecognizedText = onViewRecognizedText,
             onClearRecognizedText = onClearRecognizedText,
         )
-        OutlinedButton(
+        RmeSecondaryButton(
             modifier = Modifier.padding(top = PageHarborSpacing.small),
             onClick = onClearScanResult,
         ) {
@@ -542,7 +544,7 @@ private fun OcrResultSection(
         }
 
         is OcrUiState.Success -> {
-            OutlinedButton(onClick = onViewRecognizedText) {
+            RmeSecondaryButton(onClick = onViewRecognizedText) {
                 Text(text = stringResource(R.string.ocr_view_action))
             }
         }
@@ -568,6 +570,7 @@ internal fun PrivacyInfoDialog(onDismiss: () -> Unit) {
             ) {
                 Text(text = stringResource(R.string.home_privacy_dialog_local_processing))
                 Text(text = stringResource(R.string.home_privacy_dialog_library))
+                Text(text = stringResource(R.string.home_privacy_dialog_camera))
                 Text(text = stringResource(R.string.home_privacy_dialog_no_cloud))
                 Text(text = stringResource(R.string.home_privacy_dialog_user_choice))
                 Text(text = stringResource(R.string.home_privacy_dialog_no_tracking))
@@ -575,7 +578,7 @@ internal fun PrivacyInfoDialog(onDismiss: () -> Unit) {
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
+            RmeTextButton(onClick = onDismiss) {
                 Text(text = stringResource(R.string.home_privacy_dialog_dismiss))
             }
         }
@@ -619,12 +622,12 @@ internal fun AboutDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
+            RmeTextButton(onClick = onDismiss) {
                 Text(text = stringResource(R.string.about_close))
             }
         },
         dismissButton = {
-            TextButton(onClick = onViewSourceCode) {
+            RmeTextButton(onClick = onViewSourceCode) {
                 Text(text = stringResource(R.string.about_view_source))
             }
         },

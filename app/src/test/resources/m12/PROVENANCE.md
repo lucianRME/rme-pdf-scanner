@@ -1,0 +1,9 @@
+# M12 independent synthetic corpus provenance
+
+All scene parameters, glyph-like ink renderer, ruled/illustrated content, forward distortions, landmarks and masks are original test material dedicated to CC0-1.0. No external book, document, font, image, model, OCR output or proprietary asset is included. Source code/data are reproducible from corpus.csv and CurvatureCorpus.kt. The renderer never calls the production estimator or mapping.
+
+24 curved pages:16 development cosine/Gaussian fields;8 held-out sine/shoulder fields with asymmetric vertical spacing.16 controls:4 flat,2 blank,2 photograph-like,2 diagrams,2 conflicting columns, strong curve, horizontal keystone, non-affine twist and pure grid. Held-out cases are scored only after initial development implementation and remain frozen. Quarter turns exercise known orientation normalization, not text-language orientation inference. Glyph-like masks are not physical photographed-book readability or OCR evidence.
+
+Forward fields are independent analytic scene definitions. The estimator must infer a sampled displacement field from image pixels; it never receives scene parameters/reference pixels/landmarks. Tests include absolute source-to-reference geometry, Jacobian and support bounds, so collapsing all lines cannot pass. Pixel masks/landmarks are evaluated separately from JPEG/native export tolerances. Initial failures are retained; no core failure can be deferred into a wider-coverage category.
+
+An independent research worker authored eight additional final-challenge scene parameter rows under the same CC0-1.0 dedication, without inspecting estimator source/outputs. Their exact CSV hash was frozen before resource-bound refinement; original held-out6/8 failure remains visible and subsequent original-set scores are re-evaluations. The final challenge is supplemental, with the original quantitative gates unchanged.

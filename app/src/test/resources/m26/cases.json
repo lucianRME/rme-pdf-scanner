@@ -1,0 +1,130 @@
+[
+  {
+    "id": "crease-weak",
+    "crease": 18,
+    "stain": 0,
+    "crossing": false,
+    "exactControl": false,
+    "combined": false
+  },
+  {
+    "id": "crease-medium",
+    "crease": 35,
+    "stain": 0,
+    "crossing": false,
+    "exactControl": false,
+    "combined": false
+  },
+  {
+    "id": "crease-strong",
+    "crease": 55,
+    "stain": 0,
+    "crossing": false,
+    "exactControl": false,
+    "combined": false
+  },
+  {
+    "id": "stain-weak",
+    "crease": 0,
+    "stain": 20,
+    "crossing": false,
+    "exactControl": false,
+    "combined": false
+  },
+  {
+    "id": "stain-medium",
+    "crease": 0,
+    "stain": 35,
+    "crossing": false,
+    "exactControl": false,
+    "combined": false
+  },
+  {
+    "id": "stain-strong",
+    "crease": 0,
+    "stain": 50,
+    "crossing": false,
+    "exactControl": false,
+    "combined": false
+  },
+  {
+    "id": "combined",
+    "crease": 35,
+    "stain": 35,
+    "crossing": false,
+    "exactControl": false,
+    "combined": true
+  },
+  {
+    "id": "crossing",
+    "crease": 35,
+    "stain": 35,
+    "crossing": true,
+    "exactControl": false,
+    "combined": true
+  },
+  {
+    "id": "clean",
+    "crease": 0,
+    "stain": 0,
+    "crossing": false,
+    "exactControl": true,
+    "combined": false
+  },
+  {
+    "id": "clean-white",
+    "crease": 0,
+    "stain": 0,
+    "crossing": false,
+    "exactControl": true,
+    "combined": false
+  },
+  {
+    "id": "colored-paper",
+    "crease": 0,
+    "stain": 0,
+    "crossing": false,
+    "exactControl": true,
+    "combined": false
+  },
+  {
+    "id": "sharp-crease",
+    "crease": 0,
+    "stain": 0,
+    "crossing": false,
+    "exactControl": true,
+    "combined": false
+  },
+  {
+    "id": "punctuation",
+    "crease": 0,
+    "stain": 0,
+    "crossing": false,
+    "exactControl": true,
+    "combined": false
+  },
+  {
+    "id": "ambiguous-front",
+    "crease": 0,
+    "stain": 0,
+    "crossing": false,
+    "exactControl": true,
+    "combined": false
+  },
+  {
+    "id": "ambiguous-stain",
+    "crease": 0,
+    "stain": 0,
+    "crossing": false,
+    "exactControl": true,
+    "combined": false
+  },
+  {
+    "id": "dark-photo",
+    "crease": 0,
+    "stain": 0,
+    "crossing": false,
+    "exactControl": true,
+    "combined": false
+  }
+]

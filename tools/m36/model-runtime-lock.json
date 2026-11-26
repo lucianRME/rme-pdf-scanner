@@ -1,0 +1,40 @@
+{
+  "profile": "rme-en-ro-check-v1",
+  "files": [
+    {
+      "path": "assets/m36-model-NOTICES.txt",
+      "bytes": 2853570,
+      "sha256": "6bd310d89ad754f2c6b0b4f5fed0587be7e2d0eb69fbca7a0e06b0b768b418ad"
+    },
+    {
+      "path": "jniLibs/arm64-v8a/libc++_shared.so",
+      "bytes": 1794776,
+      "sha256": "d523468d62d9b603cb3354294d70d4b2feabf2c3f1e43b0c96c9aabf32813708"
+    },
+    {
+      "path": "jniLibs/arm64-v8a/libdjl_tokenizer.so",
+      "bytes": 11305520,
+      "sha256": "b7f08219d3369d0d3b78625938af591d91f475d7a17e01fe99497138432999c4"
+    },
+    {
+      "path": "jniLibs/arm64-v8a/libonnxruntime.so",
+      "bytes": 32990480,
+      "sha256": "df5d25c72a868dca773597c71e2000756d43fe4d70ade516d3693c54e12e0ada"
+    },
+    {
+      "path": "jniLibs/arm64-v8a/libonnxruntime4j_jni.so",
+      "bytes": 111648,
+      "sha256": "0695257178815f8c58c1719ba07d6d5d91a2b339634328cca2a0a98aa7ff2952"
+    },
+    {
+      "path": "libs/ort-core.jar",
+      "bytes": 269129,
+      "sha256": "24d54f251cde785f045ac734b66d1acbaf1292b497d42de2c53c65c2feac2006"
+    },
+    {
+      "path": "libs/tokenizer-jni.jar",
+      "bytes": 2675,
+      "sha256": "0230accad0c8300a5cd8ef390e8a5216ddc18023f52a3c7c0526e5227e5013b1"
+    }
+  ]
+}

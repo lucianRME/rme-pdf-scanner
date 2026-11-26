@@ -23,6 +23,9 @@ fun targetSizePdfRequest(
                 contentType = page.contentType,
                 imageMetadata = page.imageMetadata,
                 filter = page.filter,
+                adjustments = page.adjustments,
+            annotations = page.annotations,
+                paperSize = page.paperSize,
                 rotation = page.rotation,
                 effectiveOcr = ocrByIndex[index],
                 contentProfile = contentProfiles[page.id.value]

@@ -4,11 +4,14 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasSetTextAction
@@ -16,6 +19,7 @@ import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
@@ -65,6 +69,8 @@ import org.synapseworks.pageharbor.ui.portability.BackupVerificationStatusUiMode
 import org.synapseworks.pageharbor.ui.portability.PortabilityCallbacks
 import org.synapseworks.pageharbor.ui.portability.PortabilityWorkflowState
 import org.synapseworks.pageharbor.ui.portability.ScannerMigrationSource
+
+private const val LEGACY_UI_PAGE_COUNT = 20
 
 class HomeScreenTest {
     @get:Rule
@@ -190,33 +196,32 @@ class HomeScreenTest {
     }
 
     @Test
-    fun bottomNavigationAndScanFabKeepPrimaryDestinationsOneTapAway() {
+    fun captureAndPrimaryDestinationsAreReachableFromPopulatedHome() {
         composeTestRule.setContent {
             PageHarborApp(libraryUiState = savedLibraryState(2))
         }
 
         composeTestRule.onNodeWithText("Home").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("library-scan-fab").assertIsDisplayed().assertIsEnabled()
+        composeTestRule.onNodeWithText("Import").assertIsEnabled()
         composeTestRule.onNodeWithText("Documents").assertIsDisplayed().performClick()
         composeTestRule.onNodeWithContentDescription("Create folder").assertIsDisplayed()
-        composeTestRule.onNodeWithContentDescription("Scan").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("library-scan-fab").assertIsDisplayed()
         composeTestRule.onAllNodesWithText("1 page", substring = true).assertCountEquals(2)
 
         composeTestRule.onNodeWithText("Tools").assertIsDisplayed().performClick()
         composeTestRule.onAllNodesWithContentDescription("Search tools").assertCountEquals(0)
-        listOf("Import & capture", "PDF tools", "Text & privacy").forEach { heading ->
+        listOf("Import & capture", "Extract text & data", "PDF tools").forEach { heading ->
+            composeTestRule.onNodeWithTag("tools-grid").performScrollToNode(hasText(heading))
             composeTestRule.onNodeWithText(heading).assertIsDisplayed()
         }
-        composeTestRule.onNodeWithContentDescription("Import files").assertIsDisplayed()
-        composeTestRule.onNodeWithContentDescription("Merge documents").assertIsDisplayed()
-        composeTestRule.onNodeWithContentDescription("Split or extract pages").assertIsDisplayed()
-        composeTestRule.onNodeWithContentDescription(
-            "Fit upload limit. Create a PDF under a chosen file-size limit.",
-        ).assertIsDisplayed()
-        composeTestRule.onNodeWithContentDescription(
-            "ID / card copy. Front and back on one PDF page.",
-        ).assertIsDisplayed().assertIsEnabled()
-        composeTestRule.onNodeWithContentDescription("Extract text with OCR").assertIsDisplayed()
-        composeTestRule.onNodeWithContentDescription("Scan").assertIsDisplayed()
+        tool("Import files").assertIsDisplayed()
+        tool("Merge documents").assertIsDisplayed()
+        tool("Split or extract pages").assertIsDisplayed()
+        tool("Fit upload limit. Create a PDF under a chosen file-size limit.").assertIsDisplayed()
+        tool("ID / card copy. Front and back on one PDF page.").assertIsDisplayed().assertIsEnabled()
+        tool("Extract text with OCR").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("library-scan-fab").assertIsDisplayed()
 
         composeTestRule.onNodeWithText("More").assertIsDisplayed().performClick()
         composeTestRule.onNodeWithText("Rate RME").performScrollTo().assertIsDisplayed()
@@ -296,38 +301,30 @@ class HomeScreenTest {
     }
 
     @Test
-    fun scanChooserRoutesDocumentIdAndImportToTheirExistingEntryPoints() {
-        var scanClickCount = 0
-        var cardClickCount = 0
-        var importClickCount = 0
-
+    fun cameraImportCardAndGoogleScanReachTheirOwnEntryPoints() {
+        val actions = mutableListOf<String>()
         composeTestRule.setContent {
             PageHarborApp(
-                onScanDocument = { scanClickCount += 1 },
-                onOpenCardCopy = { cardClickCount += 1 },
-                onImportFiles = { importClickCount += 1 },
+                onManualScan = { actions += "camera" },
+                onImportFiles = { actions += "import" },
+                onOpenCardCopy = { actions += "card" },
+                onScanDocument = { actions += "google" },
             )
         }
 
         composeTestRule.onNodeWithContentDescription("Scan").performClick()
-        composeTestRule.onNodeWithContentDescription(
-            "Document. Scan pages and adjust corners before importing",
-        ).performClick()
-        assertEquals(1, scanClickCount)
-
-        composeTestRule.onNodeWithContentDescription("Scan").performClick()
-        composeTestRule.onNodeWithText("ID / card").performClick()
-        assertEquals(1, cardClickCount)
-
-        composeTestRule.onNodeWithContentDescription("Scan").performClick()
-        composeTestRule.onNodeWithContentDescription(
-            "Import files. Choose an existing PDF or images",
-        ).performClick()
-        assertEquals(1, importClickCount)
+        composeTestRule.onAllNodesWithText("New scan").assertCountEquals(0)
+        composeTestRule.onNodeWithText("Import").performClick()
+        composeTestRule.onNodeWithText("Documents").performClick()
+        composeTestRule.onNodeWithText("Import").assertIsDisplayed().performClick()
+        composeTestRule.onNodeWithText("Tools").performClick()
+        tool("ID / card copy. Front and back on one PDF page.").performClick()
+        tool("Google auto scan. Uses Google’s camera controls.").performClick()
+        assertEquals(listOf("camera", "import", "import", "card", "google"), actions)
     }
 
     @Test
-    fun cancellingImportFromNewScanRestoresTheNewScanSheet() {
+    fun cancelledHomeImportReturnsToTheSameLibrary() {
         var importState by mutableStateOf<DocumentImportUiState>(DocumentImportUiState.Idle)
         composeTestRule.setContent {
             PageHarborApp(
@@ -336,17 +333,12 @@ class HomeScreenTest {
                 onImportFiles = { importState = DocumentImportUiState.Selecting },
             )
         }
-
-        composeTestRule.onNodeWithContentDescription("Scan").performClick()
-        composeTestRule.onNodeWithContentDescription(
-            "Import files. Choose an existing PDF or images",
-        ).performClick()
+        composeTestRule.onNodeWithText("Import").performClick()
+        composeTestRule.onNodeWithText("Import").assertIsNotEnabled()
         composeTestRule.runOnIdle { importState = DocumentImportUiState.Cancelled }
-
-        composeTestRule.onNodeWithText("New scan").assertIsDisplayed()
-        composeTestRule.onNodeWithContentDescription(
-            "Document. Scan pages and adjust corners before importing",
-        ).assertIsDisplayed()
+        composeTestRule.onNodeWithText("Import").assertIsDisplayed().assertIsEnabled()
+        composeTestRule.onNodeWithTag("library-scan-fab").assertIsDisplayed()
+        composeTestRule.onAllNodesWithText("New scan").assertCountEquals(0)
     }
 
     @Test
@@ -360,11 +352,11 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("Tools").performClick()
-        composeTestRule.onNodeWithContentDescription("Import files").performClick()
+        tool("Import files").performClick()
         composeTestRule.runOnIdle { importState = DocumentImportUiState.Cancelled }
 
         composeTestRule.onAllNodesWithText("Tools").assertCountEquals(2)
-        composeTestRule.onNodeWithContentDescription("Import files").assertIsDisplayed()
+        tool("Import files").assertIsDisplayed()
         composeTestRule.onAllNodesWithText("New scan").assertCountEquals(0)
     }
 
@@ -379,8 +371,8 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("Tools").performClick()
-        composeTestRule.onNodeWithContentDescription("Extract text with OCR").performClick()
-        composeTestRule.onAllNodesWithText("Import files")[1].performClick()
+        tool("Extract text with OCR").performClick()
+        composeTestRule.onNode(hasText("Import files") and hasAnyAncestor(isDialog())).performClick()
         composeTestRule.runOnIdle { importState = DocumentImportUiState.Cancelled }
 
         composeTestRule.onNodeWithText("No saved documents yet").assertIsDisplayed()
@@ -394,7 +386,7 @@ class HomeScreenTest {
             PageHarborApp(onImportFiles = { importClickCount += 1 })
         }
 
-        composeTestRule.onNodeWithText("Import files")
+        composeTestRule.onNodeWithText("Import")
             .assertIsDisplayed()
             .assertIsEnabled()
             .performClick()
@@ -403,14 +395,16 @@ class HomeScreenTest {
     }
 
     @Test
-    fun homeEmptyStateUsesScanCtaAndOpensNewScanChooser() {
-        composeTestRule.setContent { PageHarborApp() }
+    fun homeScanFabOpensCameraImmediately() {
+        var opens = 0
+        composeTestRule.setContent { PageHarborApp(onManualScan = { opens++ }) }
 
-        composeTestRule.onNode(hasText("Scan") and androidx.compose.ui.test.hasClickAction())
+        composeTestRule.onNodeWithTag("library-scan-fab")
             .assertIsDisplayed()
             .performClick()
 
-        composeTestRule.onNodeWithText("New scan").assertIsDisplayed()
+        assertEquals(1, opens)
+        composeTestRule.onAllNodesWithText("New scan").assertCountEquals(0)
     }
 
     @Test
@@ -424,7 +418,7 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("Tools").performClick()
-        composeTestRule.onNodeWithContentDescription("Extract text with OCR").performClick()
+        tool("Extract text with OCR").performClick()
         composeTestRule.onNodeWithText("Choose a document").assertIsDisplayed()
         composeTestRule.onNodeWithText("Cancel").performClick()
 
@@ -503,10 +497,10 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("Tools").performClick()
-        composeTestRule.onNodeWithContentDescription("Merge documents").performClick()
+        tool("Merge documents").performClick()
         composeTestRule.onNodeWithText("Saved document 1").performClick()
         composeTestRule.onNodeWithText("Cancel").performClick()
-        composeTestRule.onNodeWithContentDescription("Extract text with OCR").performClick()
+        tool("Extract text with OCR").performClick()
 
         composeTestRule.onNodeWithText("Choose a document").assertIsDisplayed()
         composeTestRule.onNodeWithContentDescription("Continue: Extract text").assertIsNotEnabled()
@@ -527,7 +521,7 @@ class HomeScreenTest {
             "Split or extract pages",
             "Extract text with OCR",
         ).forEach { label ->
-            composeTestRule.onNodeWithContentDescription(label).assertIsDisplayed()
+            tool(label).assertIsDisplayed()
         }
     }
 
@@ -544,10 +538,10 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("Tools").performClick()
-        composeTestRule.onNodeWithContentDescription("Import files").performClick()
+        tool("Import files").performClick()
         assertEquals(1, importClickCount)
 
-        composeTestRule.onNodeWithContentDescription("Merge documents").performClick()
+        tool("Merge documents").performClick()
         composeTestRule.onNodeWithText("Choose documents to merge").assertIsDisplayed()
         composeTestRule.onNodeWithText("Saved document 1").performClick()
         composeTestRule.onNodeWithText("Saved document 2").performClick()
@@ -567,7 +561,7 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("Tools").performClick()
-        composeTestRule.onNodeWithContentDescription("Split or extract pages").performClick()
+        tool("Split or extract pages").performClick()
         composeTestRule.onNodeWithText("Choose a document").assertIsDisplayed()
         composeTestRule.onNodeWithText("Saved document 1").assertIsDisplayed()
     }
@@ -579,7 +573,7 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("Tools").performClick()
-        composeTestRule.onNodeWithContentDescription("Extract text with OCR").performClick()
+        tool("Extract text with OCR").performClick()
         composeTestRule.onNodeWithText("Choose a document").assertIsDisplayed()
         composeTestRule.onNodeWithText("Saved document 1").assertIsDisplayed()
     }
@@ -606,7 +600,7 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("Tools").performClick()
-        composeTestRule.onNodeWithContentDescription("Extract text with OCR").performClick()
+        tool("Extract text with OCR").performClick()
         composeTestRule.onNodeWithText("Saved document 1").performClick()
         composeTestRule.onNodeWithContentDescription("Continue: Extract text").performClick()
 
@@ -634,7 +628,7 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("Tools").performClick()
-        composeTestRule.onNodeWithContentDescription("Split or extract pages").performClick()
+        tool("Split or extract pages").performClick()
         composeTestRule.onNodeWithText("Saved document 1").performClick()
         composeTestRule.onNodeWithContentDescription("Continue: Split / Extract").performClick()
 
@@ -663,9 +657,7 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("Tools").performClick()
-        composeTestRule.onNodeWithContentDescription(
-            "Fit upload limit. Create a PDF under a chosen file-size limit.",
-        ).performClick()
+        tool("Fit upload limit. Create a PDF under a chosen file-size limit.").performClick()
         composeTestRule.onNodeWithText("Saved document 1").performClick()
         composeTestRule.onNodeWithContentDescription("Continue: Fit upload limit").performClick()
 
@@ -695,9 +687,7 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("Tools").performClick()
-        composeTestRule.onNodeWithContentDescription(
-            "Share-safe copy. Create a local copy with optional redaction, purpose watermark and file-size limit.",
-        ).performClick()
+        tool("Share-safe copy. Create a local copy with optional redaction, purpose watermark and file-size limit.").performClick()
         composeTestRule.onNodeWithText("Saved document 1").performClick()
         composeTestRule.onNodeWithContentDescription("Continue: Share-safe copy").performClick()
 
@@ -724,11 +714,9 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("Tools").performClick()
-        composeTestRule.onNodeWithContentDescription(
-            "Share-safe copy. Create a local copy with optional redaction, purpose watermark and file-size limit.",
-        ).performClick()
+        tool("Share-safe copy. Create a local copy with optional redaction, purpose watermark and file-size limit.").performClick()
         composeTestRule.onNodeWithText("Choose a document").assertIsDisplayed()
-        composeTestRule.onAllNodesWithText("Import files")[1].performClick()
+        composeTestRule.onNode(hasText("Import files") and hasAnyAncestor(isDialog())).performClick()
         composeTestRule.runOnIdle {
             assertEquals(DocumentImportUiState.Selecting, importState)
             pages = listOf(documentPage(1L))
@@ -754,10 +742,8 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("Tools").performClick()
-        composeTestRule.onNodeWithContentDescription(
-            "Share-safe copy. Create a local copy with optional redaction, purpose watermark and file-size limit.",
-        ).performClick()
-        composeTestRule.onAllNodesWithText("Import files")[1].performClick()
+        tool("Share-safe copy. Create a local copy with optional redaction, purpose watermark and file-size limit.").performClick()
+        composeTestRule.onNode(hasText("Import files") and hasAnyAncestor(isDialog())).performClick()
         composeTestRule.runOnIdle { importState = DocumentImportUiState.Cancelled }
 
         composeTestRule.onNodeWithText("Choose a document").assertIsDisplayed()
@@ -808,7 +794,7 @@ class HomeScreenTest {
             }
         }
 
-        composeTestRule.onNodeWithContentDescription("Tools").performClick()
+        composeTestRule.onNodeWithText("Tools").performClick()
         val extractText = hasContentDescription("Extract text with OCR")
         composeTestRule.onNode(hasScrollAction()).performScrollToNode(extractText)
         composeTestRule.onNode(extractText).assertIsDisplayed().performClick()
@@ -826,7 +812,7 @@ class HomeScreenTest {
             }
         }
 
-        composeTestRule.onNodeWithContentDescription("Tools").performClick()
+        composeTestRule.onNodeWithText("Tools").performClick()
         val mergeDocuments = hasContentDescription("Merge documents")
         composeTestRule.onNode(hasScrollAction()).performScrollToNode(mergeDocuments)
         composeTestRule.onNode(mergeDocuments).performClick()
@@ -848,7 +834,7 @@ class HomeScreenTest {
             }
         }
 
-        composeTestRule.onNodeWithContentDescription("More").performClick()
+        composeTestRule.onNodeWithText("More").performClick()
         composeTestRule.onNodeWithText("Data & backup").assertIsDisplayed()
         composeTestRule.onNodeWithText("About RME PDF Scanner").performScrollTo().assertIsDisplayed()
     }
@@ -861,16 +847,16 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("Tools").performClick()
-        composeTestRule.onNodeWithContentDescription("Import files")
+        tool("Import files")
             .assertIsEnabled()
             .performClick()
         assertEquals(1, importClickCount)
 
-        composeTestRule.onNodeWithContentDescription("Extract text with OCR")
+        tool("Extract text with OCR")
             .assertIsEnabled()
             .performClick()
         composeTestRule.onNodeWithText("No saved documents yet").assertIsDisplayed()
-        composeTestRule.onAllNodesWithText("Import files").assertCountEquals(2)
+        composeTestRule.onNode(hasText("Import files") and hasAnyAncestor(isDialog())).assertIsDisplayed()
         composeTestRule.onNodeWithText("Scan").assertIsEnabled()
         composeTestRule.onAllNodesWithContentDescription("Continue: Extract text")
             .assertCountEquals(0)
@@ -883,9 +869,9 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("Tools").performClick()
-        composeTestRule.onNodeWithContentDescription("Merge documents").assertIsEnabled()
-        composeTestRule.onNodeWithContentDescription("Split or extract pages").assertIsEnabled()
-        composeTestRule.onNodeWithContentDescription("Extract text with OCR").assertIsEnabled()
+        tool("Merge documents").assertIsEnabled()
+        tool("Split or extract pages").assertIsEnabled()
+        tool("Extract text with OCR").assertIsEnabled()
     }
 
     @Test
@@ -901,7 +887,7 @@ class HomeScreenTest {
             "Split or extract pages",
             "Extract text with OCR",
         ).forEach { description ->
-            composeTestRule.onNodeWithContentDescription(description).assertIsEnabled()
+            tool(description).assertIsEnabled()
         }
     }
 
@@ -913,10 +899,10 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("Tools").performClick()
-        composeTestRule.onNodeWithContentDescription("Merge documents").assertIsEnabled()
+        tool("Merge documents").assertIsEnabled()
         composeTestRule.runOnIdle { libraryState.value = savedLibraryState(1) }
-        composeTestRule.onNodeWithContentDescription("Merge documents").assertIsEnabled()
-        composeTestRule.onNodeWithContentDescription("Split or extract pages").assertIsEnabled()
+        tool("Merge documents").assertIsEnabled()
+        tool("Split or extract pages").assertIsEnabled()
     }
 
     @Test
@@ -927,9 +913,9 @@ class HomeScreenTest {
 
         composeTestRule.onNodeWithText("Tools").performClick()
         composeTestRule.onAllNodesWithContentDescription("Search tools").assertCountEquals(0)
-        composeTestRule.onNodeWithContentDescription("Extract text with OCR")
+        tool("Extract text with OCR")
             .assertIsDisplayed().assertIsEnabled()
-        composeTestRule.onNodeWithContentDescription("Import files").assertIsDisplayed()
+        tool("Import files").assertIsDisplayed()
     }
 
     @Test
@@ -939,10 +925,10 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("Tools").performClick()
-        composeTestRule.onNodeWithContentDescription("Import files").assertIsEnabled()
-        composeTestRule.onNodeWithContentDescription("Merge documents")
+        tool("Import files").assertIsEnabled()
+        tool("Merge documents")
             .assertIsDisplayed().assertIsEnabled()
-        composeTestRule.onNodeWithContentDescription("Extract text with OCR")
+        tool("Extract text with OCR")
             .assertIsDisplayed().assertIsEnabled()
     }
 
@@ -956,7 +942,7 @@ class HomeScreenTest {
             }
         }
 
-        composeTestRule.onNodeWithContentDescription("Tools").performClick()
+        composeTestRule.onNodeWithText("Tools").performClick()
         listOf(
             "Import files",
             "Merge documents",
@@ -996,7 +982,7 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithContentDescription("Scan").assertIsDisplayed()
-        composeTestRule.onNodeWithContentDescription("Home").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Home").assertIsDisplayed()
     }
 
     @Test
@@ -1055,7 +1041,7 @@ class HomeScreenTest {
         }
         openDocumentMore()
         listOf("Export PDF", "Save searchable PDF", "Export Pages").forEach { action ->
-            composeTestRule.onNodeWithText(action).performScrollTo().assertIsDisplayed()
+            documentMoreAction(action).performScrollTo().assertIsDisplayed()
         }
     }
 
@@ -1088,7 +1074,7 @@ class HomeScreenTest {
         }
 
         openDocumentEdit()
-        composeTestRule.onNodeWithText("Filter").performClick()
+        composeTestRule.onNodeWithText("Filter").performScrollTo().performClick()
         composeTestRule.onNodeWithText("Grayscale").performClick()
 
         composeTestRule.runOnIdle {
@@ -1096,6 +1082,8 @@ class HomeScreenTest {
         }
         composeTestRule.onNodeWithContentDescription("Document preview, page 1 of 1")
             .assertIsDisplayed()
+        openDocumentEdit()
+        composeTestRule.onNodeWithText("Filter").performScrollTo().performClick()
         composeTestRule.onNodeWithContentDescription("Grayscale")
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Selected, true))
     }
@@ -1131,9 +1119,10 @@ class HomeScreenTest {
 
         openDocumentEdit()
         composeTestRule.onNodeWithText("Rotate clockwise").performClick()
+        openDocumentEdit()
         composeTestRule.onNodeWithText("Move later").performScrollTo().performClick()
+        openDocumentEdit()
         composeTestRule.onNodeWithText("Remove page").performScrollTo().performClick()
-        composeTestRule.onNodeWithText("Done").performClick()
         openDocumentAdd()
         composeTestRule.onNodeWithText("Add files").performClick()
 
@@ -1154,7 +1143,7 @@ class HomeScreenTest {
         }
 
         openDocumentMore()
-        composeTestRule.onNodeWithText("Export PDF")
+        documentMoreAction("Export PDF")
             .performScrollTo()
             .assertIsDisplayed()
             .assertIsEnabled()
@@ -1195,7 +1184,7 @@ class HomeScreenTest {
             .assertIsDisplayed()
             .assertIsEnabled()
         openDocumentMore()
-        composeTestRule.onNodeWithText("Export PDF")
+        documentMoreAction("Export PDF")
             .performScrollTo()
             .assertIsDisplayed()
             .assertIsEnabled()
@@ -1217,7 +1206,7 @@ class HomeScreenTest {
         composeTestRule.onNodeWithText("Share").assertIsNotEnabled()
         composeTestRule.onNodeWithText("OCR").assertIsNotEnabled()
         openDocumentMore()
-        composeTestRule.onNodeWithText("Export PDF").assertIsNotEnabled()
+        documentMoreAction("Export PDF").assertIsNotEnabled()
         composeTestRule.onNodeWithText("Export Pages").performScrollTo().assertIsNotEnabled()
         composeTestRule.onNodeWithText("Save searchable PDF").performScrollTo().assertIsNotEnabled()
     }
@@ -1276,8 +1265,7 @@ class HomeScreenTest {
             )
         }
 
-        openDocumentMore()
-        composeTestRule.onNodeWithText("Export PDF").performClick()
+        composeTestRule.onNodeWithTag("document-export-pdf").performClick()
 
         assertEquals(1, saveClickCount)
     }
@@ -1344,7 +1332,7 @@ class HomeScreenTest {
         }
 
         openDocumentMore()
-        composeTestRule.onNodeWithText("Export PDF")
+        documentMoreAction("Export PDF")
             .performScrollTo()
             .assertIsDisplayed()
             .assertIsNotEnabled()
@@ -1368,7 +1356,7 @@ class HomeScreenTest {
         }
 
         openDocumentMore()
-        composeTestRule.onNodeWithText("Export PDF")
+        documentMoreAction("Export PDF")
             .performScrollTo()
             .assertIsDisplayed()
             .assertIsNotEnabled()
@@ -1390,7 +1378,7 @@ class HomeScreenTest {
 
         composeTestRule.onNodeWithText("Share").assertIsNotEnabled()
         openDocumentMore()
-        composeTestRule.onNodeWithText("Export PDF")
+        documentMoreAction("Export PDF")
             .assertIsDisplayed()
             .assertIsEnabled()
         composeTestRule.onNodeWithText("Preparing share…")
@@ -1423,7 +1411,7 @@ class HomeScreenTest {
         composeTestRule.onNodeWithText("Exporting page 2 of 3…")
             .assertNodeExists()
             .assertIsDisplayed()
-        composeTestRule.onNodeWithText("Export PDF").performScrollTo().assertIsEnabled()
+        documentMoreAction("Export PDF").performScrollTo().assertIsEnabled()
     }
 
     @Test
@@ -1467,7 +1455,7 @@ class HomeScreenTest {
 
         composeTestRule.onNodeWithText("PDF saved").assertIsDisplayed()
         openDocumentMore()
-        composeTestRule.onNodeWithText("Export PDF").assertIsEnabled()
+        documentMoreAction("Export PDF").assertIsEnabled()
     }
 
     @Test
@@ -1525,7 +1513,7 @@ class HomeScreenTest {
         }
 
         openDocumentMore()
-        composeTestRule.onNodeWithText("Export PDF")
+        documentMoreAction("Export PDF")
             .performScrollTo()
             .assertIsDisplayed()
             .assertIsEnabled()
@@ -1534,7 +1522,7 @@ class HomeScreenTest {
     }
 
     @Test
-    fun clearScanResultInvokesCallback() {
+    fun discardCanBeCancelledAndRequiresConfirmation() {
         var clearClickCount = 0
 
         composeTestRule.setContent {
@@ -1551,8 +1539,16 @@ class HomeScreenTest {
         }
 
         openDocumentMore()
-        composeTestRule.onNodeWithText("Discard").performScrollTo().performClick()
+        documentMoreAction("Discard").performScrollTo().performClick()
+        composeTestRule.onNodeWithText("Discard this working copy?").assertIsDisplayed()
+        assertEquals(0, clearClickCount)
+        composeTestRule.onNodeWithText("Cancel").performClick()
+        composeTestRule.onNodeWithText("Discard this working copy?").assertDoesNotExist()
+        assertEquals(0, clearClickCount)
 
+        openDocumentMore()
+        documentMoreAction("Discard").performScrollTo().performClick()
+        composeTestRule.onNodeWithText("Discard").performClick()
         assertEquals(1, clearClickCount)
     }
 
@@ -1584,20 +1580,18 @@ class HomeScreenTest {
         composeTestRule.onNodeWithText("More").performClick()
         composeTestRule.onNodeWithText("How privacy works").performScrollTo().performClick()
 
-        composeTestRule.onNodeWithText("Documents are intended to be processed locally.")
-            .assertIsDisplayed()
-        composeTestRule.onNodeWithText("RME PDF Scanner does not operate cloud storage.")
-            .assertIsDisplayed()
-        composeTestRule.onNodeWithText("Users will choose where exported files are saved or shared.")
-            .assertIsDisplayed()
-        composeTestRule.onNodeWithText(
+        val disclosures = listOf(
+            "RME processes your documents on this device.",
+            "Save to RME keeps a private library copy. Deleted documents stay in the Recycle bin until you permanently delete them or clear app data.",
+            "Document scan uses the Google scanner. RME asks for camera access when you choose direct capture for continuous scans, QR codes, cards, receipts or tables. You can also import a file.",
+            "RME PDF Scanner does not operate cloud storage.",
+            "You choose where to save or share copies. The destination may have its own cloud storage.",
             "RME PDF Scanner does not operate advertising, tracking, or analytics.",
+            "Google ML Kit may send encrypted diagnostics and usage metrics. Your images and recognized text stay on the device during recognition.",
         )
-            .assertIsDisplayed()
-        composeTestRule.onNodeWithText(
-            "Google ML Kit may send encrypted technical diagnostics. It does not send your document images or recognized text.",
-        )
-            .assertIsDisplayed()
+        disclosures.forEach { disclosure ->
+            composeTestRule.onNodeWithText(disclosure).performScrollTo().assertIsDisplayed()
+        }
     }
 
     @Test
@@ -1610,7 +1604,7 @@ class HomeScreenTest {
         composeTestRule.onNodeWithText("How privacy works").performScrollTo().performClick()
         composeTestRule.onNodeWithText("OK").performClick()
 
-        composeTestRule.onAllNodesWithText("Documents are intended to be processed locally.")
+        composeTestRule.onAllNodesWithText("RME processes your documents on this device.")
             .assertCountEquals(0)
     }
 
@@ -1867,7 +1861,7 @@ class HomeScreenTest {
         composeTestRule.onNodeWithText("Share").assertIsEnabled()
         composeTestRule.onNodeWithText("OCR").assertIsEnabled()
         openDocumentMore()
-        composeTestRule.onNodeWithText("Export PDF").assertIsEnabled()
+        documentMoreAction("Export PDF").assertIsEnabled()
         composeTestRule.onNodeWithText("Export Pages").performScrollTo().assertIsEnabled()
     }
 
@@ -1881,7 +1875,7 @@ class HomeScreenTest {
                     documentPage(1L),
                     documentPage(2L),
                 ),
-                onScanDocument = { addPagesCalls += 1 },
+                onManualScan = { addPagesCalls += 1 },
             )
         }
 
@@ -1894,39 +1888,38 @@ class HomeScreenTest {
         composeTestRule.onNodeWithText("Page 2 of 2").assertIsDisplayed()
         composeTestRule.onNodeWithContentDescription("Next page").assertIsNotEnabled()
         openDocumentEdit()
-        composeTestRule.onNodeWithText("Filter").performClick()
+        composeTestRule.onNodeWithText("Filter").performScrollTo().performClick()
         composeTestRule.onNodeWithContentDescription("Original")
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Selected, true))
         composeTestRule.onNodeWithText("Done").performClick()
         openDocumentAdd()
-        composeTestRule.onNodeWithText("Add pages").performClick()
+        composeTestRule.onNodeWithText("Scan pages").performClick()
 
         assertEquals(1, addPagesCalls)
     }
 
     @Test
-    fun twentyPageScanNavigatesToTheLastPageAndDisablesAddPages() {
+    fun twentyPageScanNavigatesToTheLastPageAndAllowsAnotherScan() {
         var addPagesCalls = 0
         composeTestRule.setContent {
             PageHarborApp(
-                scannerSpikeState = scanSummary(jpegPageCount = MAX_DOCUMENT_PAGES),
-                documentPages = (1L..MAX_DOCUMENT_PAGES.toLong()).map { id ->
+                scannerSpikeState = scanSummary(jpegPageCount = LEGACY_UI_PAGE_COUNT),
+                documentPages = (1L..LEGACY_UI_PAGE_COUNT.toLong()).map { id ->
                     documentPage(id)
                 },
-                onScanDocument = { addPagesCalls += 1 },
+                onManualScan = { addPagesCalls += 1 },
             )
         }
 
-        repeat(MAX_DOCUMENT_PAGES - 1) {
+        repeat(LEGACY_UI_PAGE_COUNT - 1) {
             composeTestRule.onNodeWithContentDescription("Next page").performClick()
         }
 
         composeTestRule.onNodeWithText("Page 20 of 20").assertIsDisplayed()
         composeTestRule.onNodeWithContentDescription("Next page").assertIsNotEnabled()
         openDocumentAdd()
-        composeTestRule.onNodeWithText("Add pages").assertIsNotEnabled()
-        composeTestRule.onNodeWithText("Maximum 20 pages per document").assertIsDisplayed()
-        assertEquals(0, addPagesCalls)
+        composeTestRule.onNodeWithText("Scan pages").assertIsEnabled().performClick()
+        assertEquals(1, addPagesCalls)
     }
 
     @Test
@@ -1942,14 +1935,14 @@ class HomeScreenTest {
             composeTestRule.onNodeWithText(action).assertIsDisplayed()
         }
         openDocumentEdit()
-        composeTestRule.onNodeWithText("Filter").performClick()
+        composeTestRule.onNodeWithText("Filter").performScrollTo().performClick()
         listOf("Original", "Enhance", "Grayscale", "B&W").forEach { label ->
             composeTestRule.onAllNodesWithText(label).assertCountEquals(1)
         }
         composeTestRule.onNodeWithText("Done").performClick()
         openDocumentMore()
         listOf("Export PDF", "Save searchable PDF", "Export Pages", "Discard").forEach { action ->
-            composeTestRule.onNodeWithText(action).performScrollTo().assertIsDisplayed()
+            documentMoreAction(action).performScrollTo().assertIsDisplayed()
         }
     }
 
@@ -1987,7 +1980,7 @@ class HomeScreenTest {
         composeTestRule.onNodeWithText("Recognizing text…").assertIsDisplayed()
         composeTestRule.onNodeWithText("Share").assertIsEnabled()
         openDocumentMore()
-        composeTestRule.onNodeWithText("Export PDF").assertIsEnabled()
+        documentMoreAction("Export PDF").assertIsEnabled()
         composeTestRule.onNodeWithText("Export Pages").performScrollTo().assertIsEnabled()
     }
 
@@ -2046,10 +2039,13 @@ class HomeScreenTest {
             SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite)
                 .and(hasText("Page 1 of 2")),
         ).assertIsDisplayed()
+        composeTestRule.onNodeWithText("Scan").performClick()
         composeTestRule.onNodeWithContentDescription("Document preview, page 1 of 2")
+            .performScrollTo()
             .assertIsDisplayed()
-        composeTestRule.onNodeWithText("Previous page").assertIsNotEnabled()
+        composeTestRule.onNodeWithText("Previous page").performScrollTo().assertIsNotEnabled()
         composeTestRule.onNodeWithText("Next page").performClick()
+        composeTestRule.onNodeWithText("Text").performScrollTo().performClick()
 
         composeTestRule.onNodeWithText("Page 2 of 2").assertIsDisplayed()
         composeTestRule.onNodeWithText("Second page text").assertIsDisplayed()
@@ -2083,9 +2079,10 @@ class HomeScreenTest {
         composeTestRule.onNodeWithText("Heading\n  Preserved indentation")
             .performScrollTo()
             .assertIsDisplayed()
-        composeTestRule.onNodeWithText("Copy text").performScrollTo().assertIsDisplayed()
-        composeTestRule.onNodeWithText("Recognize Again").performScrollTo().assertIsDisplayed()
-        composeTestRule.onNodeWithText("Clear").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithText("Copy text").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Text options").performClick()
+        composeTestRule.onNodeWithText("Recognize Again").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Clear").assertIsDisplayed()
     }
 
     @Test
@@ -2103,6 +2100,7 @@ class HomeScreenTest {
         composeTestRule.onNodeWithText("OCR").performClick()
         composeTestRule.onNodeWithText("No text was recognized in this scan.").assertIsDisplayed()
         composeTestRule.onAllNodesWithText("Copy text").assertCountEquals(0)
+        composeTestRule.onNodeWithContentDescription("Text options").performClick()
         composeTestRule.onNodeWithText("Recognize Again").assertIsDisplayed()
         composeTestRule.onNodeWithText("Clear").assertIsDisplayed()
     }
@@ -2130,7 +2128,8 @@ class HomeScreenTest {
 
         composeTestRule.onNodeWithText("OCR").performClick()
         composeTestRule.onNodeWithText("Readable page", substring = true).assertIsDisplayed()
-        composeTestRule.onNodeWithText("Copy text").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Copy page").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Copy all").assertIsDisplayed()
         composeTestRule.onNodeWithText("Some pages could not be read.")
             .assertIsDisplayed()
     }
@@ -2150,12 +2149,15 @@ class HomeScreenTest {
         }
 
         composeTestRule.onNodeWithText("OCR").performClick()
+        composeTestRule.onNodeWithContentDescription("Text options").performClick()
+        composeTestRule.onNodeWithText("Clear").performClick()
+        composeTestRule.onNodeWithText("Clear recognized text?").assertIsDisplayed()
         composeTestRule.onNodeWithText("Clear").performClick()
 
         assertEquals(1, clearCallCount)
         composeTestRule.onNodeWithText("Share").assertIsEnabled()
         openDocumentMore()
-        composeTestRule.onNodeWithText("Export PDF").assertIsEnabled()
+        documentMoreAction("Export PDF").assertIsEnabled()
         composeTestRule.onNodeWithText("Export Pages").performScrollTo().assertIsEnabled()
     }
 
@@ -2178,6 +2180,32 @@ class HomeScreenTest {
 
         assertEquals("Copy me", copiedText)
         composeTestRule.onNodeWithText("Text copied").assertIsDisplayed()
+    }
+
+    @Test
+    fun tableReadoutFindAndScopedCopyKeepCanonicalTextAndLeadingZeros() {
+        val table = "CODE\tITEM\tQTY\n0012\tBLUE BOOK\t2\n0100\tCOFFEE\t10\n0200\tPAPER\t5"
+        var copied: String? = null
+        composeTestRule.setContent {
+            PageHarborApp(
+                scannerSpikeState = scanSummary(jpegPageCount = 2),
+                documentPages = listOf(documentPage(1L), documentPage(2L)),
+                ocrUiState = OcrUiState.Success(
+                    OcrResult(listOf(OcrPageResult(0, table), OcrPageResult(1, "Second page"))),
+                ),
+                onCopyRecognizedText = { copied = it },
+            )
+        }
+        composeTestRule.onNodeWithText("OCR").performClick()
+        composeTestRule.onNodeWithContentDescription("Find text").performClick()
+        composeTestRule.onNodeWithText("Find in document").performTextInput("book")
+        composeTestRule.onNodeWithText("1 match").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Close search").performClick()
+        composeTestRule.onNodeWithText("Copy page").performClick()
+        assertEquals(table, copied)
+        composeTestRule.onNodeWithText("Copy all").performClick()
+        assertTrue(requireNotNull(copied).contains(table))
+        assertTrue(requireNotNull(copied).contains("Second page"))
     }
 
     @Test
@@ -2233,7 +2261,7 @@ class HomeScreenTest {
             .assertNodeExists()
             .assertIsDisplayed()
         openDocumentMore()
-        composeTestRule.onNodeWithText("Export PDF").assertIsEnabled()
+        documentMoreAction("Export PDF").assertIsEnabled()
     }
 
     @Test
@@ -2252,7 +2280,7 @@ class HomeScreenTest {
             .assertIsDisplayed()
         composeTestRule.onAllNodesWithText("FileNotFoundException").assertCountEquals(0)
         openDocumentMore()
-        composeTestRule.onNodeWithText("Export PDF").assertIsEnabled()
+        documentMoreAction("Export PDF").assertIsEnabled()
     }
 
     @Test
@@ -2272,7 +2300,7 @@ class HomeScreenTest {
         composeTestRule.onNodeWithText("Filter").assertIsDisplayed()
         composeTestRule.onNodeWithText("Done").performClick()
         openDocumentMore()
-        composeTestRule.onNodeWithText("Export PDF").performScrollTo().assertIsDisplayed()
+        documentMoreAction("Export PDF").performScrollTo().assertIsDisplayed()
         composeTestRule.onNodeWithText("Save searchable PDF").performScrollTo().assertIsDisplayed()
         composeTestRule.onNodeWithText("Discard").performScrollTo().assertIsDisplayed()
     }
@@ -2368,9 +2396,18 @@ class HomeScreenTest {
         composeTestRule.onNodeWithText("Share").assertIsDisplayed()
         openDocumentMore()
         listOf("Export PDF", "Save searchable PDF").forEach { action ->
-            composeTestRule.onNodeWithText(action).performScrollTo().assertIsDisplayed()
+            documentMoreAction(action).performScrollTo().assertIsDisplayed()
         }
     }
+
+    private fun tool(label: String): SemanticsNodeInteraction {
+        val tile = hasContentDescription(label)
+        composeTestRule.onNodeWithTag("tools-grid").performScrollToNode(tile)
+        return composeTestRule.onNode(tile)
+    }
+
+    private fun documentMoreAction(label: String): SemanticsNodeInteraction =
+        composeTestRule.onNode(hasText(label) and hasAnyAncestor(hasTestTag("document-more-sheet")))
 
     private fun openDocumentMore() {
         composeTestRule.onNodeWithContentDescription("More").performClick()
@@ -2417,6 +2454,51 @@ class HomeScreenTest {
             )
         }
         return LibraryUiState(documents = documents, recentDocuments = documents)
+    }
+
+    @Test
+    fun fullPreviewReturnsToTheSameDocumentPage() {
+        composeTestRule.setContent {
+            PageHarborApp(scannerSpikeState = scanSummary(jpegPageCount = 1), documentPages = listOf(documentPage(1L)))
+        }
+        composeTestRule.onNodeWithContentDescription("Full-screen preview").assertIsDisplayed().performClick()
+        composeTestRule.onNodeWithTag("document-full-preview-dialog").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Close full-screen preview").performClick()
+        composeTestRule.onNodeWithText("Export PDF").assertIsDisplayed()
+    }
+
+    @Test
+    fun documentSearchJumpsBetweenPagesAndLanguageChooserKeepsResultsOnCancel() {
+        val selected = mutableStateOf(0)
+        var recognitionCount = 0
+        composeTestRule.setContent {
+            PageHarborApp(
+                scannerSpikeState = scanSummary(jpegPageCount = 2),
+                documentPages = listOf(documentPage(1L), documentPage(2L)),
+                ocrUiState = OcrUiState.Success(OcrResult(listOf(
+                    OcrPageResult(0, "Book one", actualScript = org.synapseworks.pageharbor.ocr.OcrScript.LATIN),
+                    OcrPageResult(1, "Second book", actualScript = org.synapseworks.pageharbor.ocr.OcrScript.LATIN),
+                ))),
+                ocrSelectedPageIndex = selected.value,
+                onOcrSelectedPageChange = { selected.value = it },
+                onRecognizeTextWithLanguage = { _, _ -> recognitionCount++ },
+            )
+        }
+        composeTestRule.onNodeWithText("OCR").performClick()
+        composeTestRule.onNodeWithText("OCR: Latin").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Change OCR language").performClick()
+        composeTestRule.onNodeWithText("Text recognition language").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Cancel").performClick()
+        assertEquals(0, recognitionCount)
+        composeTestRule.onNodeWithText("Book one").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Find text").performClick()
+        composeTestRule.onNodeWithText("Find in document").performTextInput("book")
+        composeTestRule.waitUntil(5_000) { composeTestRule.onAllNodesWithText("2 matches").fetchSemanticsNodes().isNotEmpty() }
+        composeTestRule.onNodeWithContentDescription("Next match").performClick()
+        composeTestRule.onNodeWithContentDescription("Next match").performClick()
+        assertEquals(1, selected.value)
+        composeTestRule.onNodeWithText("Match 2 of 2").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Second book").assertIsDisplayed()
     }
 }
 

@@ -1,0 +1,1 @@
+https://example.invalid/qr?value=42#section

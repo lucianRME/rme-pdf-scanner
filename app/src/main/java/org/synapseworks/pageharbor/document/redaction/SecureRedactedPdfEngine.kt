@@ -1,6 +1,7 @@
 package org.synapseworks.pageharbor.document.redaction
 
 import android.content.Context
+import org.synapseworks.pageharbor.image.ManualImageAdjustments
 import android.os.SystemClock
 import java.io.File
 import java.io.FileOutputStream
@@ -40,6 +41,9 @@ internal data class SecureRedactedPdfPage(
     val expectedSourceSha256: String,
     val regions: List<RedactionRegion>,
     val filter: DocumentFilter = DocumentFilter.ORIGINAL,
+    val adjustments: ManualImageAdjustments = ManualImageAdjustments(),
+    val annotations: org.synapseworks.pageharbor.document.annotation.AnnotationLayer = org.synapseworks.pageharbor.document.annotation.AnnotationLayer.EMPTY,
+    val paperSize: org.synapseworks.pageharbor.document.session.DocumentPaperSize? = null,
     val rotation: DocumentPageRotation = DocumentPageRotation.DEGREES_0,
     /** Null means no effective text. A nonnull result with null layout is unpositioned text. */
     val effectiveOcr: OcrPageResult? = null,
@@ -130,6 +134,7 @@ internal data class SecureRedactedPdfVerificationPage(
     val rotation: DocumentPageRotation,
     val safeOcr: OcrPageResult?,
     val sanitizedJpegSha256: String,
+    val paperSize: org.synapseworks.pageharbor.document.searchablepdf.PdfPageSize? = null,
 )
 
 /**
@@ -222,6 +227,8 @@ internal class SecureRedactedPdfEngine(
                                 openSource = page.openSource,
                                 destination = FileOutputStream(sanitizedFile),
                                 filter = page.filter,
+                                adjustments = page.adjustments,
+            annotations = page.annotations,
                                 rotation = page.rotation,
                                 imageMetadata = page.imageMetadata,
                                 encoding = SizedJpegEncoding(
@@ -334,6 +341,7 @@ internal class SecureRedactedPdfEngine(
                             rotation = page.rotation,
                             safeOcr = safeOcr,
                             sanitizedJpegSha256 = sanitizedJpegSha256,
+                            paperSize = org.synapseworks.pageharbor.document.physicalPdfPageSize(page.paperSize,page.rotation),
                         )
                     }
 
@@ -354,6 +362,7 @@ internal class SecureRedactedPdfEngine(
                                 SearchablePdfPage(
                                     openJpegStream = file::inputStream,
                                     ocrResult = verificationPages[index].safeOcr,
+                                    paperSize = verificationPages[index].paperSize,
                                 )
                             },
                             outputFile = outputFile,
@@ -383,14 +392,14 @@ internal class SecureRedactedPdfEngine(
                                     SecureRedactedPdfFailure.SECURITY_VERIFICATION_FAILED,
                                 )
                                 RedactedPdfPageExpectation(
-                                    widthPoints = page.width.toFloat(),
-                                    heightPoints = page.height.toFloat(),
+                                    widthPoints = page.paperSize?.widthPoints ?: page.width.toFloat(),
+                                    heightPoints = page.paperSize?.heightPoints ?: page.height.toFloat(),
                                     expectedImages = listOf(
                                         RedactedPdfImageExpectation(
                                             leftPoints = 0f,
                                             bottomPoints = 0f,
-                                            widthPoints = page.width.toFloat(),
-                                            heightPoints = page.height.toFloat(),
+                                            widthPoints = page.paperSize?.widthPoints ?: page.width.toFloat(),
+                                            heightPoints = page.paperSize?.heightPoints ?: page.height.toFloat(),
                                             pixelWidth = page.width,
                                             pixelHeight = page.height,
                                             encodedSha256 = page.sanitizedJpegSha256,

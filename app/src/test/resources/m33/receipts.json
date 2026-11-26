@@ -1,0 +1,62 @@
+[
+  {
+    "id": "normal",
+    "raw": "Merchant: North Shop\nDate: 2026-05-04\nCurrency: EUR\nTotal: 12.50\nTax: 2.50",
+    "confirmed": {
+      "merchant": "North Shop",
+      "date": "2026-05-04",
+      "currency": "EUR",
+      "amount": "12.50",
+      "tax": "2.50"
+    },
+    "expectedAutomaticTotal": "12.50"
+  },
+  {
+    "id": "refund",
+    "raw": "Merchant: Return Desk\nCurrency: EUR\nTotal: -2.50",
+    "confirmed": {
+      "merchant": "Return Desk",
+      "date": "",
+      "currency": "EUR",
+      "amount": "-2.50",
+      "tax": ""
+    },
+    "expectedAutomaticTotal": "-2.50"
+  },
+  {
+    "id": "dollar",
+    "raw": "Merchant: West Store\nDate: 2026-05-05\nUSD\nTotal: 5.25",
+    "confirmed": {
+      "merchant": "West Store",
+      "date": "2026-05-05",
+      "currency": "USD",
+      "amount": "5.25",
+      "tax": ""
+    },
+    "expectedAutomaticTotal": "5.25"
+  },
+  {
+    "id": "missing",
+    "raw": "Merchant: Sparse Store\nEUR",
+    "confirmed": {
+      "merchant": "Sparse Store",
+      "date": "",
+      "currency": "EUR",
+      "amount": "",
+      "tax": ""
+    },
+    "expectedAutomaticTotal": null
+  },
+  {
+    "id": "ambiguous",
+    "raw": "Merchant: Review Store\nDate: 04/05/2026\nTotal: 1,234\n$",
+    "confirmed": {
+      "merchant": "Review Store",
+      "date": "",
+      "currency": "",
+      "amount": "",
+      "tax": ""
+    },
+    "expectedAutomaticTotal": null
+  }
+]

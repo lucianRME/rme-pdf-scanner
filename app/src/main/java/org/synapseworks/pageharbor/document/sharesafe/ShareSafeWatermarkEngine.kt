@@ -84,7 +84,7 @@ internal class ShareSafeWatermarkEngine(context: Context) {
             val output = File(working, "watermarked.pdf")
             val generated = generator.generate(
                 SearchablePdfRequest(
-                    pages = pages.map { page -> SearchablePdfPage(page.file::inputStream) },
+                    pages = pages.mapIndexed { index, page -> SearchablePdfPage(page.file::inputStream,paperSize=org.synapseworks.pageharbor.document.searchablepdf.PdfPageSize(source.policy.pages[index].widthPoints,source.policy.pages[index].heightPoints)) },
                     outputFile = output,
                     scratchDirectory = working,
                 ),
@@ -96,14 +96,14 @@ internal class ShareSafeWatermarkEngine(context: Context) {
             val policy = RedactedPdfVerificationPolicy(
                 pages = pages.mapIndexed { index, page ->
                     RedactedPdfPageExpectation(
-                        widthPoints = page.width.toFloat(),
-                        heightPoints = page.height.toFloat(),
+                        widthPoints = source.policy.pages[index].widthPoints,
+                        heightPoints = source.policy.pages[index].heightPoints,
                         expectedImages = listOf(
                             RedactedPdfImageExpectation(
                                 leftPoints = 0f,
                                 bottomPoints = 0f,
-                                widthPoints = page.width.toFloat(),
-                                heightPoints = page.height.toFloat(),
+                                widthPoints = source.policy.pages[index].widthPoints,
+                                heightPoints = source.policy.pages[index].heightPoints,
                                 pixelWidth = page.width,
                                 pixelHeight = page.height,
                                 encodedSha256 = requireNotNull(sha256(page.file)),

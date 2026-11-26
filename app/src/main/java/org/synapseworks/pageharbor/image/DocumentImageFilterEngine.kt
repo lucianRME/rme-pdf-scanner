@@ -4,7 +4,7 @@ import kotlin.math.roundToInt
 
 /**
  * A synchronous, Android-independent ARGB filter engine. The caller owns [ArgbImage.pixels].
- * [DocumentFilter.ORIGINAL] returns the same instance; every other filter creates a new array and
+ * [DocumentFilter.ORIGINAL] at neutral manual settings returns the same instance; other selections create a new array and
  * never mutates the source image. Callers choose the appropriate background dispatcher later.
  */
 object DocumentImageFilterEngine {
@@ -15,8 +15,20 @@ object DocumentImageFilterEngine {
     private const val AutoBlackPointPercentile = 0.04f
     private const val AutoWhitePointPercentile = 0.96f
 
-    fun apply(source: ArgbImage, filter: DocumentFilter): ArgbImage {
-        if (filter == DocumentFilter.ORIGINAL) return source
+    fun apply(source: ArgbImage, filter: DocumentFilter, adjustments: ManualImageAdjustments = ManualImageAdjustments(), ensureActive: () -> Unit = {}): ArgbImage {
+        if (filter == DocumentFilter.ORIGINAL && adjustments.isNeutral) return source
+        if (requiresSpatialContext(filter)) {
+            ensureActive()
+            val output = IntArray(source.pixels.size)
+            val manualPlan = createRowFilterPlan(DocumentFilter.ORIGINAL, null, source.pixels.size)
+            processSpatialRows(filter, source.width, source.height,
+                readRow = { y, row -> source.pixels.copyInto(row, 0, y * source.width, (y + 1) * source.width) },
+                writeRow = { y, row ->
+                    applyRowFilterInPlace(row, manualPlan, adjustments, ensureActive)
+                    row.copyInto(output, y * source.width)
+                }, ensureActive = ensureActive)
+            return ArgbImage(source.width, source.height, output)
+        }
         val output = source.pixels.copyOf()
         val histogram = if (requiresHistogram(filter)) {
             IntArray(256).also { accumulateLuminanceHistogram(source.pixels, it) }
@@ -26,12 +38,33 @@ object DocumentImageFilterEngine {
         applyRowFilterInPlace(
             pixels = output,
             plan = createRowFilterPlan(filter, histogram, source.pixels.size),
+            adjustments = adjustments, ensureActive = ensureActive,
         )
         return ArgbImage(source.width, source.height, output)
     }
 
     internal fun requiresHistogram(filter: DocumentFilter): Boolean =
         filter == DocumentFilter.AUTO_ENHANCE || filter == DocumentFilter.BLACK_AND_WHITE
+
+    internal fun processSpatialRows(filter: DocumentFilter, width: Int, height: Int,
+        readRow: (Int, IntArray) -> Unit, writeRow: (Int, IntArray) -> Unit, ensureActive: () -> Unit = {}) {
+        if (filter == DocumentFilter.DOCUMENT_CLEANUP) {
+            LocalDocumentCleanupFilter.process(width, height, readRow, writeRow, ensureActive)
+        } else if (filter.moireAmount != null) {
+            MoireFilter.process(width,height,requireNotNull(filter.moireAmount),readRow,writeRow,ensureActive)
+        } else if (filter.creaseStainAmount != null) {
+            CreaseStainFilter.process(width,height,requireNotNull(filter.creaseStainAmount),readRow,writeRow,ensureActive)
+        } else if (filter.bleedThroughAmount != null) {
+            BleedThroughFilter.process(width,height,requireNotNull(filter.bleedThroughAmount),readRow,writeRow,ensureActive)
+        } else if (filter.whiteningRecipe != null) {
+            BackgroundWhiteningFilter.process(width,height,requireNotNull(filter.whiteningRecipe),readRow,writeRow,ensureActive)
+        } else {
+            ShadowGlareFilter.process(width,height,requireNotNull(filter.shadowGlareIntensity),readRow,writeRow,ensureActive)
+        }
+    }
+
+    internal fun requiresSpatialContext(filter: DocumentFilter): Boolean =
+        filter == DocumentFilter.DOCUMENT_CLEANUP || filter.shadowGlareIntensity != null || filter.whiteningRecipe != null || filter.bleedThroughAmount != null || filter.creaseStainAmount != null || filter.moireAmount != null
 
     internal fun accumulateLuminanceHistogram(pixels: IntArray, histogram: IntArray) {
         require(histogram.size == 256)
@@ -45,6 +78,7 @@ object DocumentImageFilterEngine {
         histogram: IntArray?,
         totalPixelCount: Int,
     ): DocumentRowFilterPlan {
+        require(!requiresSpatialContext(filter)) { "This filter requires spatial row context." }
         if (!requiresHistogram(filter)) return DocumentRowFilterPlan(filter)
         require(histogram?.size == 256)
         require(totalPixelCount > 0)
@@ -69,8 +103,9 @@ object DocumentImageFilterEngine {
         }
     }
 
-    internal fun applyRowFilterInPlace(pixels: IntArray, plan: DocumentRowFilterPlan) {
+    internal fun applyRowFilterInPlace(pixels: IntArray, plan: DocumentRowFilterPlan, adjustments: ManualImageAdjustments = ManualImageAdjustments(), ensureActive: () -> Unit = {}) {
         pixels.indices.forEach { index ->
+            if (index and 0x3fff == 0) ensureActive()
             val value = pixels[index]
             val alpha = alpha(value)
             val red = red(value)
@@ -105,7 +140,28 @@ object DocumentImageFilterEngine {
                     val channel = if (luminance(red, green, blue) <= plan.threshold) 0 else 255
                     argb(alpha, channel, channel, channel)
                 }
+
+                DocumentFilter.DOCUMENT_CLEANUP,
+                DocumentFilter.SHADOW_GLARE_LOW_V1,
+                DocumentFilter.SHADOW_GLARE_BALANCED_V1,
+                DocumentFilter.SHADOW_GLARE_STRONG_V1,
+                DocumentFilter.PAPER_WHITE_NEUTRAL_LOW_V1,
+                DocumentFilter.PAPER_WHITE_NEUTRAL_BALANCED_V1,
+                DocumentFilter.PAPER_WHITE_NEUTRAL_STRONG_V1,
+                DocumentFilter.PAPER_WHITE_COLOUR_LOW_V1,
+                DocumentFilter.PAPER_WHITE_COLOUR_BALANCED_V1,
+                DocumentFilter.PAPER_WHITE_COLOUR_STRONG_V1,
+                DocumentFilter.BLEED_THROUGH_LOW_V1,
+                DocumentFilter.BLEED_THROUGH_BALANCED_V1,
+                DocumentFilter.BLEED_THROUGH_STRONG_V1,
+                DocumentFilter.MOIRE_LOW_V1,
+                DocumentFilter.MOIRE_BALANCED_V1,
+                DocumentFilter.MOIRE_STRONG_V1,
+                DocumentFilter.CREASE_STAIN_LOW_V1,
+                DocumentFilter.CREASE_STAIN_BALANCED_V1,
+                DocumentFilter.CREASE_STAIN_STRONG_V1 -> error("This filter requires spatial row context.")
             }
+            pixels[index] = adjustments.apply(pixels[index])
         }
     }
 
@@ -154,6 +210,8 @@ object DocumentImageFilterEngine {
         (red * RedLuminanceWeight + green * GreenLuminanceWeight + blue * BlueLuminanceWeight)
             .roundToInt()
             .coerceIn(0, 255)
+
+    internal fun pixelLuminance(pixel: Int): Int = luminance(red(pixel), green(pixel), blue(pixel))
 
     private fun alpha(pixel: Int): Int = pixel ushr 24 and 0xff
     private fun red(pixel: Int): Int = pixel ushr 16 and 0xff

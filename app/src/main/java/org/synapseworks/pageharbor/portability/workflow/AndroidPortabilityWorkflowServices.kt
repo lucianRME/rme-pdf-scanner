@@ -368,7 +368,7 @@ private class AndroidPortabilityRestoreService(
             )
             is RestoreResult.Cancelled -> PortabilityRestoreExecutionResult.Cancelled
             is RestoreResult.Failed -> PortabilityRestoreExecutionResult.Failed(
-                PortabilityWorkflowFailure.RESTORE_FAILED,
+                if(result.reason==org.synapseworks.pageharbor.backup.restore.RestoreFailure.DELETED_DOCUMENT_CONFLICT)PortabilityWorkflowFailure.RESTORE_DELETED_DOCUMENT_CONFLICT else PortabilityWorkflowFailure.RESTORE_FAILED,
             )
         }
     }
@@ -426,6 +426,7 @@ private fun RestoreCoordinatorFailure.toWorkflowFailure(): PortabilityWorkflowFa
     RestoreCoordinatorFailure.CRYPTO_UNAVAILABLE,
     RestoreCoordinatorFailure.INVALID_OR_CORRUPT_BACKUP,
     -> PortabilityWorkflowFailure.RESTORE_INVALID_OR_CORRUPT
+    RestoreCoordinatorFailure.DELETED_DOCUMENT_CONFLICT -> PortabilityWorkflowFailure.RESTORE_DELETED_DOCUMENT_CONFLICT
     RestoreCoordinatorFailure.LIBRARY_UNAVAILABLE ->
         PortabilityWorkflowFailure.RESTORE_LIBRARY_UNAVAILABLE
 }

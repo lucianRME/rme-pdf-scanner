@@ -1,0 +1,9 @@
+id,partition,kind,family,amplitude,taper,turns,glyphHeight,colour,illustration,seed
+finalchallenge01,finalchallenge,CURVED,SINE,0.065877,-0.034628,0,7,0,0,13876
+finalchallenge02,finalchallenge,CURVED,SHOULDER,-0.064623,0.024872,1,9,1,1,722607
+finalchallenge03,finalchallenge,CURVED,GAUSS_L,0.047984,0.015030,2,10,0,0,28437
+finalchallenge04,finalchallenge,CURVED,COS,-0.030003,-0.079459,3,7,0,0,794699
+finalchallenge05,finalchallenge,CURVED,SHOULDER,0.056711,0.053644,0,11,1,1,224607
+finalchallenge06,finalchallenge,CURVED,GAUSS_R,-0.035684,0.083266,1,8,1,0,283289
+finalchallenge07,finalchallenge,CURVED,SINE,0.047340,-0.056527,2,7,0,1,624818
+finalchallenge08,finalchallenge,CURVED,COS,-0.034278,0.074265,3,9,1,0,291343

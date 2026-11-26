@@ -7,6 +7,11 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [
+        org.synapseworks.pageharbor.library.recycle.DeletedDocumentIdentity::class,
+        org.synapseworks.pageharbor.library.recycle.DocumentArchiveOrigin::class,
+        org.synapseworks.pageharbor.library.organization.LibraryTagEntity::class,
+        org.synapseworks.pageharbor.library.organization.LibraryDocumentTagEntity::class,
+        org.synapseworks.pageharbor.library.organization.LibraryPendingRestoreTagEntity::class,
         LibraryFolderEntity::class,
         LibraryMetadataEntity::class,
         LibraryDataOperationEntity::class,
@@ -27,7 +32,7 @@ import androidx.room.RoomDatabase
         OcrBatchJobEntity::class,
         OcrBatchItemEntity::class,
     ],
-    version = 4,
+    version = 10,
     exportSchema = true,
 )
 abstract class LibraryDatabase : RoomDatabase() {
@@ -42,7 +47,7 @@ abstract class LibraryDatabase : RoomDatabase() {
                 context.applicationContext,
                 LibraryDatabase::class.java,
                 LIBRARY_DATABASE_NAME,
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, org.synapseworks.pageharbor.library.organization.MIGRATION_8_9, org.synapseworks.pageharbor.library.recycle.MIGRATION_9_10)
                 .build()
                 .also { database -> instance = database }
         }

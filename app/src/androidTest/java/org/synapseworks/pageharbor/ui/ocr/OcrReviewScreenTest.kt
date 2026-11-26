@@ -118,7 +118,7 @@ class OcrReviewScreenTest {
 
         composeRule.onNodeWithText("No recognized text is available for this page.")
             .assertIsDisplayed()
-        composeRule.onNodeWithText("Re-run OCR").performClick()
+        composeRule.onNodeWithText("Read this page").performClick()
         composeRule.runOnIdle { assertEquals(true, rerun) }
     }
 

@@ -1,0 +1,33 @@
+{
+  "selectedPage": 1,
+  "selectedOccurrence": 2,
+  "original": "Café 0012",
+  "replacement": "Zoë 0020",
+  "unchanged": [
+    "Café 0012",
+    "KEEP 0042"
+  ],
+  "supported": [
+    "repeated.pdf",
+    "rotated-90.pdf",
+    "rotated-180.pdf",
+    "rotated-270.pdf"
+  ],
+  "declined": [
+    "unsupported-font.pdf",
+    "scanned.pdf",
+    "active.pdf",
+    "form.pdf",
+    "signed.pdf",
+    "encrypted.pdf",
+    "hidden.pdf",
+    "multirun.pdf"
+  ],
+  "invalidReplacements": [
+    "漢字",
+    "😀",
+    "a­b",
+    "TOO LONG TO FIT THIS ORIGINAL RUN"
+  ],
+  "mode": "text-object replacement, no overlay"
+}

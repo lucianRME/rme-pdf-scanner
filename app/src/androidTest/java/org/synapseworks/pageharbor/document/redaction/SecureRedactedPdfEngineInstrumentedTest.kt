@@ -144,6 +144,165 @@ class SecureRedactedPdfEngineInstrumentedTest {
     }
 
     @Test
+    fun manualBrightnessCannotUndoOpaqueRedactionOrReintroduceText() = adjustedRedaction(false)
+
+    @Test
+    fun shadowGlareCannotUndoOpaqueRedactionOrReintroduceText() = adjustedRedaction(true)
+
+    @Test
+    fun whiteningCannotUndoOpaqueRedactionOrReintroduceText() = adjustedRedaction(true,true)
+
+    @Test
+    fun acceptedBookHalfRedactionCannotReintroduceTheOtherHalfOrProtectedText()=runBlocking {
+        val source=org.synapseworks.pageharbor.document.booklayout.BookTestFixtures.source(testRoot,1)
+        val book=org.synapseworks.pageharbor.document.booklayout.BookTestFixtures.prepare(context,org.synapseworks.pageharbor.document.session.DocumentSession(listOf(source)))
+        try {
+            val half=book.after.pages.first();val file=File(half.source.ownedTemporaryFile!!.path);val width=half.imageMetadata.width!!;val height=half.imageMetadata.height!!
+            val hash=requireNotNull(secureRedactionSha256(file::inputStream));val id="book-half"
+            val region=region(id,0,RedactionBounds(.05f,.05f,.8f,.4f))
+            val engine=SecureRedactedPdfEngine(context)
+            val result=engine.prepare(SecureRedactedPdfRequest(listOf(SecureRedactedPdfPage(pageId=id,openSource=file::inputStream,
+                imageMetadata=half.imageMetadata,expectedSourceSha256=hash,filter=org.synapseworks.pageharbor.image.DocumentFilter.PAPER_WHITE_COLOUR_STRONG_V1,
+                adjustments=org.synapseworks.pageharbor.image.ManualImageAdjustments(100,100),regions=listOf(region),
+                effectiveOcr=OcrPageResult(0,SECRET,layout=OcrPageLayout(imageWidthPx=width,imageHeightPx=height,lines=listOf(OcrTextLine(SECRET,OcrTextBounds(width*.1f,height*.1f,width*.7f,height*.3f))))),
+                ocrProvenance=SecureRedactedOcrProvenance(hash,width,height,DocumentPageRotation.DEGREES_0)))))as SecureRedactedPdfResult.Success
+            try{assertTrue(result.prepared.securelyVerified);assertEquals(hash,secureRedactionSha256(file::inputStream))
+                PDDocument.load(result.prepared.file).use{pdf->assertEquals(1,pdf.numberOfPages);assertFalse(PDFTextStripper().getText(pdf).contains(SECRET));assertTrue(pdf.getPage(0).annotations.isEmpty())}
+            }finally{engine.discard(result.prepared)}
+        }finally{book.close()}
+    }
+
+    @Test
+    fun acceptedCurvatureRejectsStaleProtectionProvenanceAndSupportsFreshRedaction()=runBlocking {
+        val source=org.synapseworks.pageharbor.document.curvature.CurvatureFixtures.source(testRoot,1)
+        val book=org.synapseworks.pageharbor.document.curvature.CurvatureFixtures.prepare(context,org.synapseworks.pageharbor.document.session.DocumentSession(listOf(source)))
+        try {
+            val half=book.after.pages.first();val file=File(half.source.ownedTemporaryFile!!.path);val width=half.imageMetadata.width!!;val height=half.imageMetadata.height!!
+            val hash=requireNotNull(secureRedactionSha256(file::inputStream));val id="corrected-page"
+            val region=region(id,0,RedactionBounds(.05f,.05f,.8f,.4f))
+            val engine=SecureRedactedPdfEngine(context)
+            val originalFile=File(android.net.Uri.parse(source.source.reference).path!!)
+            val originalHash=requireNotNull(secureRedactionSha256(originalFile::inputStream))
+            val stale=engine.prepare(SecureRedactedPdfRequest(listOf(SecureRedactedPdfPage(pageId=id,openSource=file::inputStream,
+                imageMetadata=half.imageMetadata,expectedSourceSha256=originalHash,regions=listOf(region)))))
+            assertFalse(stale is SecureRedactedPdfResult.Success)
+            assertEquals(originalHash,secureRedactionSha256(originalFile::inputStream))
+            val result=engine.prepare(SecureRedactedPdfRequest(listOf(SecureRedactedPdfPage(pageId=id,openSource=file::inputStream,
+                imageMetadata=half.imageMetadata,expectedSourceSha256=hash,filter=org.synapseworks.pageharbor.image.DocumentFilter.PAPER_WHITE_COLOUR_STRONG_V1,
+                adjustments=org.synapseworks.pageharbor.image.ManualImageAdjustments(100,100),regions=listOf(region),
+                effectiveOcr=OcrPageResult(0,SECRET,layout=OcrPageLayout(imageWidthPx=width,imageHeightPx=height,lines=listOf(OcrTextLine(SECRET,OcrTextBounds(width*.1f,height*.1f,width*.7f,height*.3f))))),
+                ocrProvenance=SecureRedactedOcrProvenance(hash,width,height,DocumentPageRotation.DEGREES_0)))))as SecureRedactedPdfResult.Success
+            try{assertTrue(result.prepared.securelyVerified);assertEquals(hash,secureRedactionSha256(file::inputStream))
+                PDDocument.load(result.prepared.file).use{pdf->assertEquals(1,pdf.numberOfPages);assertFalse(PDFTextStripper().getText(pdf).contains(SECRET));assertTrue(pdf.getPage(0).annotations.isEmpty())}
+            }finally{engine.discard(result.prepared)}
+        }finally{book.close()}
+    }
+
+    private fun adjustedRedaction(shadow: Boolean,whitening:Boolean=false) = runBlocking {
+        val source = File(testRoot, "synthetic-source.jpg")
+        writeFixture(source)
+        val originalHash = requireNotNull(secureRedactionSha256(source::inputStream))
+        val engine = SecureRedactedPdfEngine(context)
+
+        val result = engine.prepare(
+            SecureRedactedPdfRequest(
+                listOf(
+                    SecureRedactedPdfPage(
+                        pageId = PAGE_ID,
+                        openSource = source::inputStream,
+                        imageMetadata = DocumentImageMetadata(
+                            sourceByteCount = source.length(),
+                            width = WIDTH,
+                            height = HEIGHT,
+                        ),
+                        expectedSourceSha256 = originalHash,
+                        filter = if(whitening) org.synapseworks.pageharbor.image.DocumentFilter.PAPER_WHITE_COLOUR_STRONG_V1 else if (shadow) org.synapseworks.pageharbor.image.DocumentFilter.SHADOW_GLARE_STRONG_V1 else org.synapseworks.pageharbor.image.DocumentFilter.ORIGINAL,
+                        adjustments = org.synapseworks.pageharbor.image.ManualImageAdjustments(100,100),
+                        regions = listOf(region()),
+                        effectiveOcr = OcrPageResult(
+                            pageIndex = 0,
+                            text = "$SECRET\n$SAFE_TEXT",
+                            layout = OcrPageLayout(
+                                imageWidthPx = WIDTH,
+                                imageHeightPx = HEIGHT,
+                                lines = listOf(
+                                    OcrTextLine(
+                                        SECRET,
+                                        OcrTextBounds(60f, 70f, 360f, 190f),
+                                    ),
+                                    OcrTextLine(
+                                        SAFE_TEXT,
+                                        OcrTextBounds(60f, 400f, 360f, 470f),
+                                    ),
+                                ),
+                            ),
+                        ),
+                        ocrProvenance = SecureRedactedOcrProvenance(
+                            recognizedSourceSha256 = originalHash,
+                            effectiveWidthPx = WIDTH,
+                            effectiveHeightPx = HEIGHT,
+                            rotation = DocumentPageRotation.DEGREES_0,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assertTrue(result is SecureRedactedPdfResult.Success)
+        val prepared = (result as SecureRedactedPdfResult.Success).prepared
+        try {
+            assertTrue(prepared.securelyVerified)
+            assertTrue(prepared.sourceHashesVerified)
+            assertEquals(1, prepared.pageCount)
+            assertEquals(1, prepared.textLayerPageCount)
+            assertEquals(0, prepared.omittedUnsafeTextPageCount)
+            assertEquals(originalHash, secureRedactionSha256(source::inputStream))
+            PDDocument.load(prepared.file).use { pdf ->
+                assertEquals(1, pdf.numberOfPages)
+                val extracted = PDFTextStripper().getText(pdf)
+                assertFalse(extracted.contains(SECRET))
+                assertTrue(extracted.contains(SAFE_TEXT))
+                assertTrue(pdf.getPage(0).annotations.isEmpty())
+                val xObjects = pdf.getPage(0).resources.xObjectNames
+                    .map(pdf.getPage(0).resources::getXObject)
+                assertEquals(1, xObjects.size)
+                assertTrue(xObjects.single() is PDImageXObject)
+            }
+        } finally {
+            engine.discard(prepared)
+        }
+        assertTrue(source.isFile)
+        assertEquals(originalHash, secureRedactionSha256(source::inputStream))
+    }
+
+    @Test
+    fun historyRestoredCurvatureRejectsStaleProtectionProvenanceAndSupportsFreshRedaction()=runBlocking {
+        val source=org.synapseworks.pageharbor.document.curvature.CurvatureFixtures.source(testRoot,1)
+        val book=org.synapseworks.pageharbor.document.curvature.CurvatureFixtures.prepare(context,org.synapseworks.pageharbor.document.session.DocumentSession(listOf(source)))
+        val history=org.synapseworks.pageharbor.document.history.HistoryFixtures.restored(context,book)
+        try {
+            val half=history.session.pages.first();val file=File(half.source.ownedTemporaryFile!!.path);val width=half.imageMetadata.width!!;val height=half.imageMetadata.height!!
+            val hash=requireNotNull(secureRedactionSha256(file::inputStream));val id="corrected-page"
+            val region=region(id,0,RedactionBounds(.05f,.05f,.8f,.4f))
+            val engine=SecureRedactedPdfEngine(context)
+            val originalFile=File(android.net.Uri.parse(source.source.reference).path!!)
+            val originalHash=requireNotNull(secureRedactionSha256(originalFile::inputStream))
+            val stale=engine.prepare(SecureRedactedPdfRequest(listOf(SecureRedactedPdfPage(pageId=id,openSource=file::inputStream,
+                imageMetadata=half.imageMetadata,expectedSourceSha256=originalHash,regions=listOf(region)))))
+            assertFalse(stale is SecureRedactedPdfResult.Success)
+            assertEquals(originalHash,secureRedactionSha256(originalFile::inputStream))
+            val result=engine.prepare(SecureRedactedPdfRequest(listOf(SecureRedactedPdfPage(pageId=id,openSource=file::inputStream,
+                imageMetadata=half.imageMetadata,expectedSourceSha256=hash,filter=org.synapseworks.pageharbor.image.DocumentFilter.PAPER_WHITE_COLOUR_STRONG_V1,
+                adjustments=org.synapseworks.pageharbor.image.ManualImageAdjustments(100,100),regions=listOf(region),
+                effectiveOcr=OcrPageResult(0,SECRET,layout=OcrPageLayout(imageWidthPx=width,imageHeightPx=height,lines=listOf(OcrTextLine(SECRET,OcrTextBounds(width*.1f,height*.1f,width*.7f,height*.3f))))),
+                ocrProvenance=SecureRedactedOcrProvenance(hash,width,height,DocumentPageRotation.DEGREES_0)))))as SecureRedactedPdfResult.Success
+            try{assertTrue(result.prepared.securelyVerified);assertEquals(hash,secureRedactionSha256(file::inputStream))
+                PDDocument.load(result.prepared.file).use{pdf->assertEquals(1,pdf.numberOfPages);assertFalse(PDFTextStripper().getText(pdf).contains(SECRET));assertTrue(pdf.getPage(0).annotations.isEmpty())}
+            }finally{engine.discard(result.prepared)}
+        }finally{history.close();book.close()}
+    }
+
+    @Test
     fun hiddenSourcePdfTextAndMetadataNeverCrossRasterReconstructionBoundary() = runBlocking {
         val visibleImage = File(testRoot, "hidden-pdf-visible-source.jpg")
         writeFixture(visibleImage)

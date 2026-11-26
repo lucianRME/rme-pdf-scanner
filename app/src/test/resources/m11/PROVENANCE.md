@@ -1,0 +1,3 @@
+# M11 independent synthetic corpus
+
+Original scene definitions/rendering by SynapseWorks,2026-11-03. To the extent possible under law, dedicated to the public domain under CC0-1.0: https://creativecommons.org/publicdomain/zero/1.0/ . No external photos/fonts/proprietary source/assets/model are copied. Literal geometry/labels are fixed in corpus.csv before detector implementation. Protected content masks follow known scene coordinates independently of candidate output. Native adapters separately exercise JPEG/EXIF and publication/export. Synthetic cases do not establish photographed-book quality.

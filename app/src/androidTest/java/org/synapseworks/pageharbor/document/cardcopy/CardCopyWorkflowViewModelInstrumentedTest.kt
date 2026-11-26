@@ -249,6 +249,51 @@ class CardCopyWorkflowViewModelInstrumentedTest {
         Unit
     }
 
+    @Test
+    fun guidedCameraRejectsStaleAndWrongSideCallbacksAndRetakesOnlyTheChosenSide() = runBlocking {
+        val vm = CardCopyWorkflowViewModel(application, SavedStateHandle())
+        vm.open()
+        var delayed: ((Boolean) -> Unit)? = null
+        lateinit var cancelled: File
+        vm.captureSide(CardCopySide.BACK) { _, _ -> error("Back accepted before front") }
+        vm.captureSide(CardCopySide.FRONT) { f, callback -> cancelled = f; delayed = callback }
+        vm.cancelCameraCapture()
+        assertFalse(cancelled.exists())
+
+        val front = fixture("guided-front", Color.RED)
+        val back = fixture("guided-back", Color.BLUE)
+        lateinit var temporary: File
+        vm.captureSide(CardCopySide.FRONT) { f, done ->
+            temporary = f
+            front.copyTo(f, overwrite = true)
+            done(true)
+            done(true)
+        }
+        delayed!!(true)
+        waitUntil { (vm.state as? CardCopyWorkflowState.AcquireSides)?.front is CardCopySideState.Ready }
+        waitUntil { !temporary.exists() }
+        vm.captureSide(CardCopySide.BACK) { f, done -> back.copyTo(f, overwrite = true); done(true) }
+        waitUntil { (vm.state as? CardCopyWorkflowState.AcquireSides)?.back is CardCopySideState.Ready }
+        vm.continueToReview()
+        val reviewed = vm.state as CardCopyWorkflowState.ReviewSides
+        assertEquals(cardCopySha256(front), reviewed.front.readySource()?.sourceSha256)
+        assertEquals(cardCopySha256(back), reviewed.back.readySource()?.sourceSha256)
+        vm.retake(CardCopySide.BACK)
+        vm.captureSide(CardCopySide.FRONT) { _, _ -> error("Captured the wrong side during a retake") }
+        vm.captureSide(CardCopySide.BACK) { _, callback -> delayed = callback }
+        vm.back()
+        delayed!!(false)
+        assertEquals(reviewed, vm.state)
+        vm.retake(CardCopySide.BACK)
+        val replacement = fixture("guided-back-replacement", Color.GREEN)
+        vm.captureSide(CardCopySide.BACK) { f, done -> replacement.copyTo(f, overwrite = true); done(true) }
+        waitUntil { vm.state is CardCopyWorkflowState.ReviewSides }
+        val replaced = vm.state as CardCopyWorkflowState.ReviewSides
+        assertEquals(reviewed.front, replaced.front)
+        assertEquals(cardCopySha256(replacement), replaced.back.readySource()?.sourceSha256)
+        vm.close()
+    }
+
     private suspend fun import(
         viewModel: CardCopyWorkflowViewModel,
         side: CardCopySide,

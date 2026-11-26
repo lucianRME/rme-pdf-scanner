@@ -6,8 +6,13 @@ import java.io.OutputStream
 const val RME_BACKUP_FORMAT_VERSION_V1: Int = 1
 const val RME_BACKUP_FORMAT_VERSION_V2: Int = 2
 const val RME_BACKUP_FORMAT_VERSION_V3: Int = 3
-const val RME_BACKUP_FORMAT_VERSION: Int = RME_BACKUP_FORMAT_VERSION_V3
-const val RME_BACKUP_READER_VERSION: Int = 3
+const val RME_BACKUP_FORMAT_VERSION_V4: Int = 4
+const val RME_BACKUP_FORMAT_VERSION_V5: Int = 5
+const val RME_BACKUP_FORMAT_VERSION_V6: Int = 6
+const val RME_BACKUP_FORMAT_VERSION_V7: Int = 7
+const val RME_BACKUP_FORMAT_VERSION_V8: Int = 8
+const val RME_BACKUP_FORMAT_VERSION: Int = RME_BACKUP_FORMAT_VERSION_V8
+const val RME_BACKUP_READER_VERSION: Int = 8
 
 const val RME_BACKUP_MANIFEST_PATH: String = "manifest.json"
 const val RME_BACKUP_FOLDERS_PATH: String = "metadata/folders.jsonl"
@@ -32,6 +37,7 @@ data class BackupManifest(
     val metadata: BackupMetadataPaths,
     val integrity: BackupIntegrity,
     val ocr: BackupOcrManifest? = null,
+    val tags: List<BackupTagRecord> = emptyList(),
 )
 
 data class BackupProducer(
@@ -104,6 +110,8 @@ data class BackupFolderRecord(
     val modifiedAtEpochMillis: Long,
 )
 
+data class BackupTagRecord(val tagId: String, val name: String)
+
 data class BackupDocumentRecord(
     val documentId: String,
     val folderId: String?,
@@ -124,6 +132,9 @@ data class BackupDocumentRecord(
     val importedAtEpochMillis: Long? = null,
     val sourceProvenanceKind: String? = null,
     val sourceProvenanceLabel: String? = null,
+    val favorite: Boolean = false,
+    val tagIds: List<String> = emptyList(),
+    internal val organizationMetadataPresent: Boolean = true,
 )
 
 data class BackupPageRecord(
@@ -141,6 +152,9 @@ data class BackupPageRecord(
     val ocrText: String?,
     val ocrError: String?,
     val sourcePageIndex: Int?,
+    val brightness: Int = 0, val contrast: Int = 0,
+    val annotations: String = "",
+    val paperSize: String = "",
 )
 
 data class BackupSourceAssetRecord(

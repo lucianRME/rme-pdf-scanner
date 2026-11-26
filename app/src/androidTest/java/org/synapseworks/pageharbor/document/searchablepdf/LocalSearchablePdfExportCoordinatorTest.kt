@@ -11,6 +11,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import java.io.File
 import java.io.FileOutputStream
@@ -33,6 +34,7 @@ import org.synapseworks.pageharbor.ocr.OcrTextLine
 import org.synapseworks.pageharbor.image.DocumentFilter
 import org.synapseworks.pageharbor.document.session.DEFAULT_MAX_IMAGE_SOURCE_BYTES
 import org.synapseworks.pageharbor.document.session.DocumentImageMetadata
+import org.synapseworks.pageharbor.document.session.toAndroidUri
 import org.synapseworks.pageharbor.document.session.DocumentPageRotation
 
 class LocalSearchablePdfExportCoordinatorTest {
@@ -75,6 +77,148 @@ class LocalSearchablePdfExportCoordinatorTest {
         } finally {
             source.delete()
         }
+    }
+
+    @Test
+    fun manualAdjustedVisualKeepsOriginalOcrInputAndLayout() = adjustedVisualPolicy(false)
+
+    @Test
+    fun shadowGlareVisualKeepsOriginalOcrInputAndLayout() = adjustedVisualPolicy(true)
+
+    @Test
+    fun whiteningVisualKeepsOriginalOcrInputAndLayout() = adjustedVisualPolicy(true,true)
+
+    private fun adjustedVisualPolicy(shadow: Boolean,whitening:Boolean=false) = runBlocking {
+        val source = sharedFile("filtered-visual-source.jpg")
+        writeJpeg(source)
+        val originalBytes = source.readBytes()
+        val ocrEngine = SourceRecordingOcrEngine(pageResult())
+        val generator = VisualRecordingGenerator()
+        val coordinator = LocalSearchablePdfExportCoordinator(
+            context = context,
+            ocrEngine = ocrEngine,
+            generator = generator,
+        )
+
+        try {
+            val prepared = coordinator.prepare(
+                SearchablePdfExportRequest(
+                    pageUris = listOf(fileUri(source)),
+                    visualPages = listOf(
+                        SearchablePdfVisualPage(
+                            pageId = 42L,
+                            originalUri = fileUri(source),
+                            filter = if(whitening) DocumentFilter.PAPER_WHITE_COLOUR_STRONG_V1 else if (shadow) DocumentFilter.SHADOW_GLARE_STRONG_V1 else DocumentFilter.GRAYSCALE,
+                            adjustments = org.synapseworks.pageharbor.image.ManualImageAdjustments(if (shadow) -20 else 20, if (shadow) 0 else 25),
+                        ),
+                    ),
+                ),
+            )
+
+            assertTrue(prepared is SearchablePdfPreparedExport.Ready)
+            prepared as SearchablePdfPreparedExport.Ready
+            assertArrayEquals(originalBytes, ocrEngine.receivedSourceBytes)
+            assertEquals(pageResult().layout, generator.receivedOcrResult?.layout)
+            assertEquals(!shadow, generator.visualPixelIsGrayscale)
+            assertArrayEquals(originalBytes, source.readBytes())
+            coordinator.discardPreparedExport(prepared)
+        } finally {
+            source.delete()
+        }
+    }
+
+    @Test
+    fun acceptedBookHalvesUseDistinctOriginalOcrStreamsAndLocalCoordinateSystems()=runBlocking {
+        val root=File(context.cacheDir,"shared-pdfs/book-ocr-${java.util.UUID.randomUUID()}").apply{mkdirs()}
+        val source=org.synapseworks.pageharbor.document.booklayout.BookTestFixtures.source(root,1)
+        val preparedBook=org.synapseworks.pageharbor.document.booklayout.BookTestFixtures.prepare(context,org.synapseworks.pageharbor.document.session.DocumentSession(listOf(source)))
+        try {
+            val pages=preparedBook.after.pages;val expected=pages.map{context.contentResolver.openInputStream(it.source.toAndroidUri())!!.use{it.readBytes()}}
+            var recognized=0
+            val engine=object:OcrEngine {
+                override fun recognize(inputs:List<OcrPage>):OcrResult {
+                    assertEquals(2,inputs.size)
+                    return OcrResult(inputs.mapIndexed{i,input->
+                        assertEquals(0,input.rotationDegrees);assertArrayEquals(expected[i],input.openJpegStream().use{it.readBytes()});recognized++
+                        val width=pages[i].imageMetadata.width!!;val height=pages[i].imageMetadata.height!!;val text=if(i==0)"Book alpha"else"Book beta"
+                        OcrPageResult(i,text,layout=OcrPageLayout(imageWidthPx=width,imageHeightPx=height,lines=listOf(OcrTextLine(text,OcrTextBounds(8f,10f,100f,30f)))))
+                    })
+                }
+            }
+            val coordinator=LocalSearchablePdfExportCoordinator(context,ocrEngine=engine)
+            val request=SearchablePdfExportRequest(pages.map{it.source.toAndroidUri()},visualPages=pages.map{
+                SearchablePdfVisualPage(it.id.value,it.source.toAndroidUri(),filter=DocumentFilter.PAPER_WHITE_COLOUR_STRONG_V1,imageMetadata=it.imageMetadata,adjustments=org.synapseworks.pageharbor.image.ManualImageAdjustments(20,-25))})
+            val result=coordinator.prepare(request)as SearchablePdfPreparedExport.Ready
+            try {
+                assertEquals(2,recognized)
+                PDDocument.load(result.temporaryFile).use{pdf->assertEquals(2,pdf.numberOfPages)
+                    for(i in 0..1){val text=PDFTextStripper().apply{startPage=i+1;endPage=i+1}.getText(pdf).trim();assertEquals(if(i==0)"Book alpha"else"Book beta",text);assertEquals(pages[i].imageMetadata.width!!.toFloat(),pdf.getPage(i).mediaBox.width,0f)}
+                }
+            }finally{coordinator.discardPreparedExport(result)}
+        }finally{preparedBook.close();root.deleteRecursively()}
+    }
+
+    @Test
+    fun acceptedCurvatureUsesFreshRasterOcrAndCorrectedCoordinateSystem()=runBlocking {
+        val root=File(context.cacheDir,"shared-pdfs/book-ocr-${java.util.UUID.randomUUID()}").apply{mkdirs()}
+        val source=org.synapseworks.pageharbor.document.curvature.CurvatureFixtures.source(root,1)
+        val preparedBook=org.synapseworks.pageharbor.document.curvature.CurvatureFixtures.prepare(context,org.synapseworks.pageharbor.document.session.DocumentSession(listOf(source)))
+        try {
+            val pages=preparedBook.after.pages;val expected=pages.map{context.contentResolver.openInputStream(it.source.toAndroidUri())!!.use{it.readBytes()}}
+            var recognized=0
+            val engine=object:OcrEngine {
+                override fun recognize(inputs:List<OcrPage>):OcrResult {
+                    assertEquals(1,inputs.size)
+                    return OcrResult(inputs.mapIndexed{i,input->
+                        assertEquals(0,input.rotationDegrees);assertArrayEquals(expected[i],input.openJpegStream().use{it.readBytes()});recognized++
+                        val width=pages[i].imageMetadata.width!!;val height=pages[i].imageMetadata.height!!;val text=if(i==0)"Corrected alpha"else"Corrected beta"
+                        OcrPageResult(i,text,layout=OcrPageLayout(imageWidthPx=width,imageHeightPx=height,lines=listOf(OcrTextLine(text,OcrTextBounds(8f,10f,100f,30f)))))
+                    })
+                }
+            }
+            val coordinator=LocalSearchablePdfExportCoordinator(context,ocrEngine=engine)
+            val request=SearchablePdfExportRequest(pages.map{it.source.toAndroidUri()},visualPages=pages.map{
+                SearchablePdfVisualPage(it.id.value,it.source.toAndroidUri(),filter=DocumentFilter.PAPER_WHITE_COLOUR_STRONG_V1,imageMetadata=it.imageMetadata,adjustments=org.synapseworks.pageharbor.image.ManualImageAdjustments(20,-25))})
+            val result=coordinator.prepare(request)as SearchablePdfPreparedExport.Ready
+            try {
+                assertEquals(1,recognized)
+                PDDocument.load(result.temporaryFile).use{pdf->assertEquals(1,pdf.numberOfPages)
+                    for(i in 0..0){val text=PDFTextStripper().apply{startPage=i+1;endPage=i+1}.getText(pdf).trim();assertEquals(if(i==0)"Corrected alpha"else"Corrected beta",text);assertEquals(pages[i].imageMetadata.width!!.toFloat(),pdf.getPage(i).mediaBox.width,0f)}
+                }
+            }finally{coordinator.discardPreparedExport(result)}
+        }finally{preparedBook.close();root.deleteRecursively()}
+    }
+
+    @Test
+    fun historyRestoredCurvatureUsesFreshRasterOcrAndCorrectedCoordinateSystem()=runBlocking {
+        val root=File(context.cacheDir,"shared-pdfs/book-ocr-${java.util.UUID.randomUUID()}").apply{mkdirs()}
+        val source=org.synapseworks.pageharbor.document.curvature.CurvatureFixtures.source(root,1)
+        val preparedBook=org.synapseworks.pageharbor.document.curvature.CurvatureFixtures.prepare(context,org.synapseworks.pageharbor.document.session.DocumentSession(listOf(source)))
+        val history=org.synapseworks.pageharbor.document.history.HistoryFixtures.restored(context,preparedBook)
+        try {
+            val pages=history.session.pages;val expected=pages.map{context.contentResolver.openInputStream(it.source.toAndroidUri())!!.use{it.readBytes()}}
+            var recognized=0
+            val engine=object:OcrEngine {
+                override fun recognize(inputs:List<OcrPage>):OcrResult {
+                    assertEquals(1,inputs.size)
+                    return OcrResult(inputs.mapIndexed{i,input->
+                        assertEquals(0,input.rotationDegrees);assertArrayEquals(expected[i],input.openJpegStream().use{it.readBytes()});recognized++
+                        val width=pages[i].imageMetadata.width!!;val height=pages[i].imageMetadata.height!!;val text=if(i==0)"Corrected alpha"else"Corrected beta"
+                        OcrPageResult(i,text,layout=OcrPageLayout(imageWidthPx=width,imageHeightPx=height,lines=listOf(OcrTextLine(text,OcrTextBounds(8f,10f,100f,30f)))))
+                    })
+                }
+            }
+            val coordinator=LocalSearchablePdfExportCoordinator(context,ocrEngine=engine)
+            val request=SearchablePdfExportRequest(pages.map{it.source.toAndroidUri()},visualPages=pages.map{
+                SearchablePdfVisualPage(it.id.value,it.source.toAndroidUri(),filter=DocumentFilter.PAPER_WHITE_COLOUR_STRONG_V1,imageMetadata=it.imageMetadata,adjustments=org.synapseworks.pageharbor.image.ManualImageAdjustments(20,-25))})
+            val result=coordinator.prepare(request)as SearchablePdfPreparedExport.Ready
+            try {
+                assertEquals(1,recognized)
+                PDDocument.load(result.temporaryFile).use{pdf->assertEquals(1,pdf.numberOfPages)
+                    for(i in 0..0){val text=PDFTextStripper().apply{startPage=i+1;endPage=i+1}.getText(pdf).trim();assertEquals(if(i==0)"Corrected alpha"else"Corrected beta",text);assertEquals(pages[i].imageMetadata.width!!.toFloat(),pdf.getPage(i).mediaBox.width,0f)}
+                }
+            }finally{coordinator.discardPreparedExport(result)}
+        }finally{history.close();preparedBook.close();root.deleteRecursively()}
     }
 
     @Test
@@ -219,6 +363,11 @@ class LocalSearchablePdfExportCoordinatorTest {
             PDDocument.load(destination).use { document ->
                 assertEquals(1, document.numberOfPages)
                 assertEquals("English: searchable text", PDFTextStripper().getText(document).trim())
+                val resources = document.getPage(0).resources
+                assertTrue(
+                    "Searchable Save should use the PDFKit-compatible Type 1 text layer",
+                    resources.getFont(resources.fontNames.single()) is PDType1Font,
+                )
             }
         } finally {
             source.delete()

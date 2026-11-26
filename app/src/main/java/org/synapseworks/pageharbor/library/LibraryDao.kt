@@ -47,12 +47,12 @@ data class LibraryBackupOcrCorrectionLineRow(
 )
 
 @Dao
-abstract class LibraryDao {
+abstract class LibraryDao : org.synapseworks.pageharbor.library.organization.OrganizationQueries() {
     @Query(
         """
         SELECT d.document_id, d.title, d.created_at, d.modified_at,
                d.document_date_epoch_day, d.document_date_provenance, d.imported_at, d.page_count,
-               d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status
+               d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status, d.is_favorite
         FROM library_documents AS d
         LEFT JOIN library_folders AS f ON f.folder_id = d.folder_id
         WHERE d.library_state = 'ACTIVE'
@@ -66,7 +66,7 @@ abstract class LibraryDao {
         """
         SELECT d.document_id, d.title, d.created_at, d.modified_at,
                d.document_date_epoch_day, d.document_date_provenance, d.imported_at, d.page_count,
-               d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status
+               d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status, d.is_favorite
         FROM library_documents AS d
         LEFT JOIN library_folders AS f ON f.folder_id = d.folder_id
         WHERE d.library_state = 'ACTIVE'
@@ -80,7 +80,7 @@ abstract class LibraryDao {
         """
         SELECT d.document_id, d.title, d.created_at, d.modified_at,
                d.document_date_epoch_day, d.document_date_provenance, d.imported_at, d.page_count,
-               d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status
+               d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status, d.is_favorite
         FROM library_documents AS d
         LEFT JOIN library_folders AS f ON f.folder_id = d.folder_id
         WHERE d.library_state = 'ACTIVE'
@@ -98,7 +98,7 @@ abstract class LibraryDao {
         """
         SELECT d.document_id, d.title, d.created_at, d.modified_at,
                d.document_date_epoch_day, d.document_date_provenance, d.imported_at, d.page_count,
-               d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status
+               d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status, d.is_favorite
         FROM library_documents AS d
         LEFT JOIN library_folders AS f ON f.folder_id = d.folder_id
         WHERE d.library_state = 'ACTIVE'
@@ -112,7 +112,7 @@ abstract class LibraryDao {
         """
         SELECT d.document_id, d.title, d.created_at, d.modified_at,
                d.document_date_epoch_day, d.document_date_provenance, d.imported_at, d.page_count,
-               d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status,
+               d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status, d.is_favorite,
                NULL AS page_id, NULL AS page_position,
                CASE WHEN lower(c.title) LIKE '%' || lower(:rawQuery) || '%'
                     THEN 'TITLE' ELSE 'FOLDER' END AS match_type,
@@ -137,7 +137,7 @@ abstract class LibraryDao {
         """
         SELECT d.document_id, d.title, d.created_at, d.modified_at,
                d.document_date_epoch_day, d.document_date_provenance, d.imported_at, d.page_count,
-               d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status,
+               d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status, d.is_favorite,
                p.page_id, p.page_position,
                'OCR' AS match_type,
                snippet(library_page_search_v3, '', '', ' … ', 1, 12) AS match_snippet
@@ -161,7 +161,7 @@ abstract class LibraryDao {
         """
         SELECT d.document_id, d.title, d.created_at, d.modified_at,
                d.document_date_epoch_day, d.document_date_provenance, d.imported_at, d.page_count,
-               d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status,
+               d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status, d.is_favorite,
                NULL AS page_id, NULL AS page_position,
                CASE WHEN lower(c.title) LIKE '%' || lower(:rawQuery) || '%'
                     THEN 'TITLE' ELSE 'FOLDER' END AS match_type,
@@ -190,7 +190,7 @@ abstract class LibraryDao {
         """
         SELECT d.document_id, d.title, d.created_at, d.modified_at,
                d.document_date_epoch_day, d.document_date_provenance, d.imported_at, d.page_count,
-               d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status,
+               d.folder_id, f.name AS folder_name, d.thumbnail_path, d.ocr_status, d.is_favorite,
                p.page_id, p.page_position,
                'OCR' AS match_type,
                snippet(library_page_search_v3, '', '', ' … ', 1, 12) AS match_snippet
@@ -213,6 +213,28 @@ abstract class LibraryDao {
         afterPageId: String,
         limit: Int,
     ): List<LibrarySearchRow>
+
+    @Query("""
+        SELECT d.document_id,d.title,d.created_at,d.modified_at,d.document_date_epoch_day,d.document_date_provenance,d.imported_at,d.page_count,
+               d.folder_id,f.name AS folder_name,d.thumbnail_path,d.ocr_status,d.is_favorite,
+               NULL AS page_id,NULL AS page_position,'TAG' AS match_type,NULL AS match_snippet
+        FROM library_documents d LEFT JOIN library_folders f ON f.folder_id=d.folder_id
+        WHERE d.library_state='ACTIVE' AND EXISTS(SELECT 1 FROM library_document_tags a JOIN library_tags t ON t.tag_id=a.tag_id
+              WHERE a.document_id=d.document_id AND t.normalized_name LIKE :pattern ESCAPE '\')
+        ORDER BY d.modified_at DESC,d.document_id LIMIT :limit
+    """)
+    abstract fun observeTagSearch(pattern:String,limit:Int):Flow<List<LibrarySearchRow>>
+    @Query("""
+        SELECT d.document_id,d.title,d.created_at,d.modified_at,d.document_date_epoch_day,d.document_date_provenance,d.imported_at,d.page_count,
+               d.folder_id,f.name AS folder_name,d.thumbnail_path,d.ocr_status,d.is_favorite,
+               NULL AS page_id,NULL AS page_position,'TAG' AS match_type,NULL AS match_snippet
+        FROM library_documents d LEFT JOIN library_folders f ON f.folder_id=d.folder_id
+        WHERE d.library_state='ACTIVE' AND EXISTS(SELECT 1 FROM library_document_tags a JOIN library_tags t ON t.tag_id=a.tag_id
+              WHERE a.document_id=d.document_id AND t.normalized_name LIKE :pattern ESCAPE '\')
+          AND (d.modified_at<:beforeModifiedAt OR(d.modified_at=:beforeModifiedAt AND d.document_id>:afterDocumentId))
+        ORDER BY d.modified_at DESC,d.document_id LIMIT :limit
+    """)
+    abstract suspend fun tagSearchPage(pattern:String,beforeModifiedAt:Long,afterDocumentId:String,limit:Int):List<LibrarySearchRow>
 
     @Query(
         """
@@ -1376,6 +1398,7 @@ abstract class LibraryDao {
         require(ocrCloneSources.keys.all { targetId -> pages.any { it.pageId == targetId } })
         require(ocrCloneSources.values.distinct().size == ocrCloneSources.size)
         val stored = documentAnyState(document.documentId)
+        check(stored!=null||!isDeletedLocalIdentity(document.documentId))
         check(stored == null || stored.libraryState == LibraryDocumentState.ACTIVE.name)
         val storedPages = pagesAnyState(document.documentId)
         val storedPageById = storedPages.associateBy(LibraryPageEntity::pageId)
@@ -1386,11 +1409,14 @@ abstract class LibraryDao {
                     val previous = storedPageById[incoming.pageId]
                     previous == null || previous.contentSha256 != incoming.contentSha256 ||
                         previous.rotationDegrees != incoming.rotationDegrees ||
-                        previous.filterName != incoming.filterName
+                        previous.filterName != incoming.filterName ||
+                        previous.brightness != incoming.brightness || previous.contrast != incoming.contrast ||
+                        previous.annotations != incoming.annotations || previous.paperSize != incoming.paperSize
                 } || sourceAssetIdentity(storedAssets) != sourceAssetIdentity(sourceAssets)
             )
         val storedDocument = document.copy(
             rowId = stored?.rowId ?: document.rowId,
+            isFavorite = stored?.isFavorite ?: document.isFavorite,
             contentRevision = when {
                 stored == null -> document.contentRevision
                 contentChanged -> stored.contentRevision + 1
@@ -1480,6 +1506,20 @@ abstract class LibraryDao {
         pages.forEach { page -> refreshPageSearchContent(page.pageId) }
         bumpLibraryRevision(document.modifiedAtMillis)
         return finalDocument
+    }
+
+    @Transaction
+    open suspend fun restoreTrashedDocument(id:String,revision:Long,now:Long):LibraryDocumentEntity? {
+        val row=restoreRecycleRow(id,revision,now)?:return null
+        refreshDocumentSearchContent(row)
+        return row
+    }
+    @Transaction
+    open suspend fun purgeTrashedDocument(id:String,revision:Long,now:Long):LibraryDocumentEntity? {
+        val row=recycleDocument(id)?:return null
+        if(row.libraryState!="TRASHED"||row.trashRevision!=revision)return null
+        deleteSearch(row.rowId)
+        return deleteRecycleRow(id,revision,now)
     }
 
     @Transaction
@@ -2902,6 +2942,7 @@ abstract class LibraryDao {
         expectedFolderCount: Int,
         completedOperation: LibraryDataOperationEntity,
         modifiedAt: Long,
+        tags: List<org.synapseworks.pageharbor.library.organization.LibraryTagEntity> = emptyList(),
     ) {
         val storedOperation = requireNotNull(operation(operationId))
         require(completedOperation.operationId == operationId)
@@ -2912,9 +2953,10 @@ abstract class LibraryDao {
         activatePendingRestoreFolders(operationId)
         val activatedDocumentCount = activatePendingRestoreDocuments(operationId)
         require(activatedDocumentCount == completedOperation.importedDocumentCount)
+        activateOrganization(operationId,tags)
         activatePreparedRestoreItems(operationId)
         deletePendingRestoreFolders(operationId)
-        if (activatedDocumentCount != 0 || expectedFolderCount != 0) bumpLibraryRevision(modifiedAt)
+        if (activatedDocumentCount != 0 || expectedFolderCount != 0 || tags.isNotEmpty()) bumpLibraryRevision(modifiedAt)
         updateOperation(completedOperation)
     }
 

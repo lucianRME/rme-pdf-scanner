@@ -8,7 +8,6 @@ import java.util.Locale
 import org.synapseworks.pageharbor.document.importing.MAX_PDF_IMPORT_BYTES
 import org.synapseworks.pageharbor.document.importing.sniffSupportedContentType
 import org.synapseworks.pageharbor.document.session.DEFAULT_MAX_IMAGE_SOURCE_BYTES
-import org.synapseworks.pageharbor.document.session.DEFAULT_MAX_IMPORTED_DOCUMENT_PAGES
 
 private const val DEFAULT_MAX_PLANNING_SOURCES = 10_000
 private const val MAX_SUGGESTED_TITLE_LENGTH = 255
@@ -166,7 +165,7 @@ class BulkMigrationPlanner(
         val mismatchWarnings = mimeMismatchWarnings(source, MigrationContentType.PDF)
         return when (val inspection = pdfInspector?.inspectPdf(source)) {
             is MigrationPdfInspection.Readable -> {
-                if (inspection.pageCount > DEFAULT_MAX_IMPORTED_DOCUMENT_PAGES) {
+                if (inspection.pageCount > MAX_MIGRATION_PLANNED_PDF_PAGES) {
                     SourceInspection.Rejected(
                         MigrationSourceIssue.UNSUPPORTED_CONTENT,
                         MigrationSourceFailureDetail.PDF_PAGE_LIMIT_EXCEEDED,

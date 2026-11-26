@@ -166,6 +166,30 @@ class ManagedDocumentPreviewTest {
     }
 
     @Test
+    fun transformMemoryPressureReleasesFailedBitmapAndAllowsAnotherRequest() {
+        val failed = bitmap()
+        val recovered = bitmap()
+        val recycler = RecordingBitmapRecycler()
+        val request = mutableStateOf(0)
+        composeRule.setContent {
+            val current = request.value
+            PreviewHarness(
+                requestKey = current,
+                decode = { if (current == 0) failed else recovered },
+                transform = { if (current == 0) throw OutOfMemoryError("Synthetic preview pressure") else it },
+                recycler = recycler::recycle,
+            )
+        }
+        composeRule.waitUntil {
+            composeRule.onAllNodesWithTag(UnavailableTag).fetchSemanticsNodes().isNotEmpty()
+        }
+        assertEquals(1, recycler.count(failed))
+        composeRule.runOnIdle { request.value = 1 }
+        awaitReady()
+        assertEquals(0, recycler.count(recovered))
+    }
+
+    @Test
     fun removalAfterReadyPublicationButBeforeCommitRecyclesExactlyOnce() {
         val bitmap = bitmap()
         val recycler = RecordingBitmapRecycler()

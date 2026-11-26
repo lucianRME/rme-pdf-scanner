@@ -1,0 +1,45 @@
+{
+  "source": "Git-free5fc60db qualified candidate15 Java inputs; consumer adaptation requires independent integration validation",
+  "files": [
+    {
+      "path": "org/libreoffice/kit/LibreOfficeKit.java",
+      "sha256": "3b2df35827c320e8b3bf6fa88b7da90496a5b9ec4cc25212ff1a09b25b53789c"
+    },
+    {
+      "path": "org/synapseworks/m35/workerprobe/Admission.java",
+      "sha256": "a32abf8545aa80a696fdafb901cba121701deebf70910e106daa04faf4bb8795"
+    },
+    {
+      "path": "org/synapseworks/m35/workerprobe/BoundaryExperiment.java",
+      "sha256": "90d07e57f758509ea6d74d10404850643a2eae02299d84512f324302b4458e72"
+    },
+    {
+      "path": "org/synapseworks/m35/workerprobe/CapabilityProfile.java",
+      "sha256": "c9a417230298a456c9b364b17ee179120cbab2963e4ceb7628ebf13bf3d2ba6d"
+    },
+    {
+      "path": "org/synapseworks/m35/workerprobe/Coordinator.java",
+      "sha256": "94284782f1f1ceaaf882ab5aa00b118490adff850379a97e387b029b196be0e3"
+    },
+    {
+      "path": "org/synapseworks/m35/workerprobe/Engine.java",
+      "sha256": "64eff5e6b182eccb12b219613df581e0face223ea50e841e060056fe2b614ccd"
+    },
+    {
+      "path": "org/synapseworks/m35/workerprobe/IsolatedJob.java",
+      "sha256": "def956bd2fe850839ad38d016df5d35926c37b7bb07d443c351b33824fe39b5f"
+    },
+    {
+      "path": "org/synapseworks/m35/workerprobe/IsolationService.java",
+      "sha256": "4c8fc1729291c0380f7a31b6949445b69f4d78d16cad8bd9dcfcefe9a819c961"
+    },
+    {
+      "path": "org/synapseworks/m35/workerprobe/NativeService.java",
+      "sha256": "6924f383f2ec54c926e771b9b57bfbfe3075cca7f685785ea5ded1a98668c4fb"
+    },
+    {
+      "path": "org/synapseworks/m35/workerprobe/TextPolicyTables.java",
+      "sha256": "e8a602e570a423cc3095f367918786788a20c9a41a2db7de78181f6e293a115a"
+    }
+  ]
+}

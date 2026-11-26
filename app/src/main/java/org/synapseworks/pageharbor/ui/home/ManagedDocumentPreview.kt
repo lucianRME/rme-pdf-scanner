@@ -124,7 +124,8 @@ internal fun rememberManagedDocumentPreview(
     requestKey: Any?,
     isCurrent: () -> Boolean = { true },
     decode: () -> Bitmap?,
-    transform: (Bitmap) -> Bitmap = { it },
+    transform: suspend (Bitmap) -> Bitmap = { it },
+    debounceMillis: Long = 0,
     recycler: (Bitmap) -> Unit = ::recyclePreviewBitmap,
     onReadyPublishedForTest: (() -> Unit)? = null,
 ): State<ManagedDocumentPreviewState> {
@@ -138,6 +139,7 @@ internal fun rememberManagedDocumentPreview(
 
     LaunchedEffect(requestKey) {
         state.value = ManagedDocumentPreviewState.Loading
+        if (debounceMillis > 0) kotlinx.coroutines.delay(debounceMillis)
         val crossingDispatcher = AtomicReference<OwnedPreviewBitmap?>()
         var owned: OwnedPreviewBitmap? = null
         try {
@@ -179,6 +181,8 @@ internal fun rememberManagedDocumentPreview(
         } catch (error: CancellationException) {
             throw error
         } catch (_: Exception) {
+            state.value = ManagedDocumentPreviewState.Unavailable
+        } catch (_: OutOfMemoryError) {
             state.value = ManagedDocumentPreviewState.Unavailable
         } finally {
             crossingDispatcher.getAndSet(null)?.release()

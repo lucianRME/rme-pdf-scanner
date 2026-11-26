@@ -130,6 +130,7 @@ sealed interface PortabilityOperationStatus {
 }
 
 enum class PortabilityWorkflowFailure {
+    RESTORE_DELETED_DOCUMENT_CONFLICT,
     INVALID_PASSWORD,
     BACKUP_SNAPSHOT_UNAVAILABLE,
     BACKUP_TEMPORARY_STORAGE_UNAVAILABLE,

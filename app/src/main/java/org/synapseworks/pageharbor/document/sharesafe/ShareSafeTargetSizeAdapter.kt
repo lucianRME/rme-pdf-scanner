@@ -121,6 +121,7 @@ internal class ShareSafeTargetSizeAdapter(context: Context) {
                                 width = page.width,
                                 height = page.height,
                             ),
+                            paperSize = org.synapseworks.pageharbor.document.session.DocumentPaperSize(source.policy.pages[index].widthPoints,source.policy.pages[index].heightPoints),
                             effectiveOcr = null,
                             contentProfile = TargetSizePageContentProfile.MIXED_TEXT_PHOTO,
                         )

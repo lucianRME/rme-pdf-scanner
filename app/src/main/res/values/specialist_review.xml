@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="photo_review_confirmation">I reviewed this restored copy.</string>
+    <string name="integrity_review_confirmation">I reviewed the checked scope and limitations.</string>
+    <string name="retrieval_review_confirmation">I reviewed this draft and its references.</string>
+    <string name="retrieval_search_hint">Search matches every whole word you enter. Accents matter. Check excerpts against the source page.</string>
+    <string name="retrieval_pdf_hint">The PDF uses a searchable A4 text layout. Up to 12 pages and 16 MiB. If a character is unsupported, save as TXT.</string>
+    <string name="retrieval_edited_hint">You edited the draft. Check each reference against its source page.</string>
+    <string name="retrieval_review_hint">Check the excerpts and their page references before sharing.</string>
+    <string name="qr_capture_hint">Frame one QR code. You choose what to open or copy.</string>
+    <string name="qr_permission_hint">Scan with your camera or choose an image without camera access.</string>
+    <string name="qr_result_lifetime">RME clears the result when you leave. Your original image stays where you chose it.</string>
+    <string name="integrity_equal_bytes">The files are byte-for-byte identical.</string>
+    <string name="integrity_different_bytes">The files contain different bytes.</string>
+    <string name="integrity_unchecked_bytes">File contents were not compared.</string>
+    <string name="integrity_comparison_hint">Pages are paired by number. Images are compared at 480 pixels on their longest side. Extracted text can include hidden text and miss scanned text.</string>
+    <string name="integrity_page_number">Page %1$d</string>
+    <string name="integrity_added_page">This page appears only in the comparison PDF.</string>
+    <string name="integrity_missing_page">This page appears only in the baseline PDF.</string>
+    <string name="integrity_same_geometry">Page size and rotation match.</string>
+    <string name="integrity_changed_geometry">Page size or rotation differs.</string>
+    <string name="integrity_unchecked_geometry">Page size and rotation were not compared.</string>
+    <string name="integrity_same_pixels">The preview pixels match.</string>
+    <string name="integrity_changed_pixels">The preview pixels differ.</string>
+    <string name="integrity_incomparable_pixels">A same-size preview comparison was unavailable.</string>
+    <string name="integrity_pixel_count">Changed pixels: %1$d</string>
+    <string name="integrity_same_text">Extracted text matches.</string>
+    <string name="integrity_changed_text">Extracted text differs.</string>
+    <string name="integrity_unchecked_text">The text could not be verified.</string>
+    <string name="integrity_extracted">Text extracted from this PDF</string>
+    <string name="integrity_no_extraction">No readable native text is available.</string>
+    <string name="integrity_signatures_unchecked">Signatures were not checked.</string>
+    <string name="integrity_no_signatures">No signature record was found in the parsed document. Hidden data was not checked.</string>
+    <string name="integrity_signatures_found">Signature records found: %1$d. See the technical report for signing details.</string>
+    <string name="integrity_credentials">Content Credentials (C2PA) were not checked.</string>
+    <string name="integrity_trust">Signer identity, certificate trust and revocation, trusted timestamps and permitted revisions were not verified. RME does not contact online authorities.</string>
+    <string name="integrity_show_report">Show technical report</string>
+    <string name="integrity_hide_report">Hide technical report</string>
+</resources>

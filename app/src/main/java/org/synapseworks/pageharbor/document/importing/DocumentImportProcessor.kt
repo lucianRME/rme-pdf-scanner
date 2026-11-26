@@ -26,7 +26,6 @@ import org.synapseworks.pageharbor.document.session.DocumentResourceOwnership
 import org.synapseworks.pageharbor.document.session.DocumentSourceCategory
 import org.synapseworks.pageharbor.document.session.OwnedTemporaryFile
 import org.synapseworks.pageharbor.document.session.imageConstraintViolation
-import org.synapseworks.pageharbor.document.session.readDocumentImageMetadata
 
 fun interface DocumentImportProgressListener {
     fun onProgress(completedItems: Int, totalItems: Int, preparedPages: Int)
@@ -44,6 +43,8 @@ sealed interface DocumentImportPreparationResult {
 /** Android adapter for selected/shared images and bounded, sequential PdfRenderer page import. */
 class DocumentImportProcessor(
     context: Context,
+    private val availableStorageBytes: (() -> Long)? = null,
+    private val availableHeapBytes: (() -> Long)? = null,
     private val registerOwnedResource: (AcquiredResource) -> Boolean,
 ) {
     private val applicationContext = context.applicationContext
@@ -102,7 +103,10 @@ class DocumentImportProcessor(
                     item.directPdfSource?.let(preparedPdfSources::add)
                 }
                 is PreparedItem.Failure -> {
-                    if (item.reason == DocumentImportError.PAGE_LIMIT_EXCEEDED) {
+                    if (item.reason == DocumentImportError.PAGE_LIMIT_EXCEEDED ||
+                        item.reason == DocumentImportError.INSUFFICIENT_STORAGE ||
+                        item.reason == DocumentImportError.INSUFFICIENT_MEMORY
+                    ) {
                         return@withContext DocumentImportPreparationResult.Failure(item.reason)
                     }
                     skippedItems += 1
@@ -157,43 +161,57 @@ class DocumentImportProcessor(
         }
     }
 
-    private fun prepareImage(
+    private suspend fun prepareImage(
         uri: Uri,
         sourceCategory: DocumentSourceCategory,
         contentType: String,
     ): PreparedItem {
-        val knownMetadata = resolver.readDocumentImageMetadata(uri)
-        if (knownMetadata.sourceByteCount?.let { it > DEFAULT_DOCUMENT_INPUT_LIMITS.maxSourceBytes } == true) {
-            return PreparedItem.Failure(DocumentImportError.SOURCE_TOO_LARGE)
-        }
-        val bounds = try {
-            readImageBounds { resolver.openInputStream(uri) }
-        } catch (_: IOException) {
-            null
-        } catch (_: SecurityException) {
-            null
-        } catch (_: IllegalArgumentException) {
-            null
-        } ?: return PreparedItem.Failure(DocumentImportError.INVALID_IMAGE)
-        val metadata = knownMetadata.copy(width = bounds.first, height = bounds.second)
-        when (DEFAULT_DOCUMENT_INPUT_LIMITS.imageConstraintViolation(metadata)) {
-            DocumentImageConstraintViolation.INVALID_METADATA ->
-                return PreparedItem.Failure(DocumentImportError.INVALID_IMAGE)
-            DocumentImageConstraintViolation.SOURCE_BYTES_EXCEEDED,
-            DocumentImageConstraintViolation.DIMENSIONS_EXCEEDED,
-            -> return PreparedItem.Failure(DocumentImportError.SOURCE_TOO_LARGE)
-            null -> Unit
-        }
-        return PreparedItem.Success(
-            listOf(
-                AcquiredDocumentPage(
-                    resource = AcquiredResource(reference = uri.toString()),
-                    sourceCategory = sourceCategory,
-                    contentType = contentType,
-                    imageMetadata = metadata,
-                ),
-            ),
-        )
+        // Provider size/MIME are hints, not authority. Own an exact bounded snapshot before
+        // codec work, so a later grant revocation or provider change cannot retarget this page.
+        val suffix = when(contentType) { "image/png" -> ".png"; "image/webp" -> ".webp"; else -> ".jpg" }
+        val file = createOwnedTemporaryFile("import-image-", suffix)
+            ?: return PreparedItem.Failure(DocumentImportError.TEMPORARY_FILE_FAILED)
+        var retained = false
+        try {
+            val resource = ownedResource(file) ?: return PreparedItem.Failure(DocumentImportError.TEMPORARY_FILE_FAILED)
+            if (!registerOwnedResource(resource)) return PreparedItem.Failure(DocumentImportError.INTERRUPTED)
+            when (copyPdfBounded(uri,file,DEFAULT_DOCUMENT_INPUT_LIMITS.maxSourceBytes)) {
+                CopyResult.Success -> Unit
+                CopyResult.SourceTooLarge -> return PreparedItem.Failure(DocumentImportError.SOURCE_TOO_LARGE)
+                CopyResult.StorageUnavailable -> return PreparedItem.Failure(DocumentImportError.INSUFFICIENT_STORAGE)
+                CopyResult.Failed -> return PreparedItem.Failure(DocumentImportError.UNREADABLE_SOURCE)
+            }
+            coroutineContext.ensureActive()
+            if (file.inputStream().use(::sniffSupportedContentType) != contentType) return PreparedItem.Failure(DocumentImportError.INVALID_IMAGE)
+            val bounds = readImageBounds { file.inputStream() }
+                ?: return PreparedItem.Failure(DocumentImportError.INVALID_IMAGE)
+            val metadata = DocumentImageMetadata(file.length(),bounds.first,bounds.second)
+            when (org.synapseworks.pageharbor.document.session.DEFAULT_DOCUMENT_SOURCE_LIMITS.imageConstraintViolation(metadata)) {
+                DocumentImageConstraintViolation.INVALID_METADATA -> return PreparedItem.Failure(DocumentImportError.INVALID_IMAGE)
+                DocumentImageConstraintViolation.SOURCE_BYTES_EXCEEDED,DocumentImageConstraintViolation.DIMENSIONS_EXCEEDED -> return PreparedItem.Failure(DocumentImportError.SOURCE_TOO_LARGE)
+                null -> Unit
+            }
+            org.synapseworks.pageharbor.document.readOrientation { file.inputStream() }
+            val runtime = Runtime.getRuntime()
+            val heap = availableHeapBytes?.invoke() ?: (runtime.maxMemory() - (runtime.totalMemory() - runtime.freeMemory()))
+            val sample = importValidationSampleSize(bounds.first, bounds.second, heap)
+                ?: return PreparedItem.Failure(DocumentImportError.INSUFFICIENT_MEMORY)
+            // Decode one bounded page to reject corrupt payloads, not just plausible headers.
+            val decoded = org.synapseworks.pageharbor.document.decodeWithSample({file.inputStream()},sample)
+                ?: return PreparedItem.Failure(DocumentImportError.INVALID_IMAGE)
+            try {
+                if (DEFAULT_DOCUMENT_INPUT_LIMITS.imageConstraintViolation(metadata.copy(width=decoded.width,height=decoded.height))!=null)
+                    return PreparedItem.Failure(DocumentImportError.SOURCE_TOO_LARGE)
+                coroutineContext.ensureActive()
+            } finally { decoded.recycle() }
+            retained=true
+            return PreparedItem.Success(listOf(AcquiredDocumentPage(resource,sourceCategory,contentType,metadata)))
+        } catch (cancelled: CancellationException) { throw cancelled
+        } catch (_: OutOfMemoryError) { return PreparedItem.Failure(DocumentImportError.INSUFFICIENT_MEMORY)
+        } catch (_: IOException) { return PreparedItem.Failure(DocumentImportError.INVALID_IMAGE)
+        } catch (_: SecurityException) { return PreparedItem.Failure(DocumentImportError.UNREADABLE_SOURCE)
+        } catch (_: IllegalArgumentException) { return PreparedItem.Failure(DocumentImportError.INVALID_IMAGE)
+        } finally { if (!retained) file.deleteSafely() }
     }
 
     private suspend fun preparePdf(
@@ -213,6 +231,7 @@ class DocumentImportProcessor(
         when (copyPdfBounded(uri, pdfFile)) {
             CopyResult.Success -> Unit
             CopyResult.SourceTooLarge -> return PreparedItem.Failure(DocumentImportError.SOURCE_TOO_LARGE)
+            CopyResult.StorageUnavailable -> return PreparedItem.Failure(DocumentImportError.INSUFFICIENT_STORAGE)
             CopyResult.Failed -> return PreparedItem.Failure(DocumentImportError.PDF_UNREADABLE)
         }
         coroutineContext.ensureActive()
@@ -224,6 +243,12 @@ class DocumentImportProcessor(
                     }
                     if (renderer.pageCount > remainingCapacity) {
                         return PreparedItem.Failure(DocumentImportError.PAGE_LIMIT_EXCEEDED)
+                    }
+                    val runtime = Runtime.getRuntime()
+                    val heapAvailable = availableHeapBytes?.invoke()
+                        ?: (runtime.maxMemory() - (runtime.totalMemory() - runtime.freeMemory()))
+                    if (!hasImportMetadataMemory(heapAvailable, renderer.pageCount.toLong())) {
+                        return PreparedItem.Failure(DocumentImportError.INSUFFICIENT_MEMORY)
                     }
                     val pages = mutableListOf<AcquiredDocumentPage>()
                     repeat(renderer.pageCount) { pageIndex ->
@@ -239,8 +264,10 @@ class DocumentImportProcessor(
                     )
                 }
             }
-        } catch (_: CancellationException) {
-            throw CancellationException()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: ImportStorageUnavailable) {
+            PreparedItem.Failure(DocumentImportError.INSUFFICIENT_STORAGE)
         } catch (_: IOException) {
             PreparedItem.Failure(DocumentImportError.PDF_UNREADABLE)
         } catch (_: SecurityException) {
@@ -261,6 +288,8 @@ class DocumentImportProcessor(
         if (!registerOwnedResource(resource)) return null
         return renderer.openPage(pageIndex).use { page ->
             val size = calculatePdfRenderSize(page.width, page.height) ?: return null
+            // JPEG staging is bounded conservatively before allocating/encoding this page.
+            requireStorage(size.width.toLong() * size.height * 4L + 65_536L)
             val bitmap = try {
                 Bitmap.createBitmap(size.width, size.height, Bitmap.Config.ARGB_8888)
             } catch (_: OutOfMemoryError) {
@@ -295,23 +324,28 @@ class DocumentImportProcessor(
         }
     }
 
-    private fun copyPdfBounded(uri: Uri, destination: File): CopyResult = try {
+    private suspend fun copyPdfBounded(uri: Uri, destination: File, maximumBytes: Long = MAX_PDF_IMPORT_BYTES): CopyResult = try {
         val input = resolver.openInputStream(uri) ?: return CopyResult.Failed
         input.use { source ->
             FileOutputStream(destination).use { output ->
                 val buffer = ByteArray(32 * 1024)
                 var total = 0L
                 while (true) {
+                    coroutineContext.ensureActive()
                     val count = source.read(buffer)
                     if (count < 0) break
                     total += count
-                    if (total > MAX_PDF_IMPORT_BYTES) return CopyResult.SourceTooLarge
+                    if (count == 0) return CopyResult.Failed
+                    if (total > maximumBytes) return CopyResult.SourceTooLarge
+                    requireStorage(count.toLong())
                     output.write(buffer, 0, count)
                 }
                 output.flush()
             }
         }
         if (destination.length() <= 0L) CopyResult.Failed else CopyResult.Success
+    } catch (_: ImportStorageUnavailable) {
+        CopyResult.StorageUnavailable
     } catch (_: IOException) {
         CopyResult.Failed
     } catch (_: SecurityException) {
@@ -363,9 +397,17 @@ class DocumentImportProcessor(
         data class Failure(val reason: DocumentImportError) : PreparedItem
     }
 
+    private fun requireStorage(additionalBytes: Long) {
+        val available = availableStorageBytes?.invoke() ?: privateRoot.usableSpace
+        if (!hasImportStorage(available, additionalBytes)) throw ImportStorageUnavailable()
+    }
+
+    private class ImportStorageUnavailable : IOException()
+
     private enum class CopyResult {
         Success,
         SourceTooLarge,
+        StorageUnavailable,
         Failed,
     }
 }

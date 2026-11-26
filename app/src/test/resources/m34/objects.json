@@ -1,0 +1,309 @@
+[
+  {
+    "name": "landscape",
+    "width": 960,
+    "height": 540,
+    "objects": [
+      {
+        "kind": "TEXT",
+        "box": [
+          0.08,
+          0.08,
+          0.84,
+          0.12
+        ],
+        "font": 32,
+        "text": "Review draft",
+        "bold": false
+      },
+      {
+        "kind": "TEXT",
+        "box": [
+          0.08,
+          0.25,
+          0.56,
+          0.16
+        ],
+        "font": 20,
+        "text": "First line\nSecond line",
+        "bold": false
+      },
+      {
+        "kind": "IMAGE",
+        "box": [
+          0.72,
+          0.27,
+          0.2,
+          0.25
+        ]
+      },
+      {
+        "kind": "RECT",
+        "box": [
+          0.08,
+          0.62,
+          0.2,
+          0.16
+        ],
+        "color": "2563EB"
+      },
+      {
+        "kind": "ELLIPSE",
+        "box": [
+          0.34,
+          0.62,
+          0.18,
+          0.16
+        ],
+        "color": "16A34A"
+      },
+      {
+        "kind": "LINE",
+        "box": [
+          0.08,
+          0.88,
+          0.7,
+          0.002
+        ],
+        "color": "111111"
+      }
+    ],
+    "lines": [
+      {
+        "id": 0,
+        "text": "Review draft",
+        "bounds": [
+          77,
+          43,
+          256,
+          66
+        ]
+      },
+      {
+        "id": 1,
+        "text": "First line",
+        "bounds": [
+          77,
+          135,
+          152,
+          149
+        ]
+      },
+      {
+        "id": 2,
+        "text": "Second line",
+        "bounds": [
+          77,
+          162,
+          180,
+          176
+        ]
+      }
+    ],
+    "expectedOrder": [
+      "Review draft",
+      "First line",
+      "Second line"
+    ]
+  },
+  {
+    "name": "portrait",
+    "width": 540,
+    "height": 720,
+    "objects": [
+      {
+        "kind": "TEXT",
+        "box": [
+          0.08,
+          0.08,
+          0.84,
+          0.1
+        ],
+        "font": 26,
+        "text": "Portrait source",
+        "bold": false
+      },
+      {
+        "kind": "TEXT",
+        "box": [
+          0.08,
+          0.25,
+          0.84,
+          0.16
+        ],
+        "font": 18,
+        "text": "Café μ µ\nПривет 中文 日本語 한국어",
+        "bold": false
+      },
+      {
+        "kind": "IMAGE",
+        "box": [
+          0.1,
+          0.48,
+          0.42,
+          0.2
+        ]
+      },
+      {
+        "kind": "RECT",
+        "box": [
+          0.64,
+          0.52,
+          0.22,
+          0.16
+        ],
+        "color": "DC2626"
+      }
+    ],
+    "lines": [
+      {
+        "id": 0,
+        "text": "Portrait source",
+        "bounds": [
+          43,
+          58,
+          210,
+          77
+        ]
+      },
+      {
+        "id": 1,
+        "text": "Café μ µ",
+        "bounds": [
+          43,
+          180,
+          111,
+          198
+        ]
+      },
+      {
+        "id": 2,
+        "text": "Привет 中文 日本語 한국어",
+        "bounds": [
+          43,
+          204,
+          263,
+          224
+        ]
+      }
+    ],
+    "expectedOrder": [
+      "Portrait source",
+      "Café μ µ",
+      "Привет 中文 日本語 한국어"
+    ]
+  },
+  {
+    "name": "long",
+    "width": 960,
+    "height": 540,
+    "objects": [
+      {
+        "kind": "TEXT",
+        "box": [
+          0.08,
+          0.1,
+          0.84,
+          0.34
+        ],
+        "font": 22,
+        "text": "Long reviewed text stays editable.\nThe second line has accents: naïve, résumé.\nExpand this paragraph after opening the deck.\nAll original source pixels remain separate.",
+        "bold": false
+      },
+      {
+        "kind": "TEXT",
+        "box": [
+          0.08,
+          0.65,
+          0.84,
+          0.12
+        ],
+        "font": 24,
+        "text": "Repeated text",
+        "bold": false
+      },
+      {
+        "kind": "TEXT",
+        "box": [
+          0.08,
+          0.82,
+          0.84,
+          0.12
+        ],
+        "font": 24,
+        "text": "Repeated text",
+        "bold": false
+      }
+    ],
+    "lines": [
+      {
+        "id": 0,
+        "text": "Long reviewed text stays editable.",
+        "bounds": [
+          77,
+          54,
+          404,
+          74
+        ]
+      },
+      {
+        "id": 1,
+        "text": "The second line has accents: naïve, résumé.",
+        "bounds": [
+          77,
+          84,
+          507,
+          103
+        ]
+      },
+      {
+        "id": 2,
+        "text": "Expand this paragraph after opening the deck.",
+        "bounds": [
+          77,
+          114,
+          521,
+          134
+        ]
+      },
+      {
+        "id": 3,
+        "text": "All original source pixels remain separate.",
+        "bounds": [
+          76,
+          144,
+          479,
+          164
+        ]
+      },
+      {
+        "id": 4,
+        "text": "Repeated text",
+        "bounds": [
+          77,
+          351,
+          225,
+          373
+        ]
+      },
+      {
+        "id": 5,
+        "text": "Repeated text",
+        "bounds": [
+          77,
+          443,
+          225,
+          465
+        ]
+      }
+    ],
+    "expectedOrder": [
+      "Long reviewed text stays editable.",
+      "The second line has accents: naïve, résumé.",
+      "Expand this paragraph after opening the deck.",
+      "All original source pixels remain separate.",
+      "Repeated text",
+      "Repeated text"
+    ]
+  }
+]

@@ -1,7 +1,12 @@
 package org.synapseworks.pageharbor.ui.sharesafe
 
+import org.synapseworks.pageharbor.ui.theme.RmeIconButton
+import org.synapseworks.pageharbor.ui.theme.RmeTextButton
+import org.synapseworks.pageharbor.ui.theme.RmeTextField
+
 import android.content.ContentResolver
 import android.graphics.Bitmap
+import org.synapseworks.pageharbor.image.renderDisplayBitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.ImageDecoder
@@ -24,6 +29,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -40,13 +47,11 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -112,7 +117,6 @@ import org.synapseworks.pageharbor.ui.home.rememberManagedDocumentPreview
 import org.synapseworks.pageharbor.ui.theme.PageHarborLayout
 import org.synapseworks.pageharbor.ui.theme.RmeSecondaryButton
 import org.synapseworks.pageharbor.ui.theme.RmePrimaryButton
-import org.synapseworks.pageharbor.ui.theme.RmeFilledTextField
 import org.synapseworks.pageharbor.ui.theme.RmeTonalChoice
 import org.synapseworks.pageharbor.ui.theme.rmeColors
 import org.synapseworks.pageharbor.ui.theme.PageHarborSpacing
@@ -153,7 +157,7 @@ fun ShareSafeCopyScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    RmeIconButton(onClick = onBack) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             stringResource(R.string.share_safe_close),
@@ -164,7 +168,7 @@ fun ShareSafeCopyScreen(
         },
     ) { padding ->
         Box(
-            Modifier.fillMaxSize().padding(padding),
+            Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding(),
             contentAlignment = Alignment.TopCenter,
         ) {
             when (state) {
@@ -416,7 +420,7 @@ private fun RedactionStep(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(enabled = state.selectedPageIndex > 0, onClick = {
+        RmeIconButton(enabled = state.selectedPageIndex > 0, onClick = {
             onPage(state.selectedPageIndex - 1)
         }) {
             Icon(
@@ -425,7 +429,7 @@ private fun RedactionStep(
             )
         }
         Text(stringResource(R.string.share_safe_page_indicator, state.selectedPageIndex + 1, state.pageCount))
-        IconButton(enabled = state.selectedPageIndex < state.pageCount - 1, onClick = {
+        RmeIconButton(enabled = state.selectedPageIndex < state.pageCount - 1, onClick = {
             onPage(state.selectedPageIndex + 1)
         }) {
             Icon(
@@ -537,9 +541,8 @@ private fun RedactionPagePreview(
                     bitmap = current.owner.bitmap.asImageBitmap(),
                     resetKey = uri to rotation,
                     description = stringResource(R.string.share_safe_redaction_preview),
-                    modifier = Modifier.fillMaxSize().aspectRatio(
+                    modifier = Modifier.aspectRatio(
                         current.owner.bitmap.width.toFloat() / current.owner.bitmap.height,
-                        matchHeightConstraintsFirst = true,
                     ),
                 ) {
                     Canvas(
@@ -614,7 +617,7 @@ private fun PurposeStep(
     ToggleRow(stringResource(R.string.share_safe_watermark_toggle), config.enabled, onEnabled)
     if (!config.enabled) return
     val validation = ShareSafePurposeValidator.validate(config.purposeText)
-    RmeFilledTextField(
+    RmeTextField(
         value = config.purposeText,
         onValueChange = onPurpose,
         label = { Text(stringResource(R.string.share_safe_purpose_label)) },
@@ -641,7 +644,7 @@ private fun PurposeStep(
     )
     ToggleRow(stringResource(R.string.share_safe_date_toggle), config.includeDate, onDateEnabled)
     if (config.includeDate) {
-        RmeFilledTextField(
+        RmeTextField(
             value = config.dateText,
             onValueChange = onDate,
             label = { Text(stringResource(R.string.share_safe_date_label)) },
@@ -716,7 +719,7 @@ private fun SizeStep(
             ) { Text(stringResource(R.string.fit_limit_custom)) }
         }
         if (customSelected) {
-            RmeFilledTextField(
+            RmeTextField(
                 value = customText,
                 onValueChange = { value ->
                     onCustomText(value)
@@ -839,7 +842,7 @@ private fun PreparedContent(
             } else {
                 ShareSafeResultActions(onSave, onShare, saving, stacked = false)
             }
-            TextButton(
+            RmeTextButton(
                 onClick = onChange,
                 enabled = !saving,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
@@ -1021,9 +1024,8 @@ private fun WatermarkPreview(uri: Uri?, config: ShareSafeWatermarkConfig) {
                     resetKey = uri to config,
                     description = description,
                     exposeDescription = false,
-                    modifier = Modifier.fillMaxSize().aspectRatio(
+                    modifier = Modifier.aspectRatio(
                         current.owner.bitmap.width.toFloat() / current.owner.bitmap.height,
-                        matchHeightConstraintsFirst = true,
                     ),
                 ) {
                     Canvas(Modifier.fillMaxSize()) {
@@ -1109,11 +1111,11 @@ private fun FinalPdfPreview(prepared: ShareSafePreparedPdf) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(enabled = pageIndex > 0, onClick = { pageIndex-- }) {
+            RmeIconButton(enabled = pageIndex > 0, onClick = { pageIndex-- }) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.share_safe_previous_page))
             }
             Text(stringResource(R.string.share_safe_page_indicator, pageIndex + 1, prepared.pageCount))
-            IconButton(enabled = pageIndex < prepared.pageCount - 1, onClick = { pageIndex++ }) {
+            RmeIconButton(enabled = pageIndex < prepared.pageCount - 1, onClick = { pageIndex++ }) {
                 Icon(Icons.AutoMirrored.Filled.ArrowForward, stringResource(R.string.share_safe_next_page))
             }
         }
@@ -1194,10 +1196,10 @@ private fun renderPdfPage(file: File, pageIndex: Int): Bitmap? = try {
             if (pageIndex !in 0 until renderer.pageCount) return null
             renderer.openPage(pageIndex).use { page ->
                 val scale = minOf(1_600f / max(page.width, page.height), 1f)
-                createBitmap(
+                renderDisplayBitmap(
                     (page.width * scale).roundToInt().coerceAtLeast(1),
                     (page.height * scale).roundToInt().coerceAtLeast(1),
-                ).also { bitmap ->
+                ) { bitmap ->
                     bitmap.eraseColor(Color.WHITE)
                     page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                 }

@@ -54,6 +54,7 @@ data class OcrReviewUiState(
     val selectedPageId: String? = null,
     val selectedPageIndex: Int = 0,
     val page: LibraryOcrReviewPage? = null,
+    val scan: org.synapseworks.pageharbor.library.LibraryReviewScan? = null,
     val loadState: OcrReviewLoadState = OcrReviewLoadState.IDLE,
     val editing: Boolean = false,
     val draftText: String = "",
@@ -380,7 +381,7 @@ class OcrReviewViewModel internal constructor(
                 if (snapshots.isEmpty()) {
                     mutableState.value = mutableState.value.copy(
                         pageIds = emptyList(),
-                        page = null,
+                        page = null, scan = null,
                         loadState = OcrReviewLoadState.DOCUMENT_MISSING,
                     )
                     return@launch
@@ -421,12 +422,21 @@ class OcrReviewViewModel internal constructor(
             markMissing(pageId)
             return
         }
+        val scan = try {
+            withContext(Dispatchers.IO) { repository.ocrReviewScan(page.snapshot) }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            // The transcript remains readable if its source image or historical geometry is unavailable.
+            null
+        }
         val current = mutableState.value
         update(
             current.copy(
                 selectedPageId = pageId,
                 selectedPageIndex = current.pageIds.indexOf(pageId).coerceAtLeast(0),
                 page = page,
+                scan = scan,
                 loadState = OcrReviewLoadState.READY,
                 editing = editing,
                 draftText = if (editing) draftText else page.effectiveText.orEmpty(),
@@ -438,7 +448,7 @@ class OcrReviewViewModel internal constructor(
     private fun markMissing(pageId: String?) {
         val current = mutableState.value
         mutableState.value = current.copy(
-            page = null,
+            page = null, scan = null,
             loadState = if (current.pageIds.size <= 1) {
                 OcrReviewLoadState.DOCUMENT_MISSING
             } else {

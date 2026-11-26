@@ -1,0 +1,30 @@
+{
+  "syntheticOnly": true,
+  "baseline": "2e8ccbcf623c0ea6b6131e9d56ed8e7ff47ba69c",
+  "pngSha256": "3a0421516fa1c63747f4be99eb3c8ce1ea0b135f91af46eec414bf9e9f04d606",
+  "pngBytes": 43419,
+  "expectedEmail": "jane@example.invalid",
+  "expectedEmailSource": "Independent literal in original four-line card definition, not OCR/parser output",
+  "renderer": {
+    "bitmap": [
+      1600,
+      800
+    ],
+    "background": "WHITE",
+    "paint": "ANTI_ALIAS_FLAG, BLACK, textSize54, default Typeface",
+    "lineBaseline": "100 + index*140",
+    "x": 70,
+    "compression": "PNG100",
+    "lines": [
+      "Name: Jane Example",
+      "Company: Harbor Studio",
+      "Phone: +1 202 555 0100",
+      "Email: jane@example.invalid"
+    ]
+  },
+  "freezeEnvironment": "Owned read-only PageHarbor_Play_API_36/API36, default font1,density420",
+  "sourcePaths": [
+    "app/src/androidTest/java/org/synapseworks/pageharbor/businesscard/CardRecognitionInstrumentedTest.kt",
+    "app/src/m04R8Smoke/java/org/synapseworks/pageharbor/validation/M04R8SmokeInstrumentation.kt"
+  ]
+}

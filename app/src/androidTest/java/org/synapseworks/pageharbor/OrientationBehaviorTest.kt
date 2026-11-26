@@ -13,12 +13,11 @@ import org.junit.Test
 import org.synapseworks.pageharbor.ocr.OcrPageResult
 import org.synapseworks.pageharbor.ocr.OcrResult
 import org.synapseworks.pageharbor.scanner.ScannerSpikeState
-import org.synapseworks.pageharbor.ui.AppOrientationPolicy
 import org.synapseworks.pageharbor.ui.PageHarborScreen
 
 class OrientationBehaviorTest {
     @Test
-    fun navigationDocumentOcrAndBackFollowScreenAndDeviceClass() {
+    fun homeDocumentOcrAndBackRemainSystemManagedAcrossRotation() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val automation = instrumentation.uiAutomation
         automation.setRotation(UiAutomation.ROTATION_FREEZE_0)
@@ -29,8 +28,6 @@ class OrientationBehaviorTest {
                 ),
             )
             val initialActivity = awaitActivity { it.sessionScreenForTest() == PageHarborScreen.Home }
-            val compact = initialActivity.resources.configuration.smallestScreenWidthDp <
-                AppOrientationPolicy.LARGE_SCREEN_MIN_SMALLEST_WIDTH_DP
             val landscapeRotation = if (
                 initialActivity.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
             ) {
@@ -38,16 +35,16 @@ class OrientationBehaviorTest {
             } else {
                 UiAutomation.ROTATION_FREEZE_90
             }
-            val homeRequest = if (compact) {
-                ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            } else {
-                ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-            }
+            val homeRequest = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
 
             awaitActivity { activity ->
-                activity.requestedOrientation == homeRequest &&
-                    (!compact || activity.resources.configuration.orientation ==
-                        Configuration.ORIENTATION_PORTRAIT)
+                activity.requestedOrientation == homeRequest
+            }
+
+            automation.setRotation(landscapeRotation)
+            awaitActivity { activity ->
+                activity.sessionScreenForTest() == PageHarborScreen.Home &&
+                    activity.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
             }
 
             instrumentation.runOnMainSync {
@@ -76,8 +73,7 @@ class OrientationBehaviorTest {
             awaitActivity { activity ->
                 activity.sessionScreenForTest() == PageHarborScreen.Home &&
                     activity.requestedOrientation == homeRequest &&
-                    (!compact || activity.resources.configuration.orientation ==
-                        Configuration.ORIENTATION_PORTRAIT)
+                    activity.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
             }
 
             instrumentation.runOnMainSync {

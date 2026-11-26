@@ -1,7 +1,6 @@
 package org.synapseworks.pageharbor.migration
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
@@ -20,9 +19,7 @@ import kotlinx.coroutines.withContext
 import org.synapseworks.pageharbor.document.importing.MAX_PDF_IMPORT_BYTES
 import org.synapseworks.pageharbor.document.importing.calculatePdfRenderSize
 import org.synapseworks.pageharbor.document.importing.sniffSupportedContentType
-import org.synapseworks.pageharbor.document.session.DEFAULT_DOCUMENT_INPUT_LIMITS
 import org.synapseworks.pageharbor.document.session.DEFAULT_MAX_IMAGE_SOURCE_BYTES
-import org.synapseworks.pageharbor.document.session.DEFAULT_MAX_IMPORTED_DOCUMENT_PAGES
 import org.synapseworks.pageharbor.document.session.DocumentImageConstraintViolation
 import org.synapseworks.pageharbor.document.session.DocumentImageMetadata
 import org.synapseworks.pageharbor.document.session.imageConstraintViolation
@@ -184,7 +181,7 @@ internal class AndroidMigrationDocumentStager(
                             retryable = false,
                         )
                     val metadata = DocumentImageMetadata(copy.byteCount, bounds.first, bounds.second)
-                    when (DEFAULT_DOCUMENT_INPUT_LIMITS.imageConstraintViolation(metadata)) {
+                    when (org.synapseworks.pageharbor.document.session.DEFAULT_DOCUMENT_SOURCE_LIMITS.imageConstraintViolation(metadata)) {
                         null -> Unit
                         DocumentImageConstraintViolation.SOURCE_BYTES_EXCEEDED,
                         DocumentImageConstraintViolation.DIMENSIONS_EXCEEDED,
@@ -198,6 +195,10 @@ internal class AndroidMigrationDocumentStager(
                                 retryable = false,
                             )
                     }
+                    try { org.synapseworks.pageharbor.document.readOrientation { destination.inputStream() } }
+                    catch (_: IOException) { return MigrationStagingResult.Failed(MigrationPublicationFailure.INVALID_DOCUMENT,retryable=false) }
+                    if(org.synapseworks.pageharbor.document.session.documentWorkingSampleSize(bounds.first,bounds.second)==null)
+                        return MigrationStagingResult.Failed(MigrationPublicationFailure.SOURCE_TOO_LARGE,retryable=false)
                     pages += StagedMigrationPage(
                         file = destination,
                         contentType = inspected.contentType.mimeType,
@@ -280,7 +281,7 @@ internal class AndroidMigrationDocumentStager(
             PdfRenderer(descriptor).use { renderer ->
                 if (
                     renderer.pageCount <= 0 ||
-                    renderer.pageCount > DEFAULT_MAX_IMPORTED_DOCUMENT_PAGES
+                    renderer.pageCount > MAX_MIGRATION_PLANNED_PDF_PAGES
                 ) {
                     return null
                 }
@@ -408,15 +409,8 @@ private fun File.hasSignature(expected: MigrationContentType): Boolean = try {
     false
 }
 
-private fun File.imageBoundsOrNull(): Pair<Int, Int>? {
-    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeFile(path, options)
-    return if (options.outWidth > 0 && options.outHeight > 0) {
-        options.outWidth to options.outHeight
-    } else {
-        null
-    }
-}
+private fun File.imageBoundsOrNull(): Pair<Int, Int>? =
+    org.synapseworks.pageharbor.document.readImageBounds { inputStream() }
 
 private fun File.sha256OrNull(): String? = try {
     val digest = MessageDigest.getInstance("SHA-256")

@@ -1,12 +1,17 @@
 package org.synapseworks.pageharbor
 
 import android.net.Uri
+import kotlinx.coroutines.*
+import org.synapseworks.pageharbor.document.history.*
+import org.synapseworks.pageharbor.image.ManualImageAdjustments
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import org.synapseworks.pageharbor.document.batch.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,6 +38,7 @@ import org.synapseworks.pageharbor.document.session.DocumentAcquisitionToken
 import org.synapseworks.pageharbor.document.session.DocumentImageMetadata
 import org.synapseworks.pageharbor.document.session.DocumentPage
 import org.synapseworks.pageharbor.document.session.DocumentPageId
+import org.synapseworks.pageharbor.document.session.DocumentResourceOwnership
 import org.synapseworks.pageharbor.document.session.DocumentSession
 import org.synapseworks.pageharbor.document.session.DocumentSourceCategory
 import org.synapseworks.pageharbor.document.session.LibraryDocumentReference
@@ -45,7 +51,7 @@ import org.synapseworks.pageharbor.scanner.ScannerSpikeState
 import org.synapseworks.pageharbor.scanner.createScannerResultSummary
 import org.synapseworks.pageharbor.ui.PageHarborScreen
 
-/** The shared active-document limit used by scan and every future acquisition source. */
+/** Collection representability only; the app no longer imposes a 20-page document ceiling. */
 internal const val MAX_DOCUMENT_PAGES = DEFAULT_MAX_DOCUMENT_PAGES
 
 /** Whether the external scanner is acquiring a first document or pages for the active document. */
@@ -56,6 +62,7 @@ internal enum class ScannerRequestMode {
 
 private enum class DocumentAcquisitionKind {
     SCANNER,
+    CONTINUOUS,
     FILE_IMPORT,
     INBOUND_SHARE,
 }
@@ -83,12 +90,131 @@ class PageHarborSessionViewModel internal constructor(
 
     var screen: PageHarborScreen by mutableStateOf(PageHarborScreen.Home)
     var scannerState: ScannerSpikeState by mutableStateOf(ScannerSpikeState.Idle)
-    var documentSession: DocumentSession by mutableStateOf(DocumentSession())
-        private set
+    // Stale-work guards and history frames compare the accepted session by identity.
+    private var acceptedDocumentSession: DocumentSession by mutableStateOf(DocumentSession(), androidx.compose.runtime.referentialEqualityPolicy())
+    var documentSession:DocumentSession
+        get()=acceptedDocumentSession
+        private set(value){acceptedDocumentSession=value;refreshLibraryReaderPins()}
     private val mutableDocumentRevision = MutableStateFlow(0L)
     internal val documentRevisionChanges: StateFlow<Long> = mutableDocumentRevision.asStateFlow()
     internal val documentRevision: Long
         get() = mutableDocumentRevision.value
+    val batchEditor = SelectedPageBatchEditor(viewModelScope,
+        current = { BatchDocumentCapture(documentRevision, documentSession) },
+        commit = { expected, updated -> commitBatchEdit(expected, updated) })
+
+    internal fun commitBatchEdit(expected: BatchDocumentCapture, updated: DocumentSession): Boolean {
+        if (!historyMutationAllowed() || documentRevision != expected.revision || documentSession !== expected.session) return false
+        return replaceDocumentSession(updated,HistoryAction.BATCH)
+    }
+
+    internal fun applyBookSplit(expected:DocumentSession,revision:Long,replacements:List<org.synapseworks.pageharbor.document.booklayout.BookPageReplacement>):Boolean {
+        if(!historyMutationAllowed()||documentRevision!=revision||documentSession!==expected||activeAcquisition!=null)return false
+        val updated=org.synapseworks.pageharbor.document.booklayout.bookSplitSession(expected,replacements)?:return false
+        if(updated===expected)return true
+        if(!replaceDocumentSession(updated,HistoryAction.BOOK_SPLIT))return false
+        if(activeDocumentSessionLeases.isEmpty())acquisitionCoordinator.releaseDetachedSessions(listOf(expected),updated)
+        else deferredReleaseSessions+=expected
+        invalidatePageOrderDependentState()
+        scannerState=createScannerResultSummary(updated.pages.size,null)
+        return true
+    }
+
+    internal fun applyObjectRemoval(expected:DocumentSession,revision:Long,output:org.synapseworks.pageharbor.document.objectremoval.RemovalPrepared,ownerToken:String=documentOwnerToken,action:HistoryAction=HistoryAction.OBJECT_REMOVAL):Boolean {
+        if(action !in setOf(HistoryAction.OBJECT_REMOVAL,HistoryAction.FINGER_REMOVAL))return false
+        if(!historyMutationAllowed()||documentRevision!=revision||documentSession!==expected||activeAcquisition!=null||ownerToken!=documentOwnerToken)return false
+        val publication=org.synapseworks.pageharbor.document.objectremoval.removalPublication(expected,output)?:return false
+        val retainedBytes=output.sourceBytes*(if(output.original.source.ownership==DocumentResourceOwnership.RME_OWNED_TEMPORARY)2 else 1)
+        if(retainedBytes>history.limits.temporaryBytes)return false
+        val admission=DocumentHistory(history.limits).apply{reset(expected);record(expected,publication.after,action,publication.before)}
+        if(admission.undoCount!=1)return false
+        if(!replaceDocumentSession(publication.after,action,publication.before))return false
+        invalidatePageOrderDependentState();scannerState=createScannerResultSummary(publication.after.pages.size,null)
+        return true
+    }
+
+    internal fun applyCurvature(expected:DocumentSession,revision:Long,replacement:org.synapseworks.pageharbor.document.curvature.CurvatureReplacement):Boolean =
+        applyPageGeometry(expected, revision, replacement.original, replacement.derived, replacement.original.filter, HistoryAction.CURVATURE)
+
+    internal fun applyPageGeometry(
+        expected: DocumentSession,
+        revision: Long,
+        page: DocumentPage,
+        derived: org.synapseworks.pageharbor.document.booklayout.BookDerivedPage,
+        filter: DocumentFilter,
+        action: HistoryAction,
+    ): Boolean {
+        if(!historyMutationAllowed()||documentRevision!=revision||documentSession!==expected||activeAcquisition!=null)return false
+        val updated=org.synapseworks.pageharbor.document.curvature.replacePageGeometry(expected,page,derived,filter)?:return false
+        if (action == HistoryAction.CROP) {
+            val admission = DocumentHistory(history.limits).apply {
+                reset(expected)
+                record(expected, updated, action)
+            }
+            if (admission.undoCount != 1) return false
+        }
+        if(!replaceDocumentSession(updated,action))return false
+        if(activeDocumentSessionLeases.isEmpty())acquisitionCoordinator.releaseDetachedSessions(listOf(expected),updated)
+        else deferredReleaseSessions+=expected
+        invalidatePageOrderDependentState()
+        scannerState=createScannerResultSummary(updated.pages.size,null)
+        return true
+    }
+
+    internal fun applyCollage(expected:DocumentSession,revision:Long,output:org.synapseworks.pageharbor.document.collage.CollageOutput,ownerToken:String=documentOwnerToken):Boolean {
+        if(!historyMutationAllowed()||documentRevision!=revision||documentSession!==expected||activeAcquisition!=null)return false
+        if(ownerToken!=documentOwnerToken)return false
+        val updated=org.synapseworks.pageharbor.document.collage.collageSession(expected,output)?:return false
+        val admission=DocumentHistory().apply{reset(expected);record(expected,updated,HistoryAction.COLLAGE)}
+        if(admission.undoCount!=1)return false
+        if(!replaceDocumentSession(updated,HistoryAction.COLLAGE))return false
+        invalidatePageOrderDependentState()
+        scannerState=createScannerResultSummary(updated.pages.size,null)
+        return true
+    }
+
+    /** Opaque in-memory owner identity; a restored UI cannot bind to a new process/session owner. */
+    internal val documentOwnerToken: String = java.util.UUID.randomUUID().toString()
+
+    fun applyReviewedShadowGlare(expected: DocumentPage, expectedRevision: Long, filter: DocumentFilter): Boolean {
+        if (filter != DocumentFilter.ORIGINAL && filter !in setOf(DocumentFilter.SHADOW_GLARE_LOW_V1,
+                DocumentFilter.SHADOW_GLARE_BALANCED_V1, DocumentFilter.SHADOW_GLARE_STRONG_V1)) return false
+        if (documentRevision != expectedRevision || documentSession.pages.firstOrNull { it.id == expected.id } !== expected) return false
+        if (expected.filter == filter) return true
+        return setPageFilter(expected.id.value, filter)
+    }
+
+    fun applyReviewedMoire(expected: DocumentPage, expectedRevision: Long, filter: DocumentFilter, expectedOwner: String): Boolean {
+        if(filter!=DocumentFilter.ORIGINAL&&filter !in setOf(DocumentFilter.MOIRE_LOW_V1,DocumentFilter.MOIRE_BALANCED_V1,DocumentFilter.MOIRE_STRONG_V1))return false
+        if(documentOwnerToken!=expectedOwner||documentRevision!=expectedRevision||documentSession.pages.firstOrNull{it.id==expected.id}!==expected)return false
+        if(expected.filter==filter)return true
+        return setPageFilter(expected.id.value,filter)
+    }
+
+    fun applyReviewedCreaseStain(expected: DocumentPage, expectedRevision: Long, filter: DocumentFilter, expectedOwner: String): Boolean {
+        if(filter!=DocumentFilter.ORIGINAL&&filter !in setOf(DocumentFilter.CREASE_STAIN_LOW_V1,DocumentFilter.CREASE_STAIN_BALANCED_V1,DocumentFilter.CREASE_STAIN_STRONG_V1))return false
+        if(documentOwnerToken!=expectedOwner||documentRevision!=expectedRevision||documentSession.pages.firstOrNull{it.id==expected.id}!==expected)return false
+        if(expected.filter==filter)return true
+        return setPageFilter(expected.id.value,filter)
+    }
+
+    fun applyReviewedBleedThrough(expected: DocumentPage, expectedRevision: Long, filter: DocumentFilter, expectedOwner: String): Boolean {
+        if(filter!=DocumentFilter.ORIGINAL&&filter !in setOf(DocumentFilter.BLEED_THROUGH_LOW_V1,DocumentFilter.BLEED_THROUGH_BALANCED_V1,DocumentFilter.BLEED_THROUGH_STRONG_V1))return false
+        if(documentOwnerToken!=expectedOwner||documentRevision!=expectedRevision||documentSession.pages.firstOrNull{it.id==expected.id}!==expected)return false
+        if(expected.filter==filter)return true
+        return setPageFilter(expected.id.value,filter)
+    }
+
+    fun applyReviewedWhitening(expected: DocumentPage, expectedRevision: Long, filter: DocumentFilter): Boolean {
+        if (filter != DocumentFilter.ORIGINAL && filter !in setOf(DocumentFilter.PAPER_WHITE_NEUTRAL_LOW_V1,
+                DocumentFilter.PAPER_WHITE_NEUTRAL_BALANCED_V1,DocumentFilter.PAPER_WHITE_NEUTRAL_STRONG_V1,
+                DocumentFilter.PAPER_WHITE_COLOUR_LOW_V1,DocumentFilter.PAPER_WHITE_COLOUR_BALANCED_V1,
+                DocumentFilter.PAPER_WHITE_COLOUR_STRONG_V1)) return false
+        if (documentRevision != expectedRevision || documentSession.pages.firstOrNull { it.id == expected.id } !== expected) return false
+        if (expected.filter == filter) return true
+        return setPageFilter(expected.id.value, filter)
+    }
+
     val documentPages: List<DocumentPage>
         get() = documentSession.pages
     val scannedPageUris: List<Uri>
@@ -115,8 +241,103 @@ class PageHarborSessionViewModel internal constructor(
     private val activeDocumentSessionLeases = mutableMapOf<Long, DocumentSession>()
     private val activeDocumentSessionLeaseCount = MutableStateFlow(0)
     private val deferredReleaseSessions = mutableListOf<DocumentSession>()
+    private var history=DocumentHistory()
+    private var historyResources:HistoryResources?=null
+    private var historyAuditJob:Job?=null
+    private var historyNavigationJob:Job?=null
+    private var historyEpoch=0L
+    private var historyActive=true
+    private var historyDisposed=false
+    private var historyMain:CoroutineDispatcher=Dispatchers.Main.immediate
+    internal var historyState:HistoryUiState by mutableStateOf(HistoryUiState());private set
+
+    internal fun configureHistory(access:HistorySourceAccess,limits:HistoryLimits=HistoryLimits(),main:CoroutineDispatcher=Dispatchers.Main.immediate) {
+        if(historyResources!=null)return
+        historyMain=main;history=DocumentHistory(limits);history.reset(documentSession)
+        val runtime=HistoryResources(access,limits,acquisitionCoordinator::cleanupImmediately);historyResources=runtime
+        acquisitionCoordinator.cleanupDelegate=runtime::cleanup
+        batchEditor.undoCommitted={expected,done->
+            if(history.undoAction!=HistoryAction.BATCH||documentSession!==expected.session||documentRevision!=expected.revision)false
+            else navigateHistory(true,done)
+        }
+        batchEditor.cancelCommitted=::cancelHistoryNavigation
+        batchEditor.externalUndoAvailable={history.undoAction==HistoryAction.BATCH&&history.undoCount>0&&!historyState.busy}
+        historyChanged()
+    }
+    internal fun setHistoryActive(active:Boolean) {
+        historyActive=active
+        if(!active){historyEpoch++;historyNavigationJob?.cancel();historyNavigationJob=null;historyAuditJob?.cancel();historyAuditJob=null;publishHistory(false)}
+        else if(historyResources!=null)historyChanged()
+    }
+    internal fun historyReady()=historyResources==null||(!historyState.busy&&historyActive)
+    private fun historyMutationAllowed()=historyResources==null||(historyActive&&historyNavigationJob?.isActive!=true&&activeAcquisition==null)
+    private fun refreshLibraryReaderPins(){
+        org.synapseworks.pageharbor.library.recycle.LibrarySourceReaders.retain(this,history.sessions()+documentSession+activeDocumentSessionLeases.values)
+    }
+    private fun historyPins() {
+        refreshLibraryReaderPins()
+        historyResources?.retain(history.sessions()+documentSession+activeDocumentSessionLeases.values,acquisitionCoordinator.pendingHistoryResources())
+    }
+    private fun publishHistory(busy:Boolean,error:Boolean=false,bytes:Long=historyState.retainedBytes) {
+        if(historyResources==null)return
+        historyState=HistoryUiState(history.undoCount,history.redoCount,history.undoAction,history.redoAction,busy,history.dirty,history.limited,error,bytes)
+    }
+    private fun historyChanged(retired:List<DocumentSession> = emptyList()) {
+        val runtime=historyResources?:return
+        historyPins();runtime.cleanup(DocumentHistory.resources(retired),emptyList())
+        if(historyDisposed){if(activeDocumentSessionLeases.isEmpty())runtime.close();return}
+        historyAuditJob?.cancel();val token=++historyEpoch
+        val sessions=history.sessions()
+        // Empty history has no sources to admit or account; cleanup remains on the IO worker.
+        if(DocumentHistory.resources(sessions).isEmpty()){historyAuditJob=null;publishHistory(false,bytes=0L);return}
+        publishHistory(true)
+        val states=sessions+activeDocumentSessionLeases.values
+        historyAuditJob=viewModelScope.launch(historyMain){
+            try{val audit=runtime.audit(states)
+                if(token!=historyEpoch)return@launch
+                val protected=listOf(documentSession)+activeDocumentSessionLeases.values
+                val discarded=history.evictToByteLimit{runtime.extraBytes(it,protected,audit)}
+                historyPins();runtime.cleanup(DocumentHistory.resources(discarded),emptyList())
+                publishHistory(false,!audit.available,runtime.extraBytes(history.sessions(),protected,audit))
+            }catch(e:CancellationException){throw e}catch(_:Exception){if(token==historyEpoch)publishHistory(false,true)}
+        }
+    }
+    private fun cancelHistoryNavigation(){historyEpoch++;historyNavigationJob?.cancel();historyNavigationJob=null;publishHistory(false)}
+    internal fun undoDocument()=navigateHistory(true)
+    internal fun redoDocument()=navigateHistory(false)
+    private fun navigateHistory(undo:Boolean,done:(Boolean)->Unit={}):Boolean {
+        val runtime=historyResources?:return false
+        if(!historyMutationAllowed()||historyState.busy)return false
+        val move=history.move(undo)?:return false
+        val revision=documentRevision;val token=++historyEpoch;publishHistory(true)
+        historyNavigationJob=viewModelScope.launch(historyMain){
+            var accepted=false
+            try{
+                val valid=runtime.validate(move.target)
+                if(token!=historyEpoch||!historyActive)return@launch
+                if(revision!=documentRevision||documentSession!==move.expected){publishHistory(false,true);return@launch}
+                if(valid&&history.accept(move)){
+                    documentSession=move.target;advanceDocumentRevision();batchEditor.onDocumentChanged();invalidatePageOrderDependentState()
+                    scannerState=createScannerResultSummary(documentSession.pages.size,null)
+                    accepted=true
+                    historyPins();publishHistory(false)
+                }else publishHistory(false,true)
+            }catch(e:CancellationException){throw e}catch(_:Exception){if(token==historyEpoch)publishHistory(false,true)}
+            finally{if(token==historyEpoch){historyNavigationJob=null;done(accepted);if(accepted)historyChanged()}else done(false)}
+        };return true
+    }
+    internal fun disposeHistoryForTest(){onCleared()}
+    internal suspend fun awaitHistoryIdle() = withTimeout(30_000) {
+        while(true){
+            val (audit,navigation)=withContext(historyMain){historyAuditJob to historyNavigationJob}
+            audit?.join();navigation?.join();historyResources?.awaitIdle()
+            if(withContext(historyMain){audit===historyAuditJob&&navigation===historyNavigationJob&&historyAuditJob?.isActive!=true&&historyNavigationJob?.isActive!=true&&!historyState.busy})break
+        }
+    }
+
 
     internal fun beginScannerRequest(): ScannerRequestMode? {
+        if(!historyReady())return null
         if (activeAcquisition != null) return null
         if (scannerState is ScannerSpikeState.ResultSummary && remainingPageCapacity() == 0) {
             return null
@@ -144,6 +365,37 @@ class PageHarborSessionViewModel internal constructor(
         return requestMode
     }
 
+    internal fun beginContinuousRequest(): DocumentAcquisitionToken? {
+        if(!historyReady())return null
+        if(activeAcquisition!=null||remainingPageCapacity()==0)return null
+        // A legacy PDF-only result has no reviewable image pages to append without losing content.
+        if(documentPages.isEmpty()&&documentSession.directPdfSource!=null)return null
+        val mode=if(documentPages.isEmpty())DocumentAcquisitionMode.REPLACE else DocumentAcquisitionMode.APPEND
+        val token=acquisitionCoordinator.begin(mode)?:return null
+        activeAcquisition=ActiveDocumentAcquisition(DocumentAcquisitionKind.CONTINUOUS,mode,token)
+        return token
+    }
+
+    internal fun cancelContinuousRequest(token:DocumentAcquisitionToken) {
+        if(activeAcquisition?.let{it.kind==DocumentAcquisitionKind.CONTINUOUS&&it.token==token}!=true)return
+        acquisitionCoordinator.cancel(token,documentSession);activeAcquisition=null;historyPins()
+    }
+
+    internal fun completeContinuousRequest(token:DocumentAcquisitionToken,revision:Long,input:DocumentAcquisitionInput):Boolean {
+        val request=activeAcquisition?.takeIf{it.kind==DocumentAcquisitionKind.CONTINUOUS&&it.token==token}?:return false
+        if(revision!=documentRevision){cancelContinuousRequest(token);return false}
+        val previous=documentSession
+        val defer=request.mode==DocumentAcquisitionMode.REPLACE&&activeDocumentSessionLeases.isNotEmpty()
+        val result=acquisitionCoordinator.complete(token,previous,input,deferReplacedSessionCleanup=defer)
+        activeAcquisition=null
+        if(result !is DocumentAcquisitionResult.Success){historyPins();return false}
+        if(defer)deferredReleaseSessions+=previous
+        replaceDocumentSession(result.session,if(request.mode==DocumentAcquisitionMode.APPEND)HistoryAction.APPEND else null)
+        scannerState=createScannerResultSummary(result.session.pages.size,null)
+        lastAcquisitionError=null;ocrUiState=OcrUiState.Idle;ocrSelectedPageIndex=0
+        resetTransientState();screen=PageHarborScreen.ScanResult;return true
+    }
+
     internal fun remainingPageCapacity(): Int =
         (acquisitionCoordinator.limits.maxPages - activePageCount()).coerceAtLeast(0)
 
@@ -155,6 +407,7 @@ class PageHarborSessionViewModel internal constructor(
             ?: return
         acquisitionCoordinator.cancel(request.token, documentSession)
         activeAcquisition = null
+        historyPins()
         lastAcquisitionError = null
         when (request.mode.toScannerRequestMode()) {
             ScannerRequestMode.INITIAL_SCAN -> scannerState = ScannerSpikeState.Cancelled
@@ -168,7 +421,9 @@ class PageHarborSessionViewModel internal constructor(
     ): PendingResourceRegistrationResult {
         val token = activeAcquisition?.token
             ?: return PendingResourceRegistrationResult.StaleToken
-        return acquisitionCoordinator.registerPendingResources(token, documentSession, resources)
+        val result=acquisitionCoordinator.registerPendingResources(token, documentSession, resources)
+        historyPins()
+        return result
     }
 
     fun failScannerRequest() {
@@ -231,6 +486,7 @@ class PageHarborSessionViewModel internal constructor(
     }
 
     fun beginImportRequest(origin: DocumentImportOrigin): Boolean {
+        if(!historyReady())return false
         if (activeAcquisition != null) {
             if (!activeAcquisition.isImport()) {
                 importUiState = DocumentImportUiState.Error(DocumentImportError.BUSY)
@@ -288,7 +544,7 @@ class PageHarborSessionViewModel internal constructor(
     }
 
     fun completeImportRequest(result: DocumentImportPreparationResult.Success) {
-        val request = activeAcquisition?.takeIf { it.kind != DocumentAcquisitionKind.SCANNER }
+        val request = activeAcquisition?.takeIf { it.isImport() }
             ?: run {
                 importUiState = DocumentImportUiState.Error(DocumentImportError.INTERRUPTED)
                 return
@@ -307,7 +563,7 @@ class PageHarborSessionViewModel internal constructor(
         ) {
             is DocumentAcquisitionResult.Success -> {
                 if (deferReplacedSessionCleanup) deferredReleaseSessions += previousSession
-                replaceDocumentSession(completion.session)
+                replaceDocumentSession(completion.session,if(request.mode==DocumentAcquisitionMode.APPEND)HistoryAction.APPEND else null)
                 scannerState = createScannerResultSummary(
                     jpegPageCount = completion.session.pages.size,
                     pdfPageCount = null,
@@ -325,10 +581,12 @@ class PageHarborSessionViewModel internal constructor(
             }
 
             DocumentAcquisitionResult.Cancelled -> {
+                historyPins()
                 importUiState = DocumentImportUiState.Cancelled
             }
 
             is DocumentAcquisitionResult.Failure -> {
+                historyPins()
                 lastAcquisitionError = completion.reason
                 importUiState = DocumentImportUiState.Error(completion.reason.toImportError())
             }
@@ -336,16 +594,17 @@ class PageHarborSessionViewModel internal constructor(
     }
 
     fun cancelImportRequest() {
-        val request = activeAcquisition?.takeIf { it.kind != DocumentAcquisitionKind.SCANNER }
+        val request = activeAcquisition?.takeIf { it.isImport() }
             ?: return
         acquisitionCoordinator.cancel(request.token, documentSession)
         activeAcquisition = null
         lastAcquisitionError = null
         importUiState = DocumentImportUiState.Cancelled
+        historyPins()
     }
 
     fun failImportRequest(reason: DocumentImportError) {
-        val request = activeAcquisition?.takeIf { it.kind != DocumentAcquisitionKind.SCANNER }
+        val request = activeAcquisition?.takeIf { it.isImport() }
         if (request != null) {
             acquisitionCoordinator.fail(
                 request.token,
@@ -356,6 +615,7 @@ class PageHarborSessionViewModel internal constructor(
         }
         lastAcquisitionError = reason.toAcquisitionError()
         importUiState = DocumentImportUiState.Error(reason)
+        historyPins()
     }
 
     internal fun completeScannerReferencesForTest(
@@ -384,6 +644,12 @@ class PageHarborSessionViewModel internal constructor(
 
     /** Replaces the active work with one durable library document without deleting library files. */
     fun openLibraryDocument(session: DocumentSession, preferredPageId: String? = null): Boolean {
+        val reservation=org.synapseworks.pageharbor.library.recycle.LibrarySourceReaders.reserve(session)?:return false
+        try { return openPinnedLibraryDocument(session,preferredPageId) }
+        finally { org.synapseworks.pageharbor.library.recycle.LibrarySourceReaders.release(reservation) }
+    }
+
+    private fun openPinnedLibraryDocument(session:DocumentSession,preferredPageId:String?):Boolean {
         if (session.pages.isEmpty() || session.libraryDocument == null || activeAcquisition != null) {
             return false
         }
@@ -416,17 +682,21 @@ class PageHarborSessionViewModel internal constructor(
         val current = documentSession.libraryDocument ?: return false
         val updated = current.copy(title = title, folderId = folderId)
         if (updated == current) return false
-        documentSession = documentSession.copy(libraryDocument = updated)
+        if(historyResources!=null){val retired=history.rebaseLibrary(updated);documentSession=history.present;historyChanged(retired)}
+        else documentSession = documentSession.copy(libraryDocument = updated)
+        batchEditor.onDocumentChanged()
         return true
     }
 
     fun clearScan() {
+        batchEditor.close()
         activeAcquisition?.let { request ->
             acquisitionCoordinator.interrupt(request.token, documentSession)
         }
         activeAcquisition = null
         val detachedSession = documentSession
         documentSession = DocumentSession()
+        if(historyResources!=null){historyEpoch++;historyNavigationJob?.cancel();historyNavigationJob=null;historyResources?.resetAdmission();historyChanged(history.reset(documentSession))}
         advanceDocumentRevision()
         if (activeDocumentSessionLeases.isEmpty()) {
             acquisitionCoordinator.releaseDetachedSessions(
@@ -450,20 +720,26 @@ class PageHarborSessionViewModel internal constructor(
         releaseObserverForTest: (() -> Unit)? = null,
     ): DocumentSessionLease? {
         if (documentSession.pages.isEmpty()) return null
+        val reservation=org.synapseworks.pageharbor.library.recycle.LibrarySourceReaders.reserve(documentSession)?:return null
+        try {
         val lease = DocumentSessionLease(
             id = ++nextDocumentSessionLeaseId,
             session = documentSession,
             releaseObserverForTest = releaseObserverForTest,
         )
         activeDocumentSessionLeases[lease.id] = lease.session
+        historyPins()
         activeDocumentSessionLeaseCount.value = activeDocumentSessionLeases.size
         return lease
+        } finally { org.synapseworks.pageharbor.library.recycle.LibrarySourceReaders.release(reservation) }
     }
 
     internal fun releaseDocumentSessionLease(lease: DocumentSessionLease) {
         if (activeDocumentSessionLeases.remove(lease.id) == null) return
         activeDocumentSessionLeaseCount.value = activeDocumentSessionLeases.size
+        refreshLibraryReaderPins()
         releaseDeferredSessionsWhenSafe()
+        if(historyResources!=null)historyChanged()
         lease.releaseObserverForTest?.invoke()
     }
 
@@ -477,7 +753,7 @@ class PageHarborSessionViewModel internal constructor(
 
     /** Active work is Activity-owned and is cancelled by the Activity; completed data remains. */
     fun resetTransientStateForRecreation() {
-        activeAcquisition?.takeIf { it.kind != DocumentAcquisitionKind.SCANNER }?.let { request ->
+        activeAcquisition?.takeIf { it.isImport() }?.let { request ->
             acquisitionCoordinator.interrupt(request.token, documentSession)
             activeAcquisition = null
             importUiState = DocumentImportUiState.Idle
@@ -498,36 +774,56 @@ class PageHarborSessionViewModel internal constructor(
     }
 
     fun setPageFilter(pageId: Long, filter: DocumentFilter): Boolean {
+        if(!historyMutationAllowed())return false
         val updated = documentSession.setFilter(DocumentPageId(pageId), filter) ?: return false
-        return replaceDocumentSession(updated)
+        return replaceDocumentSession(updated,HistoryAction.FILTER)
+    }
+
+    fun setPageAdjustments(pageId: Long, adjustments: ManualImageAdjustments, expected: DocumentPage? = null): Boolean {
+        if(!historyMutationAllowed())return false
+        if (expected != null && documentSession.pages.firstOrNull { it.id.value == pageId } != expected) return false
+        val updated = documentSession.setAdjustments(DocumentPageId(pageId), adjustments) ?: return false
+        return replaceDocumentSession(updated,HistoryAction.ADJUST)
+    }
+
+    internal fun applyAnnotations(expected:DocumentPage,revision:Long,owner:String,layer:org.synapseworks.pageharbor.document.annotation.AnnotationLayer):Boolean {
+        if(owner!=documentOwnerToken||!historyMutationAllowed()||documentRevision!=revision||documentSession.pages.firstOrNull{it.id==expected.id}!==expected)return false
+        val updated=documentSession.copy(pages=documentSession.pages.map{if(it===expected)it.copy(annotations=layer)else it})
+        if(!replaceDocumentSession(updated,HistoryAction.ANNOTATE))return false
+        invalidatePageOrderDependentState()
+        return true
     }
 
     fun rotatePageClockwise(pageId: Long): Boolean {
+        if(!historyMutationAllowed())return false
         val updated = documentSession.rotateClockwise(DocumentPageId(pageId)) ?: return false
-        if (!replaceDocumentSession(updated)) return false
+        if (!replaceDocumentSession(updated,HistoryAction.ROTATE)) return false
         invalidatePageOrderDependentState()
         return true
     }
 
     fun reorderPages(pageIds: List<Long>): Boolean {
+        if(!historyMutationAllowed())return false
         val updated = documentSession.reorder(pageIds.map(::DocumentPageId)) ?: return false
-        if (!replaceDocumentSession(updated)) return false
+        if (!replaceDocumentSession(updated,HistoryAction.REORDER)) return false
         invalidatePageOrderDependentState()
         return true
     }
 
     fun movePage(pageId: Long, offset: Int): Boolean {
+        if(!historyMutationAllowed())return false
         val updated = documentSession.move(DocumentPageId(pageId), offset) ?: return false
-        if (!replaceDocumentSession(updated)) return false
+        if (!replaceDocumentSession(updated,HistoryAction.REORDER)) return false
         invalidatePageOrderDependentState()
         return true
     }
 
     fun removePage(pageId: Long): Boolean {
+        if(!historyMutationAllowed())return false
         val previousSession = documentSession
         if (previousSession.pages.size <= 1) return false
         val updated = previousSession.remove(DocumentPageId(pageId)) ?: return false
-        if (!replaceDocumentSession(updated)) return false
+        if (!replaceDocumentSession(updated,HistoryAction.DELETE)) return false
         if (activeDocumentSessionLeases.isEmpty()) {
             acquisitionCoordinator.releaseDetachedSessions(
                 sessions = listOf(previousSession),
@@ -548,12 +844,14 @@ class PageHarborSessionViewModel internal constructor(
     }
 
     override fun onCleared() {
+        batchEditor.close()
         activeAcquisition?.let { request ->
             acquisitionCoordinator.interrupt(request.token, documentSession)
         }
         activeAcquisition = null
         deferredReleaseSessions += documentSession
         documentSession = DocumentSession()
+        if(historyResources!=null){historyDisposed=true;historyEpoch++;historyAuditJob?.cancel();historyNavigationJob?.cancel();historyResources?.resetAdmission();historyChanged(history.reset(documentSession))}
         releaseDeferredSessionsWhenSafe()
         super.onCleared()
     }
@@ -607,7 +905,7 @@ class PageHarborSessionViewModel internal constructor(
         ) {
             is DocumentAcquisitionResult.Success -> {
                 if (deferReplacedSessionCleanup) deferredReleaseSessions += previousSession
-                replaceDocumentSession(result.session)
+                replaceDocumentSession(result.session,if(request.mode==DocumentAcquisitionMode.APPEND)HistoryAction.APPEND else null)
                 lastAcquisitionError = null
                 this.scannerState = when (request.mode.toScannerRequestMode()) {
                     ScannerRequestMode.INITIAL_SCAN -> scannerState
@@ -642,6 +940,7 @@ class PageHarborSessionViewModel internal constructor(
     }
 
     private fun applyScannerFailure(mode: ScannerRequestMode, error: DocumentAcquisitionError?) {
+        historyPins()
         lastAcquisitionError = error
         when (mode) {
             ScannerRequestMode.INITIAL_SCAN -> scannerState = ScannerSpikeState.Error
@@ -655,10 +954,17 @@ class PageHarborSessionViewModel internal constructor(
         resetTransientState()
     }
 
-    private fun replaceDocumentSession(updated: DocumentSession): Boolean {
-        if (updated == documentSession) return false
+    private fun replaceDocumentSession(updated: DocumentSession,action:HistoryAction?=null,frozenBefore:DocumentSession?=null): Boolean {
+        if (updated == documentSession && (action!=null || historyResources==null)) return false
+        val before=documentSession
         documentSession = updated
+        if(historyResources!=null){
+            historyEpoch++;historyNavigationJob?.cancel();historyNavigationJob=null
+            val retired=if(action==null){batchEditor.close();historyResources?.resetAdmission();history.reset(updated)}else history.record(before,updated,action,frozenBefore)
+            historyChanged(retired)
+        }
         advanceDocumentRevision()
+        batchEditor.onDocumentChanged()
         return true
     }
 
@@ -679,7 +985,7 @@ class PageHarborSessionViewModel internal constructor(
     )
 
     private fun ActiveDocumentAcquisition?.isImport(): Boolean =
-        this != null && kind != DocumentAcquisitionKind.SCANNER
+        this != null && kind in setOf(DocumentAcquisitionKind.FILE_IMPORT,DocumentAcquisitionKind.INBOUND_SHARE)
 
     private fun DocumentAcquisitionMode.toScannerRequestMode(): ScannerRequestMode =
         when (this) {
@@ -698,6 +1004,8 @@ class PageHarborSessionViewModel internal constructor(
         DocumentImportError.INVALID_IMAGE,
         DocumentImportError.PDF_UNREADABLE,
         DocumentImportError.TEMPORARY_FILE_FAILED,
+        DocumentImportError.INSUFFICIENT_STORAGE,
+        DocumentImportError.INSUFFICIENT_MEMORY,
         -> DocumentAcquisitionError.SOURCE_UNAVAILABLE
     }
 

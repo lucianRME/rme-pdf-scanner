@@ -1,0 +1,65 @@
+[
+  {
+    "id": "weak",
+    "strength": 18,
+    "ghostReductionGate": true,
+    "overlap": false,
+    "exactControl": false
+  },
+  {
+    "id": "medium",
+    "strength": 35,
+    "ghostReductionGate": true,
+    "overlap": false,
+    "exactControl": false
+  },
+  {
+    "id": "strong",
+    "strength": 55,
+    "ghostReductionGate": true,
+    "overlap": false,
+    "exactControl": false
+  },
+  {
+    "id": "overlap",
+    "strength": 35,
+    "ghostReductionGate": true,
+    "overlap": true,
+    "exactControl": false
+  },
+  {
+    "id": "clean",
+    "strength": 0,
+    "ghostReductionGate": false,
+    "overlap": false,
+    "exactControl": true
+  },
+  {
+    "id": "clean-white",
+    "strength": 0,
+    "ghostReductionGate": false,
+    "overlap": false,
+    "exactControl": true
+  },
+  {
+    "id": "colored-paper",
+    "strength": 35,
+    "ghostReductionGate": false,
+    "overlap": false,
+    "exactControl": true
+  },
+  {
+    "id": "ambiguous-front",
+    "strength": 0,
+    "ghostReductionGate": false,
+    "overlap": false,
+    "exactControl": true
+  },
+  {
+    "id": "ambiguous-ghost",
+    "strength": 0,
+    "ghostReductionGate": false,
+    "overlap": false,
+    "exactControl": true
+  }
+]

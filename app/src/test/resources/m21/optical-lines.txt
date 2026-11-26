@@ -1,0 +1,8 @@
+Merchant: HARBOR MARKET
+Date: 2026-10-24
+Currency: EUR
+Subtotal 10.00
+Tax 2.00
+Total 12.00
+Cash 20.00
+Change 8.00

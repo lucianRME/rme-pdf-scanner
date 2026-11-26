@@ -1,0 +1,6 @@
+# Independent M24 PDF fixtures are binary artifacts, including uncompressed content streams.
+app/src/test/resources/m24/*.pdf binary
+app/src/test/resources/m24visual/*.pdf binary
+
+# M32 frozen native-PDF input is a binary fixture, including its required xref padding.
+app/src/test/resources/m32/*.pdf binary
