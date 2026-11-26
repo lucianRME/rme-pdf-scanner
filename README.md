@@ -56,7 +56,17 @@ The current stable GitHub release is **[v1.8.0 (23)](https://github.com/lucianRM
   <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22org.synapseworks.pageharbor%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FlucianRME%2Frme-pdf-scanner%22%2C%22author%22%3A%22SynapseWorks%22%2C%22name%22%3A%22RME%3A%20Private%20PDF%20Scanner%22%2C%22additionalSettings%22%3A%22%7B%5C%22includePrereleases%5C%22%3Afalse%7D%22%7D"><img src="assets/badges/badge_obtainium.png" alt="Get it on Obtainium" width="161"></a>
 </p>
 
-The badge uses Obtainium's third-party hosted redirect for browser compatibility; that redirect page includes analytics and advertising scripts. To avoid the redirect, open Obtainium, choose **Add App**, paste `https://github.com/lucianRME/rme-pdf-scanner`, keep **Include prereleases** disabled, and add the app. Obtainium will follow stable GitHub Releases and select the release APK.
+### Install or update with Obtainium
+
+Already using the GitHub APK? Open RME in Obtainium and check for updates. For **1.8.0 (23)**, the installable file is `rme-pdf-scanner-v1.8.0.apk`. If you installed RME through Google Play, update it through Play to keep your existing library in place.
+
+For a first installation, install [Obtainium](https://obtainium.imranr.dev/) on Android and tap the **Get it on Obtainium** badge above. To add RME manually:
+
+1. In Obtainium, choose **Add App** and paste `https://github.com/lucianRME/rme-pdf-scanner` as the source.
+2. Leave **Include prereleases** off and add the app.
+3. Select RME and install the signed APK. Keep the repository as the source so future stable releases appear in Obtainium.
+
+The badge opens Obtainium’s hosted redirect page, which includes analytics and advertising scripts. Adding the repository manually skips that page.
 
 The GitHub APK and Google Play build use different signing certificates, so Android will not install one channel over the other as an update. Before changing installation channels, create a portable RME backup and confirm that you can access it; Android may require the existing installation to be removed, which also removes its app-private document library.
 
